@@ -1,0 +1,9 @@
+Test file to trigger GPG-signed cleanup workflow
+
+This file should trigger the cleanup workflow when pushed to development branch.
+The updated workflow should:
+1. Use mementorc account with GPG signing
+2. Create PR with verified signatures  
+3. Auto-merge successfully (no signature blocking)
+
+Created: 2025-07-26 Test Phase 2

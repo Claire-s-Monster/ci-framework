@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ matrix.branch }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.ADMIN_TOKEN }}
           persist-credentials: true
         continue-on-error: true
 
@@ -163,18 +163,28 @@ jobs:
             echo "No dev files found to remove"
           fi
 
+      - name: Setup GPG for signing
+        if: steps.branch-check.outputs.exists == 'true'
+        run: |
+          # Import GPG private key for commit signing
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --import --batch --yes
+          echo "GPG key imported for commit signing"
+
       - name: Commit cleanup if files were removed
         if: steps.branch-check.outputs.exists == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Use actual user account with GPG signing capability
+          git config user.name "mementorc"
+          git config user.email "claude.rc@gmail.com"
+          git config user.signingkey "C7927B4C27159961"
+          git config commit.gpgsign true
 
-          # Configure git to use the GitHub token for authentication
-          git_token_url="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/"
+          # Configure git to use the ADMIN token for authentication
+          git_token_url="https://x-access-token:${{ secrets.ADMIN_TOKEN }}@github.com/"
           git config --global url."${git_token_url}".insteadOf "https://github.com/"
 
           # Configure GitHub CLI token
-          export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          export GH_TOKEN="${{ secrets.ADMIN_TOKEN }}"
 
           # Check if there are any changes
           if [[ -n $(git status --porcelain) ]]; then
@@ -187,7 +197,7 @@ jobs:
             git checkout -b "$cleanup_branch"
 
             git add -A
-            git commit -m "chore: automated cleanup of development artifacts
+            git commit -S -m "chore: automated cleanup of development artifacts
 
               Comprehensive cleanup of development files from ${{ matrix.branch }} branch.
 
@@ -198,7 +208,9 @@ jobs:
               Trigger: ${{ github.event_name }}
               Workflow: ${{ github.event_name == 'workflow_call' && inputs.workflow_name || 'CI Framework Cleanup' }}
 
-              Files removed: ${removed_files}"
+              Files removed: ${removed_files}
+              
+              🤖 Automated cleanup via GitHub Actions with verified signature"
 
             # Push cleanup branch
             git push origin "$cleanup_branch"

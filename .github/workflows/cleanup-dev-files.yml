@@ -195,7 +195,7 @@ jobs:
         run: |
           # Use CI bot account with GPG signing capability  
           git config user.name "ci-framework-bot"
-          git config user.email "ci.framework.bot@users.noreply.github.com"
+          git config user.email "223036950+CIFrameworkBot@users.noreply.github.com"
           git config user.signingkey "${{ secrets.CI_BOT_GPG_KEY_ID }}"
           git config commit.gpgsign true
           git config gpg.program gpg

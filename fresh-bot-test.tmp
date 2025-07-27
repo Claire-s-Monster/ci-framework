@@ -1,0 +1,9 @@
+Fresh test for ci-framework-bot cleanup workflow
+
+This file will trigger the cleanup workflow to test:
+- CI bot account integration
+- GPG signed commits by bot
+- Auto-merge with verified signatures
+
+Test iteration: Fresh test after PR #24 merge
+Timestamp: 2025-07-26 Round 2

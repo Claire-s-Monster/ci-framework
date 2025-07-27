@@ -166,14 +166,24 @@ jobs:
       - name: Setup GPG for signing
         if: steps.branch-check.outputs.exists == 'true'
         run: |
-          # Import bot GPG private key for commit signing
+          # Import bot GPG private key for commit signing (passphrase-less key)
           echo "${{ secrets.CI_BOT_GPG_KEY }}" | gpg --import --batch --yes
           gpg --list-secret-keys  # Verify import worked
           
           # Configure GPG for non-interactive CI environment
-          export GPG_TTY=$(tty || echo "/dev/null")
-          echo "use-agent" >> ~/.gnupg/gpg.conf
-          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          
+          # GPG configuration for non-interactive operation
+          cat > ~/.gnupg/gpg.conf << EOF
+          use-agent
+          pinentry-mode loopback
+          batch
+          no-tty
+          EOF
+          
+          # Set proper permissions
+          chmod 600 ~/.gnupg/gpg.conf
           
           # Set ultimate trust for the bot key
           echo "${{ secrets.CI_BOT_GPG_KEY_ID }}:6:" | gpg --import-ownertrust

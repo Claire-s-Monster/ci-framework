@@ -169,16 +169,26 @@ jobs:
           # Import bot GPG private key for commit signing
           echo "${{ secrets.CI_BOT_GPG_KEY }}" | gpg --import --batch --yes
           gpg --list-secret-keys  # Verify import worked
-          echo "Bot GPG key imported for commit signing"
+          
+          # Configure GPG for non-interactive CI environment
+          export GPG_TTY=$(tty || echo "/dev/null")
+          echo "use-agent" >> ~/.gnupg/gpg.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          
+          # Set ultimate trust for the bot key
+          echo "${{ secrets.CI_BOT_GPG_KEY_ID }}:6:" | gpg --import-ownertrust
+          
+          echo "Bot GPG key imported and configured for CI signing"
 
       - name: Commit cleanup if files were removed
         if: steps.branch-check.outputs.exists == 'true'
         run: |
-          # Use CI bot account with GPG signing capability
+          # Use CI bot account with GPG signing capability  
           git config user.name "ci-framework-bot"
           git config user.email "ci-framework-bot@users.noreply.github.com"
           git config user.signingkey "${{ secrets.CI_BOT_GPG_KEY_ID }}"
           git config commit.gpgsign true
+          git config gpg.program gpg
 
           # Configure git to use the bot token for authentication
           git_token_url="https://x-access-token:${{ secrets.CI_BOT_TOKEN }}@github.com/"

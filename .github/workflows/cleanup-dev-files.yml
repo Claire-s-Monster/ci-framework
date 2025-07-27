@@ -165,10 +165,8 @@ jobs:
 
       - name: Setup GPG for signing
         if: steps.branch-check.outputs.exists == 'true'
-        env:
-          GPG_PASSPHRASE: ${{ secrets.CI_BOT_GPG_PASSPHRASE }}
         run: |
-          # Import bot GPG private key for commit signing
+          # Import bot GPG private key for commit signing (passphrase-less key)
           echo "${{ secrets.CI_BOT_GPG_KEY }}" | gpg --import --batch --yes
           gpg --list-secret-keys  # Verify import worked
           
@@ -184,20 +182,8 @@ jobs:
           no-tty
           EOF
           
-          # GPG agent configuration for batch mode
-          cat > ~/.gnupg/gpg-agent.conf << EOF
-          allow-loopback-pinentry
-          pinentry-program /usr/bin/pinentry-curses
-          default-cache-ttl 86400
-          max-cache-ttl 86400
-          EOF
-          
           # Set proper permissions
-          chmod 600 ~/.gnupg/gpg.conf ~/.gnupg/gpg-agent.conf
-          
-          # Restart gpg-agent with new config
-          gpgconf --kill gpg-agent || true
-          gpg-agent --daemon
+          chmod 600 ~/.gnupg/gpg.conf
           
           # Set ultimate trust for the bot key
           echo "${{ secrets.CI_BOT_GPG_KEY_ID }}:6:" | gpg --import-ownertrust
@@ -206,24 +192,13 @@ jobs:
 
       - name: Commit cleanup if files were removed
         if: steps.branch-check.outputs.exists == 'true'
-        env:
-          GPG_PASSPHRASE: ${{ secrets.CI_BOT_GPG_PASSPHRASE }}
         run: |
           # Use CI bot account with GPG signing capability  
           git config user.name "ci-framework-bot"
           git config user.email "ci-framework-bot@users.noreply.github.com"
           git config user.signingkey "${{ secrets.CI_BOT_GPG_KEY_ID }}"
           git config commit.gpgsign true
-          
-          # Create GPG signing wrapper script for passphrase handling
-          cat > /tmp/gpg-sign.sh << 'SCRIPT_EOF'
-          #!/bin/bash
-          echo "$GPG_PASSPHRASE" | gpg --pinentry-mode loopback --batch --yes --passphrase-fd 0 "$@"
-          SCRIPT_EOF
-          chmod +x /tmp/gpg-sign.sh
-          
-          # Configure git to use our wrapper script
-          git config gpg.program /tmp/gpg-sign.sh
+          git config gpg.program gpg
 
           # Configure git to use the bot token for authentication
           git_token_url="https://x-access-token:${{ secrets.CI_BOT_TOKEN }}@github.com/"

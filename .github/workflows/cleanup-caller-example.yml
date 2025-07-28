@@ -1,0 +1,51 @@
+---
+name: Repository Cleanup
+# Example caller workflow - copy this to any repository that needs cleanup
+
+on:
+  # Trigger cleanup on pushes to protected branches
+  push:
+    branches:
+      - main
+      - master
+      - development
+  
+  # Daily cleanup at 2 AM UTC
+  schedule:
+    - cron: '0 2 * * *'
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Branch to clean'
+        required: false
+        default: 'development'
+        type: choice
+        options:
+          - main
+          - master
+          - development
+
+jobs:
+  cleanup:
+    # Call the centralized reusable workflow
+    uses: MementoRC/ci-framework/.github/workflows/cleanup-dev-files.yml@main
+    with:
+      # Optional: customize cleanup patterns for this repo
+      cleanup_patterns: >
+        ["CLAUDE.md", ".claude/**", ".taskmaster/**", ".mcp.json", "ai_docs/**",
+         ".cursor/**", ".aider*", "**/__pycache__/**", "**/*.pyc", ".pytest_cache/**",
+         "htmlcov/**", "coverage.xml", ".mypy_cache/**", ".ruff_cache/**", "build/**",
+         "dist/**", "**/*.egg-info/**", "artifacts/**", "logs/**", "performance_data/**",
+         "tmp/**", "debug/**", ".vscode/settings.json", ".idea/**", "*.code-workspace",
+         "*.tmp", "*.dev", ".DS_Store", "Thumbs.db"]
+      
+      # Optional: customize target branches
+      target_branches: '["main", "master", "development"]'
+      
+      # Optional: customize workflow name for commit messages
+      workflow_name: 'Repository Cleanup'
+    
+    # Organization secrets are automatically available
+    secrets: inherit

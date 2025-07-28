@@ -3,7 +3,7 @@ name: Cleanup Development Artifacts
 # Reliable production-ready cleanup workflow
 
 on:
-  # Reusable workflow for other repositories
+  # Reusable workflow for other repositories - MAIN ENTRY POINT
   workflow_call:
     inputs:
       target_branches:

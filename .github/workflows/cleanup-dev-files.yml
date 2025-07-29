@@ -85,6 +85,14 @@ jobs:
           }}
 
     steps:
+      - name: Debug secrets availability
+        run: |
+          echo "Checking secret availability..."
+          echo "CI_BOT_TOKEN available: ${{ secrets.CI_BOT_TOKEN != '' }}"
+          echo "CI_BOT_GPG_KEY available: ${{ secrets.CI_BOT_GPG_KEY != '' }}"
+          echo "CI_BOT_GPG_KEY_ID available: ${{ secrets.CI_BOT_GPG_KEY_ID != '' }}"
+          echo "Using fallback token: ${{ secrets.CI_BOT_TOKEN == '' }}"
+
       - name: Checkout target branch
         uses: actions/checkout@v4
         with:

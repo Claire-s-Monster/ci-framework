@@ -1,0 +1,9 @@
+Auto-merge test with improved logic
+
+This test should trigger the cleanup workflow with:
+✅ --auto flag for proper auto-merge enablement
+✅ Fallback to direct merge if needed
+✅ Better error handling and logging
+
+Expected: Working auto-merge or clear failure message
+Test: 2025-07-27 Auto-merge fix attempt

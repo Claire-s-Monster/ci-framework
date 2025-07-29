@@ -606,6 +606,7 @@ ci-framework/
 - All operations logged through GitHub's audit system
 - Branch protection rules enforced for automated commits
 
+
 ## 🤝 Contributing
 
 We welcome contributions to the CI Framework! Here's how to get involved:

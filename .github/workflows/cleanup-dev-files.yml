@@ -34,11 +34,11 @@ on:
         default: '0 2 * * *'
     secrets:
       CI_BOT_TOKEN:
-        required: true
+        required: false
       CI_BOT_GPG_KEY:
-        required: true
+        required: false
       CI_BOT_GPG_KEY_ID:
-        required: true
+        required: false
 
   # Direct usage triggers for this repository
   push:
@@ -208,11 +208,12 @@ jobs:
           git config gpg.program gpg
 
           # Configure git to use the bot token for authentication
-          git_token_url="https://x-access-token:${{ secrets.CI_BOT_TOKEN }}@github.com/"
+          bot_token="${{ secrets.CI_BOT_TOKEN || github.token }}"
+          git_token_url="https://x-access-token:${bot_token}@github.com/"
           git config --global url."${git_token_url}".insteadOf "https://github.com/"
 
           # Configure GitHub CLI token
-          export GH_TOKEN="${{ secrets.CI_BOT_TOKEN }}"
+          export GH_TOKEN="${bot_token}"
 
           # Check if there are any changes
           if [[ -n $(git status --porcelain) ]]; then

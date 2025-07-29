@@ -30,7 +30,7 @@ on:
 jobs:
   cleanup:
     # Call the centralized reusable workflow
-    uses: MementoRC/ci-framework/.github/workflows/cleanup-dev-files.yml@main
+    uses: MementoRC/ci-framework/.github/workflows/cleanup-dev-files.yml@fix-auto-merge-logic-v2
     with:
       # Optional: customize cleanup patterns for this repo
       cleanup_patterns: >

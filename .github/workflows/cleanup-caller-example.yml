@@ -2,6 +2,12 @@
 name: Repository Cleanup
 # Example caller workflow - copy this to any repository that needs cleanup
 
+# Required permissions for the reusable workflow
+permissions:
+  contents: write        # Allow pushing commits and creating branches
+  pull-requests: write   # Allow creating and managing PRs  
+  issues: write         # Allow creating issues (required for PR creation)
+
 on:
   # Trigger cleanup on pushes to protected branches
   push:

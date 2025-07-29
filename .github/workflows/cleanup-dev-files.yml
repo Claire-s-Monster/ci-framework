@@ -32,6 +32,13 @@ on:
         required: false
         type: string
         default: '0 2 * * *'
+    secrets:
+      CI_BOT_TOKEN:
+        required: true
+      CI_BOT_GPG_KEY:
+        required: true
+      CI_BOT_GPG_KEY_ID:
+        required: true
 
   # Direct usage triggers for this repository
   push:
@@ -82,7 +89,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ matrix.branch }}
-          token: ${{ secrets.CI_BOT_TOKEN }}
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
           persist-credentials: true
         continue-on-error: true
 

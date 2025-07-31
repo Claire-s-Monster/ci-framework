@@ -5,6 +5,7 @@ import shutil
 class RollbackException(Exception):
     """Raised when a fix application fails and rollback is required."""
 
+
 class FixApplier:
     """
     Applies a fix and supports rollback if the fix fails.
@@ -30,7 +31,7 @@ class FixApplier:
             # Unknown fix type
             raise Exception("Unknown fix type")
         except Exception as e:
-            raise RollbackException(str(e))
+            raise RollbackException(str(e)) from e
 
     def _backup(self):
         """

@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 
 class FailurePatternEngine:
@@ -10,7 +10,7 @@ class FailurePatternEngine:
         self.config_path = config_path
         self.project_dir = project_dir
 
-    def analyze(self) -> Optional[Any]:
+    def analyze(self) -> Any | None:
         """
         Analyze failure logs and return a fix object if a known pattern is found.
         For now, returns a dummy fix for demonstration.

@@ -1,0 +1,54 @@
+name: "Self-Healing CI Action"
+description: "Analyzes CI failures, applies automated fixes, and safely rolls back if needed."
+
+inputs:
+  config:
+    description: "Path to self-healing configuration file"
+    required: false
+    default: ""
+  project-dir:
+    description: "Project directory to operate in"
+    required: false
+    default: "."
+  timeout-minutes:
+    description: "Timeout for the healing process (minutes)"
+    required: false
+    default: "10"
+
+outputs:
+  healed:
+    description: "Whether a fix was successfully applied"
+  rollback:
+    description: "Whether a rollback was triggered"
+  error:
+    description: "Error message if healing failed"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        pip install -e .[dev]
+      shell: bash
+
+    - name: Run Self-Healing Engine
+      run: |
+        python -m framework.self_healing.engine \
+          --config "${{ inputs.config }}" \
+          --project-dir "${{ inputs.project-dir }}" \
+          --timeout-minutes "${{ inputs.timeout-minutes }}"
+      shell: bash
+
+    - name: Set outputs
+      id: set-outputs
+      run: |
+        echo "healed=$(cat .self_healing_status | grep healed | cut -d'=' -f2)" >> $GITHUB_OUTPUT
+        echo "rollback=$(cat .self_healing_status | grep rollback | cut -d'=' -f2)" >> $GITHUB_OUTPUT
+        echo "error=$(cat .self_healing_status | grep error | cut -d'=' -f2-)" >> $GITHUB_OUTPUT
+      shell: bash
+      if: always()

@@ -1,20 +1,48 @@
-from typing import Any
+from typing import Any, Optional
+from .formatting_workflow import FormattingFixWorkflow
 
 
 class FailurePatternEngine:
     """
     Analyzes CI failure logs and determines possible fixes.
+    
+    This class now integrates with the formatting workflow for automatic
+    formatting fixes and maintains backward compatibility.
     """
 
     def __init__(self, config_path: str = "", project_dir: str = "."):
         self.config_path = config_path
         self.project_dir = project_dir
+        
+        # Initialize formatting workflow
+        self.formatting_workflow = FormattingFixWorkflow(
+            working_directory=project_dir,
+            config_path=config_path if config_path else None
+        )
 
-    def analyze(self) -> Any | None:
+    def analyze(self, failure_output: Optional[str] = None) -> Any | None:
         """
         Analyze failure logs and return a fix object if a known pattern is found.
-        For now, returns a dummy fix for demonstration.
+        
+        Args:
+            failure_output: Optional failure output to analyze
+            
+        Returns:
+            Fix object if a pattern is found, None otherwise
         """
-        # TODO: Implement real pattern matching
-        # Simulate finding a fix
+        if failure_output:
+            # Try formatting workflow first
+            workflow_result = self.formatting_workflow.test_pattern_matching(failure_output)
+            if workflow_result:
+                return {
+                    "type": "formatting-fix",
+                    "pattern_id": workflow_result.pattern_id,
+                    "tool": workflow_result.tool,
+                    "fix_command": workflow_result.fix_command,
+                    "workflow": self.formatting_workflow
+                }
+        
+        # TODO: Add other types of pattern matching (build errors, dependency issues, etc.)
+        
+        # Fallback to dummy fix for backward compatibility
         return {"type": "dummy-fix", "details": "Simulated fix"}

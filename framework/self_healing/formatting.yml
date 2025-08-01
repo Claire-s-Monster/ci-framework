@@ -1,0 +1,142 @@
+# Pattern Database for Code Formatting Tools
+# This file contains patterns to identify fixable formatting issues from various tools
+
+version: "1.0"
+description: "Pattern database for automatic code formatting fixes"
+
+patterns:
+  # Ruff patterns
+  ruff:
+    - id: "ruff_fixable_errors"
+      name: "Ruff fixable errors detected"
+      pattern: "Found (\\d+) error.*\\((\\d+) fixable.*\\)"
+      description: "Detects when ruff finds fixable errors"
+      fix_command: "ruff check --fix ."
+      tool: "ruff"
+      severity: "medium"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-fix ruff formatting violations"
+      
+    - id: "ruff_import_sorting"
+      name: "Ruff import sorting errors"
+      pattern: "I001.*Missing import"
+      description: "Detects import sorting issues"
+      fix_command: "ruff check --fix --select I ."
+      tool: "ruff"
+      severity: "low"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-fix import sorting with ruff"
+
+    - id: "ruff_line_too_long"
+      name: "Ruff line length violations"
+      pattern: "E501.*line too long"
+      description: "Detects line length violations"
+      fix_command: "ruff check --fix --select E501 ."
+      tool: "ruff"
+      severity: "low"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-fix line length violations"
+
+  # Black patterns  
+  black:
+    - id: "black_would_reformat"
+      name: "Black would reformat files"
+      pattern: "would reformat (\\d+) files?"
+      description: "Detects when black would reformat files"
+      fix_command: "black ."
+      tool: "black"
+      severity: "medium"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-format code with black"
+      
+    - id: "black_check_failed"
+      name: "Black check mode failed"
+      pattern: "Oh no! 💥 💔 💥.*would reformat"
+      description: "Detects black check mode failures"
+      fix_command: "black ."
+      tool: "black"
+      severity: "medium"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-format code with black"
+
+  # isort patterns
+  isort:
+    - id: "isort_would_sort"
+      name: "isort would sort imports"
+      pattern: "Fixing (\\d+) files?"
+      description: "Detects when isort would fix import sorting"
+      fix_command: "isort ."
+      tool: "isort"
+      severity: "low"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-sort imports with isort"
+      
+    - id: "isort_incorrectly_sorted"
+      name: "isort incorrectly sorted imports"
+      pattern: "Imports are incorrectly sorted"
+      description: "Detects incorrectly sorted imports"
+      fix_command: "isort ."
+      tool: "isort"
+      severity: "low"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-sort imports with isort"
+
+  # autopep8 patterns
+  autopep8:
+    - id: "autopep8_pep8_violations"
+      name: "autopep8 PEP8 violations"
+      pattern: "\\d+:\\d+:\\d+: [EW]\\d+"
+      description: "Detects PEP8 violations that autopep8 can fix"
+      fix_command: "autopep8 --in-place --recursive ."
+      tool: "autopep8"
+      severity: "medium"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-fix PEP8 violations with autopep8"
+
+  # yapf patterns
+  yapf:
+    - id: "yapf_would_reformat"
+      name: "yapf would reformat files"
+      pattern: "reformatting.*\\.py"
+      description: "Detects when yapf would reformat Python files"
+      fix_command: "yapf --in-place --recursive ."
+      tool: "yapf"
+      severity: "medium"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-format code with yapf"
+
+  # flake8 patterns (note: flake8 doesn't auto-fix, but we can detect and suggest tools)
+  flake8:
+    - id: "flake8_format_violations"
+      name: "flake8 formatting violations"
+      pattern: "\\d+:\\d+: [EW]\\d+"
+      description: "Detects flake8 formatting violations"
+      fix_command: "autopep8 --in-place --recursive ."
+      tool: "autopep8"  # Use autopep8 to fix flake8 issues
+      severity: "medium"
+      requires_git_commit: true
+      commit_message_template: "fix(format): Auto-fix flake8 violations with autopep8"
+
+# Configuration for pattern matching engine
+engine_config:
+  timeout_seconds: 300  # 5 minute timeout for formatting commands
+  max_file_size_mb: 50  # Skip files larger than 50MB
+  backup_before_fix: true
+  verify_syntax_after_fix: true
+  allowed_file_extensions: [".py", ".pyx", ".pyi"]
+  exclude_patterns: 
+    - "*.egg-info/*"
+    - "__pycache__/*" 
+    - ".git/*"
+    - "build/*"
+    - "dist/*"
+    - ".pytest_cache/*"
+    - ".mypy_cache/*"
+    - ".coverage*"
+  
+# Git commit configuration
+git_config:
+  create_commit: true
+  commit_author: "Self-Healing CI <ci@framework.local>"
+  commit_prefix: "fix(format): "
+  include_file_count: true  # Include number of files fixed in commit message

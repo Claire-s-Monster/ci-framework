@@ -8,9 +8,8 @@ and commits changes atomically with descriptive messages.
 import ast
 import os
 import subprocess
-import tempfile
 from pathlib import Path
-from typing import List, Dict, Optional, Set, Tuple
+from typing import List, Dict, Optional, Set
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -31,7 +30,7 @@ class GitCommitResult:
     success: bool
     commit_hash: Optional[str] = None
     message: str = ""
-    files_committed: List[str] = None
+    files_committed: List[str] = None  # type: ignore
     error_message: Optional[str] = None
     
     def __post_init__(self):
@@ -294,7 +293,7 @@ class SyntaxVerifierAndCommitter:
             if include_file_count and staged_files:
                 file_count = len(staged_files)
                 if file_count == 1:
-                    message += f" (1 file)"
+                    message += " (1 file)"
                 else:
                     message += f" ({file_count} files)"
             
@@ -398,7 +397,7 @@ class SyntaxVerifierAndCommitter:
             
             return result
             
-        except SyntaxVerificationError as e:
+        except SyntaxVerificationError:
             # Rollback all changes on syntax error
             self.restore_changes()
             raise

@@ -21,8 +21,23 @@ def temp_dir():
 
 
 @pytest.fixture
-def workflow(temp_dir):
+@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
+@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
+@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
+def workflow(mock_verifier, mock_executor, mock_engine, temp_dir):
     """Create a FormattingFixWorkflow instance for testing."""
+    # Configure default mock behavior
+    mock_engine.return_value.patterns = {'ruff': [{'id': 'test'}]}
+    mock_engine.return_value.get_all_tools.return_value = ['ruff', 'black', 'isort', 'autopep8', 'yapf', 'flake8']
+    mock_engine.return_value.get_engine_config.return_value = {'timeout': 300}
+    mock_engine.return_value.get_git_config.return_value = {'create_commit': True}
+    mock_engine.return_value.validate_patterns.return_value = []
+    
+    mock_executor.return_value.get_command_info.return_value = {'available': True, 'version': 'ruff 0.12.5', 'error': None}
+    
+    mock_verifier.return_value.is_git_repository.return_value = True
+    mock_verifier.return_value.get_git_status_summary.return_value = {'modified': 0}
+    
     return FormattingFixWorkflow(
         working_directory=str(temp_dir),
         enable_logging=False  # Disable logging for tests
@@ -36,11 +51,11 @@ def mock_match_result():
         pattern_id="ruff_fixable_errors",
         tool="ruff",
         fix_command="ruff check --fix .",
-        commit_message_template="fix(format): Auto-fix ruff violations",
+        commit_message_template="fix(format): Auto-fix ruff formatting violations",
         severity="medium",
         requires_git_commit=True,
         matched_groups=["Found 5 errors (3 fixable)", "5", "3"],
-        original_output="Found 5 errors (3 fixable with the `--fix` option).",
+        original_output="Found 5 errors (3 fixable)",
         description="Detects when ruff finds fixable errors"
     )
 
@@ -80,25 +95,31 @@ def test_workflow_initialization(temp_dir):
     assert workflow.syntax_verifier is not None
 
 
-def test_workflow_initialization_with_config():
+@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
+@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
+@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
+def test_workflow_initialization_with_config(mock_verifier, mock_executor, mock_engine):
     """Test workflow initialization with custom config."""
     with tempfile.NamedTemporaryFile(suffix='.yml', delete=False) as config_file:
         config_path = config_file.name
     
     try:
+        # Mock the pattern engine initialization
+        mock_engine.return_value.config_path = Path(config_path)
+        
         workflow = FormattingFixWorkflow(config_path=config_path)
         assert workflow.pattern_engine.config_path == Path(config_path)
+        
+        # Verify that FormattingPatternEngine was called with config_path
+        mock_engine.assert_called_once_with(config_path)
     finally:
         Path(config_path).unlink()
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
-def test_process_tool_output_no_match(mock_verifier, mock_executor, mock_engine, workflow):
+def test_process_tool_output_no_match(workflow):
     """Test processing tool output with no pattern match."""
     # Mock pattern engine to return no match
-    mock_engine.return_value.match_output.return_value = None
+    workflow.pattern_engine.match_output.return_value = None
     
     result = workflow.process_tool_output("No fixable issues found")
     
@@ -108,19 +129,16 @@ def test_process_tool_output_no_match(mock_verifier, mock_executor, mock_engine,
     assert result.pattern_matched is None
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
-def test_process_tool_output_dry_run(mock_verifier, mock_executor, mock_engine, workflow, mock_match_result, mock_command_result):
+def test_process_tool_output_dry_run(workflow, mock_match_result, mock_command_result):
     """Test processing tool output in dry-run mode."""
     # Mock pattern matching
-    mock_engine.return_value.match_output.return_value = mock_match_result
+    workflow.pattern_engine.match_output.return_value = mock_match_result
     
     # Mock dry-run command execution
-    mock_executor.return_value.dry_run_command.return_value = mock_command_result
+    workflow.command_executor.dry_run_command.return_value = mock_command_result
     
     result = workflow.process_tool_output(
-        "Found 5 errors (3 fixable with the `--fix` option).",
+        "Found 5 errors (3 fixable).",
         dry_run=True
     )
     
@@ -131,29 +149,25 @@ def test_process_tool_output_dry_run(mock_verifier, mock_executor, mock_engine, 
     assert result.command_executed == "ruff check --fix ."
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
 def test_process_tool_output_success_with_commit(
-    mock_verifier, mock_executor, mock_engine, workflow, 
-    mock_match_result, mock_command_result, mock_git_commit_result
+    workflow, mock_match_result, mock_command_result, mock_git_commit_result
 ):
     """Test successful processing with commit."""
     # Mock pattern matching
-    mock_engine.return_value.match_output.return_value = mock_match_result
-    mock_engine.return_value.get_git_config.return_value = {
+    workflow.pattern_engine.match_output.return_value = mock_match_result
+    workflow.pattern_engine.get_git_config.return_value = {
         'commit_author': 'Test <test@example.com>',
         'include_file_count': True
     }
     
     # Mock command execution
-    mock_executor.return_value.execute_formatting_command.return_value = mock_command_result
+    workflow.command_executor.execute_formatting_command.return_value = mock_command_result
     
     # Mock syntax verification and git commit
-    mock_verifier.return_value.atomic_format_commit.return_value = mock_git_commit_result
+    workflow.syntax_verifier.atomic_format_commit.return_value = mock_git_commit_result
     
     result = workflow.process_tool_output(
-        "Found 5 errors (3 fixable with the `--fix` option).",
+        "Found 5 errors (3 fixable).",
         create_commit=True
     )
     
@@ -165,25 +179,21 @@ def test_process_tool_output_success_with_commit(
     assert result.commit_result.success is True
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
 def test_process_tool_output_without_commit(
-    mock_verifier, mock_executor, mock_engine, workflow,
-    mock_match_result, mock_command_result
+    workflow, mock_match_result, mock_command_result
 ):
     """Test processing without creating commit."""
     # Mock pattern matching
-    mock_engine.return_value.match_output.return_value = mock_match_result
+    workflow.pattern_engine.match_output.return_value = mock_match_result
     
     # Mock command execution
-    mock_executor.return_value.execute_formatting_command.return_value = mock_command_result
+    workflow.command_executor.execute_formatting_command.return_value = mock_command_result
     
     # Mock getting changed files
-    mock_verifier.return_value.get_changed_files.return_value = ["test.py"]
+    workflow.syntax_verifier.get_changed_files.return_value = ["test.py"]
     
     result = workflow.process_tool_output(
-        "Found 5 errors (3 fixable with the `--fix` option).",
+        "Found 5 errors (3 fixable).",
         create_commit=False
     )
     
@@ -193,53 +203,45 @@ def test_process_tool_output_without_commit(
     assert result.commit_result is None
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
 def test_process_tool_output_commit_failure(
-    mock_verifier, mock_executor, mock_engine, workflow,
-    mock_match_result, mock_command_result
+    workflow, mock_match_result, mock_command_result
 ):
     """Test processing with commit failure."""
     # Mock pattern matching
-    mock_engine.return_value.match_output.return_value = mock_match_result
-    mock_engine.return_value.get_git_config.return_value = {}
+    workflow.pattern_engine.match_output.return_value = mock_match_result
+    workflow.pattern_engine.get_git_config.return_value = {}
     
     # Mock command execution
-    mock_executor.return_value.execute_formatting_command.return_value = mock_command_result
+    workflow.command_executor.execute_formatting_command.return_value = mock_command_result
     
     # Mock failed commit
     failed_commit = GitCommitResult(
         success=False,
-        error_message="Commit failed: no changes staged"
+        error_message="No changes detected"
     )
-    mock_verifier.return_value.atomic_format_commit.return_value = failed_commit
+    workflow.syntax_verifier.atomic_format_commit.return_value = failed_commit
     
     result = workflow.process_tool_output(
-        "Found 5 errors (3 fixable with the `--fix` option)."
+        "Found 5 errors (3 fixable)."
     )
     
     assert result.success is False
     assert "Fix applied but commit failed" in result.message
-    assert result.error_details == "Commit failed: no changes staged"
+    assert result.error_details == "No changes detected"
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
 def test_process_tool_output_syntax_error(
-    mock_verifier, mock_executor, mock_engine, workflow,
-    mock_match_result, mock_command_result
+    workflow, mock_match_result, mock_command_result
 ):
     """Test processing with syntax verification error."""
     from framework.self_healing.syntax_verifier import SyntaxVerificationError, SyntaxCheckResult
     
     # Mock pattern matching
-    mock_engine.return_value.match_output.return_value = mock_match_result
-    mock_engine.return_value.get_git_config.return_value = {}
+    workflow.pattern_engine.match_output.return_value = mock_match_result
+    workflow.pattern_engine.get_git_config.return_value = {}
     
     # Mock command execution
-    mock_executor.return_value.execute_formatting_command.return_value = mock_command_result
+    workflow.command_executor.execute_formatting_command.return_value = mock_command_result
     
     # Mock syntax verification failure
     failed_syntax = SyntaxCheckResult(
@@ -247,66 +249,45 @@ def test_process_tool_output_syntax_error(
         is_valid=False,
         error_message="Syntax error"
     )
-    mock_verifier.return_value.atomic_format_commit.side_effect = SyntaxVerificationError(
+    workflow.syntax_verifier.atomic_format_commit.side_effect = SyntaxVerificationError(
         "Syntax errors found", [failed_syntax]
     )
     
     result = workflow.process_tool_output(
-        "Found 5 errors (3 fixable with the `--fix` option)."
+        "Found 5 errors (3 fixable)."
     )
     
     assert result.success is False
     assert "Syntax errors detected" in result.message
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
-def test_get_workflow_status(mock_verifier, mock_executor, mock_engine, workflow):
+def test_get_workflow_status(workflow):
     """Test getting workflow status."""
-    # Mock components
-    mock_engine.return_value.patterns = {'ruff': [{'id': 'test'}]}
-    mock_engine.return_value.get_all_tools.return_value = ['ruff', 'black']
-    mock_engine.return_value.get_engine_config.return_value = {'timeout': 300}
-    mock_engine.return_value.get_git_config.return_value = {'create_commit': True}
-    
-    mock_verifier.return_value.is_git_repository.return_value = True
-    mock_verifier.return_value.get_git_status_summary.return_value = {'modified': 0}
-    
     status = workflow.get_workflow_status()
     
     assert 'working_directory' in status
     assert 'is_git_repository' in status
     assert 'available_patterns' in status
     assert 'supported_tools' in status
-    assert status['supported_tools'] == ['ruff', 'black']
+    assert status['supported_tools'] == ['ruff', 'black', 'isort', 'autopep8', 'yapf', 'flake8']
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
-def test_validate_configuration_success(mock_verifier, mock_executor, mock_engine, workflow):
+def test_validate_configuration_success(workflow):
     """Test configuration validation with no errors."""
-    # Mock successful validation
-    mock_engine.return_value.validate_patterns.return_value = []
-    mock_engine.return_value.get_all_tools.return_value = ['ruff']
-    mock_verifier.return_value.is_git_repository.return_value = True
-    mock_executor.return_value.get_command_info.return_value = {'available': True}
+    # Mock successful validation - override default mocks
+    workflow.pattern_engine.get_all_tools.return_value = ['ruff']
     
     errors = workflow.validate_configuration()
     assert len(errors) == 0
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
-def test_validate_configuration_with_errors(mock_verifier, mock_executor, mock_engine, workflow):
+def test_validate_configuration_with_errors(workflow):
     """Test configuration validation with errors."""
-    # Mock validation errors
-    mock_engine.return_value.validate_patterns.return_value = ["Invalid pattern"]
-    mock_engine.return_value.get_all_tools.return_value = ['ruff']
-    mock_verifier.return_value.is_git_repository.return_value = False
-    mock_executor.return_value.get_command_info.return_value = {
+    # Mock validation errors - override default mocks
+    workflow.pattern_engine.validate_patterns.return_value = ["Invalid pattern"]
+    workflow.pattern_engine.get_all_tools.return_value = ['ruff']
+    workflow.syntax_verifier.is_git_repository.return_value = False
+    workflow.command_executor.get_command_info.return_value = {
         'available': False, 
         'error': 'Tool not found'
     }
@@ -315,50 +296,43 @@ def test_validate_configuration_with_errors(mock_verifier, mock_executor, mock_e
     assert len(errors) >= 3  # Pattern error, git error, tool error
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-def test_test_pattern_matching(mock_engine, workflow, mock_match_result):
+def test_test_pattern_matching(workflow, mock_match_result):
     """Test pattern matching testing method."""
-    mock_engine.return_value.match_output.return_value = mock_match_result
+    workflow.pattern_engine.match_output.return_value = mock_match_result
     
     result = workflow.test_pattern_matching("Found 5 errors (3 fixable)")
     
     assert result == mock_match_result
-    mock_engine.return_value.match_output.assert_called_once_with("Found 5 errors (3 fixable)")
+    workflow.pattern_engine.match_output.assert_called_once_with("Found 5 errors (3 fixable)")
 
 
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-def test_get_tool_info(mock_executor, workflow):
+def test_get_tool_info(workflow):
     """Test getting tool information."""
-    expected_info = {'available': True, 'version': '0.1.0'}
-    mock_executor.return_value.get_command_info.return_value = expected_info
+    expected_info = {'available': True, 'version': 'ruff 0.12.5', 'error': None}
     
     result = workflow.get_tool_info('ruff')
     
     assert result == expected_info
-    mock_executor.return_value.get_command_info.assert_called_once_with('ruff')
+    workflow.command_executor.get_command_info.assert_called_once_with('ruff')
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
 def test_process_multiple_outputs(
-    mock_verifier, mock_executor, mock_engine, workflow,
-    mock_match_result, mock_command_result, mock_git_commit_result
+    workflow, mock_match_result, mock_command_result, mock_git_commit_result
 ):
     """Test processing multiple tool outputs."""
     # Mock pattern matching for both outputs
-    mock_engine.return_value.match_output.return_value = mock_match_result
-    mock_engine.return_value.get_git_config.return_value = {}
+    workflow.pattern_engine.match_output.return_value = mock_match_result
+    workflow.pattern_engine.get_git_config.return_value = {}
     
     # Mock command execution
-    mock_executor.return_value.execute_formatting_command.return_value = mock_command_result
+    workflow.command_executor.execute_formatting_command.return_value = mock_command_result
     
     # Mock successful commits
-    mock_verifier.return_value.atomic_format_commit.return_value = mock_git_commit_result
+    workflow.syntax_verifier.atomic_format_commit.return_value = mock_git_commit_result
     
     outputs = [
-        "Found 5 errors (3 fixable with the `--fix` option).",
-        "Found 2 errors (1 fixable with the `--fix` option)."
+        "Found 5 errors (3 fixable).",
+        "Found 2 errors (1 fixable)."
     ]
     
     results = workflow.process_multiple_outputs(outputs)
@@ -367,30 +341,26 @@ def test_process_multiple_outputs(
     assert all(result.success for result in results)
 
 
-@patch('framework.self_healing.formatting_workflow.FormattingPatternEngine')
-@patch('framework.self_healing.formatting_workflow.SafeCommandExecutor')
-@patch('framework.self_healing.formatting_workflow.SyntaxVerifierAndCommitter')
 def test_process_multiple_outputs_failure(
-    mock_verifier, mock_executor, mock_engine, workflow,
-    mock_match_result, mock_command_result
+    workflow, mock_match_result, mock_command_result
 ):
     """Test processing multiple outputs with failure."""
     # Mock pattern matching
-    mock_engine.return_value.match_output.return_value = mock_match_result
-    mock_engine.return_value.get_git_config.return_value = {}
+    workflow.pattern_engine.match_output.return_value = mock_match_result
+    workflow.pattern_engine.get_git_config.return_value = {}
     
     # Mock command execution
-    mock_executor.return_value.execute_formatting_command.return_value = mock_command_result
+    workflow.command_executor.execute_formatting_command.return_value = mock_command_result
     
     # Mock first commit success, second commit failure
-    mock_verifier.return_value.atomic_format_commit.side_effect = [
+    workflow.syntax_verifier.atomic_format_commit.side_effect = [
         GitCommitResult(success=True, commit_hash="abc123"),
-        GitCommitResult(success=False, error_message="Commit failed")
+        GitCommitResult(success=False, error_message="No changes detected")
     ]
     
     outputs = [
-        "Found 5 errors (3 fixable with the `--fix` option).",
-        "Found 2 errors (1 fixable with the `--fix` option)."
+        "Found 5 errors (3 fixable).",
+        "Found 2 errors (1 fixable)."
     ]
     
     results = workflow.process_multiple_outputs(outputs)

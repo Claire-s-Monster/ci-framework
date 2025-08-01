@@ -24,7 +24,7 @@ class WorkflowResult:
     pattern_matched: Optional[str] = None
     tool_used: Optional[str] = None
     command_executed: Optional[str] = None
-    files_fixed: List[str] = None
+    files_fixed: List[str] = None  # type: ignore
     commit_result: Optional[GitCommitResult] = None
     execution_time: float = 0.0
     error_details: Optional[str] = None
@@ -356,9 +356,10 @@ class FormattingFixWorkflow:
             )
             results.append(result)
             
-            # Stop processing on first failure if not in dry-run mode
-            if not dry_run and not result.success:
-                self.logger.warning(f"Stopping processing due to failure: {result.message}")
-                break
+            # Continue processing all outputs regardless of individual failures
+            if not result.success:
+                self.logger.warning(f"Output {i+1} failed: {result.message}")
+            else:
+                self.logger.info(f"Output {i+1} processed successfully")
         
         return results

@@ -50,7 +50,6 @@ class FixApplier:
         
         # Get some sample output that would trigger this fix
         # In real usage, this would be the actual CI failure output
-        pattern_id = fix.get("pattern_id")
         tool = fix.get("tool")
         
         # Create a mock tool output that would match this pattern

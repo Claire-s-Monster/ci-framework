@@ -48,7 +48,8 @@ class SafeCommandExecutor:
     # Allowed formatting commands (security whitelist) 
     ALLOWED_COMMANDS = {
         'ruff', 'black', 'isort', 'autopep8', 'yapf', 'pyupgrade',
-        'autoflake', 'docformatter', 'prettier', 'eslint', 'rustfmt'
+        'autoflake', 'docformatter', 'prettier', 'eslint', 'rustfmt',
+        'pixi'  # Added for dependency resolution
     }
     
     # Dangerous command patterns to reject

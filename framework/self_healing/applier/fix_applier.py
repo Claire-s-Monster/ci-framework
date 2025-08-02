@@ -34,6 +34,8 @@ class FixApplier:
             
             if fix_type == "formatting-fix":
                 return self._apply_formatting_fix(fix)
+            elif fix_type == "dependency-fix":
+                return self._apply_dependency_fix(fix)
             elif fix_type == "dummy-fix":
                 return self._apply_dummy_fix(fix)
             else:
@@ -74,6 +76,36 @@ class FixApplier:
             raise Exception(f"Formatting fix failed: {result.message}")
         
         return result
+
+    def _apply_dependency_fix(self, fix: Any) -> Any:
+        """Apply a dependency fix using the workflow."""
+        workflow = fix.get("workflow")
+        if not workflow:
+            raise Exception("No workflow found in dependency fix")
+        
+        # Get the pattern details
+        pattern_id = fix.get("pattern_id")
+        
+        # Create sample output based on the pattern
+        sample_outputs = {
+            "pixi_lock_outdated": "The lock file is not up-to-date with pyproject.toml",
+            "pixi_lock_missing": "pixi.lock not found",
+            "module_not_found_error": "ModuleNotFoundError: No module named 'requests'",
+            "pixi_conflict_detected": "Conflict detected in dependencies"
+        }
+        
+        sample_output = sample_outputs.get(pattern_id, f"Dependency issue: {pattern_id}")
+        
+        # Process through the workflow
+        success, message = workflow.execute_workflow(
+            output=sample_output,
+            dry_run=False
+        )
+        
+        if not success:
+            raise Exception(f"Dependency fix failed: {message}")
+        
+        return {"success": success, "message": message}
 
     def _apply_dummy_fix(self, fix: Any) -> None:
         """Apply legacy dummy fix for backward compatibility."""

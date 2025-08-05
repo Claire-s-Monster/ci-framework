@@ -1,11 +1,15 @@
 """Tests for the formatting pattern matching engine."""
 
-import pytest
 import tempfile
-import yaml
 from pathlib import Path
 
-from framework.self_healing.formatting_engine import FormattingPatternEngine, MatchResult
+import pytest
+import yaml
+
+from framework.self_healing.formatting_engine import (
+    FormattingPatternEngine,
+    MatchResult,
+)
 
 
 @pytest.fixture
@@ -17,7 +21,7 @@ def sample_config():
         "patterns": {
             "ruff": [
                 {
-                    "id": "ruff_fixable_errors", 
+                    "id": "ruff_fixable_errors",
                     "name": "Ruff fixable errors detected",
                     "pattern": r"Found (\d+) error.*\((\d+) fixable.*\)",
                     "description": "Detects when ruff finds fixable errors",
@@ -25,46 +29,46 @@ def sample_config():
                     "tool": "ruff",
                     "severity": "medium",
                     "requires_git_commit": True,
-                    "commit_message_template": "fix(format): Auto-fix ruff formatting violations"
+                    "commit_message_template": "fix(format): Auto-fix ruff formatting violations",
                 }
             ],
             "black": [
                 {
                     "id": "black_would_reformat",
-                    "name": "Black would reformat files", 
+                    "name": "Black would reformat files",
                     "pattern": r"would reformat (\d+) files?",
                     "description": "Detects when black would reformat files",
                     "fix_command": "black .",
                     "tool": "black",
-                    "severity": "medium", 
+                    "severity": "medium",
                     "requires_git_commit": True,
-                    "commit_message_template": "fix(format): Auto-format code with black"
+                    "commit_message_template": "fix(format): Auto-format code with black",
                 }
-            ]
+            ],
         },
         "engine_config": {
             "timeout_seconds": 300,
             "max_file_size_mb": 50,
             "backup_before_fix": True,
-            "verify_syntax_after_fix": True
+            "verify_syntax_after_fix": True,
         },
         "git_config": {
             "create_commit": True,
             "commit_author": "Self-Healing CI <ci@framework.local>",
-            "commit_prefix": "fix(format): "
-        }
+            "commit_prefix": "fix(format): ",
+        },
     }
 
 
-@pytest.fixture  
+@pytest.fixture
 def temp_config_file(sample_config):
     """Create a temporary config file for testing."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
         yaml.dump(sample_config, f)
         temp_path = Path(f.name)
-    
+
     yield temp_path
-    
+
     # Cleanup
     temp_path.unlink()
 
@@ -93,12 +97,12 @@ def test_engine_initialization_with_missing_config():
 def test_ruff_pattern_matching(temp_config_file):
     """Test ruff pattern matching with sample output."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     # Sample ruff output
     ruff_output = "Found 5 errors (3 fixable with the `--fix` option)."
-    
+
     result = engine.match_output(ruff_output)
-    
+
     assert result is not None
     assert isinstance(result, MatchResult)
     assert result.pattern_id == "ruff_fixable_errors"
@@ -114,12 +118,12 @@ def test_ruff_pattern_matching(temp_config_file):
 def test_black_pattern_matching(temp_config_file):
     """Test black pattern matching with sample output."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     # Sample black output
     black_output = "would reformat 3 files"
-    
+
     result = engine.match_output(black_output)
-    
+
     assert result is not None
     assert result.pattern_id == "black_would_reformat"
     assert result.tool == "black"
@@ -130,10 +134,10 @@ def test_black_pattern_matching(temp_config_file):
 def test_no_match_for_unknown_output(temp_config_file):
     """Test that unknown output returns None."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     # Output that doesn't match any pattern
     unknown_output = "Everything is perfect, no issues found!"
-    
+
     result = engine.match_output(unknown_output)
     assert result is None
 
@@ -141,10 +145,10 @@ def test_no_match_for_unknown_output(temp_config_file):
 def test_empty_output_returns_none(temp_config_file):
     """Test that empty output returns None."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     result = engine.match_output("")
     assert result is None
-    
+
     result = engine.match_output("   ")
     assert result is None
 
@@ -152,15 +156,15 @@ def test_empty_output_returns_none(temp_config_file):
 def test_match_specific_tool(temp_config_file):
     """Test matching output against patterns for a specific tool only."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     # This output matches both ruff and black patterns in our test config
     ruff_output = "Found 5 errors (3 fixable with the `--fix` option)."
-    
+
     # Test ruff-specific matching
     result = engine.match_specific_tool(ruff_output, "ruff")
     assert result is not None
     assert result.tool == "ruff"
-    
+
     # Test black-specific matching (should return None for ruff output)
     result = engine.match_specific_tool(ruff_output, "black")
     assert result is None
@@ -169,15 +173,15 @@ def test_match_specific_tool(temp_config_file):
 def test_get_patterns_by_tool(temp_config_file):
     """Test getting patterns for a specific tool."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     ruff_patterns = engine.get_patterns_by_tool("ruff")
     assert len(ruff_patterns) == 1
     assert ruff_patterns[0]["id"] == "ruff_fixable_errors"
-    
+
     black_patterns = engine.get_patterns_by_tool("black")
     assert len(black_patterns) == 1
     assert black_patterns[0]["id"] == "black_would_reformat"
-    
+
     unknown_patterns = engine.get_patterns_by_tool("unknown_tool")
     assert len(unknown_patterns) == 0
 
@@ -185,7 +189,7 @@ def test_get_patterns_by_tool(temp_config_file):
 def test_get_all_tools(temp_config_file):
     """Test getting list of all tools."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     tools = engine.get_all_tools()
     assert set(tools) == {"ruff", "black"}
 
@@ -193,7 +197,7 @@ def test_get_all_tools(temp_config_file):
 def test_get_engine_config(temp_config_file):
     """Test getting engine configuration."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     config = engine.get_engine_config()
     assert config["timeout_seconds"] == 300
     assert config["max_file_size_mb"] == 50
@@ -203,7 +207,7 @@ def test_get_engine_config(temp_config_file):
 def test_get_git_config(temp_config_file):
     """Test getting git configuration."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     config = engine.get_git_config()
     assert config["create_commit"] is True
     assert config["commit_author"] == "Self-Healing CI <ci@framework.local>"
@@ -212,7 +216,7 @@ def test_get_git_config(temp_config_file):
 def test_pattern_validation_success(temp_config_file):
     """Test pattern validation with valid patterns."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     errors = engine.validate_patterns()
     assert len(errors) == 0
 
@@ -231,16 +235,16 @@ def test_pattern_validation_with_invalid_regex():
                     "tool": "test",
                     "severity": "low",
                     "requires_git_commit": True,
-                    "commit_message_template": "fix: test"
+                    "commit_message_template": "fix: test",
                 }
             ]
         }
     }
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
         yaml.dump(invalid_config, f)
         temp_path = Path(f.name)
-    
+
     try:
         engine = FormattingPatternEngine(config_path=str(temp_path))
         errors = engine.validate_patterns()
@@ -263,11 +267,11 @@ def test_pattern_validation_with_missing_fields():
             ]
         }
     }
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
         yaml.dump(invalid_config, f)
         temp_path = Path(f.name)
-    
+
     try:
         engine = FormattingPatternEngine(config_path=str(temp_path))
         errors = engine.validate_patterns()
@@ -291,16 +295,16 @@ def test_pattern_validation_with_invalid_severity():
                     "tool": "test",
                     "severity": "invalid",  # Should be low/medium/high
                     "requires_git_commit": True,
-                    "commit_message_template": "fix: test"
+                    "commit_message_template": "fix: test",
                 }
             ]
         }
     }
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
         yaml.dump(invalid_config, f)
         temp_path = Path(f.name)
-    
+
     try:
         engine = FormattingPatternEngine(config_path=str(temp_path))
         errors = engine.validate_patterns()
@@ -311,16 +315,16 @@ def test_pattern_validation_with_invalid_severity():
 
 
 def test_multiline_pattern_matching(temp_config_file):
-    """Test pattern matching works with multiline output.""" 
+    """Test pattern matching works with multiline output."""
     engine = FormattingPatternEngine(config_path=str(temp_config_file))
-    
+
     # Multiline output
     multiline_output = """
     Checking code...
     Found 5 errors (3 fixable with the `--fix` option).
     Process completed.
     """
-    
+
     result = engine.match_output(multiline_output)
     assert result is not None
     assert result.pattern_id == "ruff_fixable_errors"

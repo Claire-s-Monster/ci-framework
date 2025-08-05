@@ -36,19 +36,19 @@ def test_unknown_fix_type(tmp_path):
 def test_apply_dependency_fix_success(tmp_path):
     """Test successful application of dependency fix."""
     applier = FixApplier(project_dir=tmp_path)
-    
+
     # Mock workflow
     mock_workflow = MagicMock()
     mock_workflow.execute_workflow.return_value = (True, "Fix applied successfully")
-    
+
     fix = {
         "type": "dependency-fix",
         "pattern_id": "pixi_lock_outdated",
-        "workflow": mock_workflow
+        "workflow": mock_workflow,
     }
-    
+
     result = applier.apply(fix)
-    
+
     assert result["success"] is True
     assert "Fix applied successfully" in result["message"]
     mock_workflow.execute_workflow.assert_called_once()
@@ -57,17 +57,17 @@ def test_apply_dependency_fix_success(tmp_path):
 def test_apply_dependency_fix_failure(tmp_path):
     """Test failed application of dependency fix."""
     applier = FixApplier(project_dir=tmp_path)
-    
+
     # Mock workflow that fails
     mock_workflow = MagicMock()
     mock_workflow.execute_workflow.return_value = (False, "Failed to apply fix")
-    
+
     fix = {
         "type": "dependency-fix",
         "pattern_id": "pixi_conflict_detected",
-        "workflow": mock_workflow
+        "workflow": mock_workflow,
     }
-    
+
     with pytest.raises(RollbackException, match="Dependency fix failed"):
         applier.apply(fix)
 
@@ -75,11 +75,8 @@ def test_apply_dependency_fix_failure(tmp_path):
 def test_apply_dependency_fix_no_workflow(tmp_path):
     """Test dependency fix without workflow raises exception."""
     applier = FixApplier(project_dir=tmp_path)
-    
-    fix = {
-        "type": "dependency-fix",
-        "pattern_id": "pixi_lock_outdated"
-    }
-    
+
+    fix = {"type": "dependency-fix", "pattern_id": "pixi_lock_outdated"}
+
     with pytest.raises(RollbackException, match="No workflow found"):
         applier.apply(fix)

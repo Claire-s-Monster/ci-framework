@@ -113,7 +113,7 @@ env = { PYTHONNOUSERSITE = "1" }
 [tool.pixi.tasks]
 # ===== TIER 1: CORE DEVELOPMENT TASKS (ESSENTIAL) =====
 # Installation & Setup
-install-editable = "pip install -e ."
+install-editable = "echo 'Editable install not needed - PIXI environment handles all dependencies'"
 dev = "echo 'Development environment ready'"
 
 # Testing (ZERO-TOLERANCE QUALITY GATES)

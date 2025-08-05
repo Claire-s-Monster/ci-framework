@@ -42,10 +42,10 @@ inputs:
     required: false
     default: 'security-reports'
 
-  package-manager:
-    description: 'Force specific package manager (pixi, poetry, hatch, pip)'
+  pixi-environment:
+    description: 'PIXI environment to use for security scanning'
     required: false
-    default: 'auto'
+    default: 'quality-extended'
 
   enable-bandit:
     description: 'Enable bandit AST-based security analysis'
@@ -207,7 +207,7 @@ runs:
         CONFIG_FILE="${{ inputs.config-file }}"
         FAIL_FAST="${{ inputs.fail-fast }}"
         REPORTS_DIR="${{ inputs.reports-dir }}"
-        PACKAGE_MANAGER="${{ inputs.package-manager }}"
+        PIXI_ENVIRONMENT="${{ inputs.pixi-environment }}"
 
         echo "🛡️ Security Scan Action v0.0.1"
         echo "🔒 Security Level: $SECURITY_LEVEL"
@@ -218,18 +218,9 @@ runs:
         # Create reports directory
         mkdir -p "$REPORTS_DIR"
 
-        # Install security environment
-        if [[ -f "pyproject.toml" ]] && grep -q "\[tool\.pixi\]" pyproject.toml; then
-          echo "📦 Using pixi environment"
-          pixi install -e quality-extended
-        elif [[ -f "pyproject.toml" ]] && grep -q "\[tool\.poetry\]" pyproject.toml; then
-          echo "📦 Using poetry environment"
-          pip install poetry
-          poetry install --extras security
-        else
-          echo "📦 Using pip environment"
-          pip install bandit safety pip-audit
-        fi
+        # Install security environment using PIXI
+        echo "📦 Using PIXI environment: $PIXI_ENVIRONMENT (includes bandit, safety, pip-audit)"
+        pixi install -e "$PIXI_ENVIRONMENT"
 
         # Execute security scans using Python
         python3 << 'EOF'

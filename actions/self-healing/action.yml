@@ -14,6 +14,10 @@ inputs:
     description: "Timeout for the healing process (minutes)"
     required: false
     default: "10"
+  pixi-environment:
+    description: "PIXI environment to use for self-healing"
+    required: false
+    default: "dev"
 
 outputs:
   healed:
@@ -31,14 +35,20 @@ runs:
       with:
         python-version: "3.12"
 
+    - name: Install PIXI
+      uses: prefix-dev/setup-pixi@v0.4.1
+      with:
+        pixi-version: v0.15.1
+        cache: true
+        
     - name: Install dependencies
       run: |
-        pip install -e .[dev]
+        pixi install -e ${{ inputs.pixi-environment }}
       shell: bash
 
     - name: Run Self-Healing Engine
       run: |
-        python -m framework.self_healing.engine \
+        pixi run -e ${{ inputs.pixi-environment }} python -m framework.self_healing.engine \
           --config "${{ inputs.config }}" \
           --project-dir "${{ inputs.project-dir }}" \
           --timeout-minutes "${{ inputs.timeout-minutes }}"

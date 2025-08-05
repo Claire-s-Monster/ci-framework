@@ -42,10 +42,10 @@ inputs:
     required: false
     default: 'reports'
 
-  package-manager:
-    description: 'Force specific package manager (pixi, poetry, hatch, pip)'
+  pixi-environment:
+    description: 'PIXI environment to use for quality gates'
     required: false
-    default: 'auto'
+    default: 'quality'
 
 outputs:
   success:
@@ -119,7 +119,7 @@ runs:
         CONFIG_FILE="${{ inputs.config-file }}"
         FAIL_FAST="${{ inputs.fail-fast }}"
         REPORTS_DIR="${{ inputs.reports-dir }}"
-        PACKAGE_MANAGER="${{ inputs.package-manager }}"
+        PIXI_ENVIRONMENT="${{ inputs.pixi-environment }}"
 
         echo "🚀 Quality Gates Action v0.0.1"
         echo "📋 Tier: $TIER"
@@ -130,18 +130,9 @@ runs:
         # Create reports directory
         mkdir -p "$REPORTS_DIR"
 
-        # Install quality gates framework
-        if [[ -f "pyproject.toml" ]] && grep -q "\[tool\.pixi\]" pyproject.toml; then
-          echo "📦 Using pixi environment"
-          pixi install
-        elif [[ -f "pyproject.toml" ]] && grep -q "\[tool\.poetry\]" pyproject.toml; then
-          echo "📦 Using poetry environment"
-          pip install poetry
-          poetry install
-        else
-          echo "📦 Using pip environment"
-          pip install -e .
-        fi
+        # Install quality gates framework using PIXI
+        echo "📦 Using PIXI environment: $PIXI_ENVIRONMENT"
+        pixi install -e "$PIXI_ENVIRONMENT"
 
         # Execute quality gates using Python
         python3 << EOF

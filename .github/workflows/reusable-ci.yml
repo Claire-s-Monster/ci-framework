@@ -4,10 +4,11 @@ name: Reusable CI/CD Pipeline
 on:
   workflow_call:
     inputs:
-      package-manager:
-        description: "The package manager to use: pixi or hatch"
-        required: true
+      pixi-environment:
+        description: "The PIXI environment to use (default, quality, dev, ci)"
+        required: false
         type: string
+        default: 'ci'
       python-versions:
         description: "JSON array of Python versions for the test matrix"
         required: false
@@ -78,7 +79,6 @@ jobs:
               - '${{ inputs.package-path }}/src/**'
               - '${{ inputs.package-path }}/pyproject.toml'
               - '${{ inputs.package-path }}/pixi.lock'
-              - '${{ inputs.package-path }}/hatch.lock'
             docs:
               - '${{ inputs.package-path }}/docs/**'
               - '${{ inputs.package-path }}/*.md'
@@ -98,24 +98,19 @@ jobs:
     if: needs.detect-changes.outputs.src == 'true'
     steps:
       - uses: actions/checkout@v4
-      - name: "Setup Environment"
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.4.1
+        with:
+          pixi-version: v0.15.1
+          cache: true
+      - name: "Install Dependencies"
         working-directory: ${{ inputs.package-path }}
         run: |
-          if [ "${{ inputs.package-manager }}" == "pixi" ]; then
-            pip install pixi
-            pixi install
-          elif [ "${{ inputs.package-manager }}" == "hatch" ]; then
-            pip install hatch
-            hatch env create
-          fi
+          pixi install -e ${{ inputs.pixi-environment }}
       - name: "Run Linters, Formatters, Type Checkers"
         working-directory: ${{ inputs.package-path }}
         run: |
-          if [ "${{ inputs.package-manager }}" == "pixi" ]; then
-            pixi run quality-checks
-          elif [ "${{ inputs.package-manager }}" == "hatch" ]; then
-            hatch run quality-checks
-          fi
+          pixi run -e ${{ inputs.pixi-environment }} quality
 
   test:
     name: "🧪 Test Python ${{ matrix.python-version }} on ${{ matrix.os }}"
@@ -135,24 +130,19 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: "Setup Environment & Dependencies"
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.4.1
+        with:
+          pixi-version: v0.15.1
+          cache: true
+      - name: "Install Dependencies"
         working-directory: ${{ inputs.package-path }}
         run: |
-          if [ "${{ inputs.package-manager }}" == "pixi" ]; then
-            pip install pixi
-            pixi install
-          elif [ "${{ inputs.package-manager }}" == "hatch" ]; then
-            pip install hatch
-            hatch env create
-          fi
+          pixi install -e ${{ inputs.pixi-environment }}
       - name: "Run Test Suite"
         working-directory: ${{ inputs.package-path }}
         run: |
-          if [ "${{ inputs.package-manager }}" == "pixi" ]; then
-            pixi run test
-          elif [ "${{ inputs.package-manager }}" == "hatch" ]; then
-            hatch run test
-          fi
+          pixi run -e ${{ inputs.pixi-environment }} test
 
   security:
     name: "🛡️ Security Scan"
@@ -166,16 +156,15 @@ jobs:
         with:
           repository: MementoRC/ci-framework
           path: ci-framework
-      - name: "Setup Environment"
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.4.1
+        with:
+          pixi-version: v0.15.1
+          cache: true
+      - name: "Install Security Environment"
         working-directory: ${{ inputs.package-path }}
         run: |
-          if [ "${{ inputs.package-manager }}" == "pixi" ]; then
-            pip install pixi
-            pixi install -e security
-          elif [ "${{ inputs.package-manager }}" == "hatch" ]; then
-            pip install hatch
-            hatch env create security
-          fi
+          pixi install -e quality-extended
       - name: "Run Security Scans"
         working-directory: ${{ inputs.package-path }}
         run: |
@@ -205,16 +194,15 @@ jobs:
         with:
           repository: MementoRC/ci-framework
           path: ci-framework
-      - name: "Setup Environment"
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.4.1
+        with:
+          pixi-version: v0.15.1
+          cache: true
+      - name: "Install Performance Environment"
         working-directory: ${{ inputs.package-path }}
         run: |
-          if [ "${{ inputs.package-manager }}" == "pixi" ]; then
-            pip install pixi
-            pixi install -e performance
-          elif [ "${{ inputs.package-manager }}" == "hatch" ]; then
-            pip install hatch
-            hatch env create performance
-          fi
+          pixi install -e dev
       - name: "Run Benchmarks"
         working-directory: ${{ inputs.package-path }}
         run: |
@@ -232,24 +220,19 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
-      - name: "Setup Environment"
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.4.1
+        with:
+          pixi-version: v0.15.1
+          cache: true
+      - name: "Install Dependencies"
         working-directory: ${{ inputs.package-path }}
         run: |
-          if [ "${{ inputs.package-manager }}" == "pixi" ]; then
-            pip install pixi
-            pixi install
-          elif [ "${{ inputs.package-manager }}" == "hatch" ]; then
-            pip install hatch
-            hatch env create
-          fi
+          pixi install -e quality-ci
       - name: "Build sdist and wheel"
         working-directory: ${{ inputs.package-path }}
         run: |
-          if [ "${{ inputs.package-manager }}" == "pixi" ]; then
-            pixi run build
-          elif [ "${{ inputs.package-manager }}" == "hatch" ]; then
-            hatch run build
-          fi
+          pixi run -e quality-ci build
       - uses: actions/upload-artifact@v4
         with:
           name: 'dist'

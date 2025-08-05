@@ -9,7 +9,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -31,7 +31,7 @@ class DependencyPattern:
     severity: str
     requires_git_commit: bool
     commit_message_template: str
-    capture_groups: Optional[List[Dict[str, any]]] = None
+    capture_groups: Optional[List[Dict[str, Any]]] = None
     custom_handler: Optional[str] = None
 
 
@@ -67,7 +67,7 @@ class DependencyEngine:
         """
         self.pattern_file = Path(__file__).parent / pattern_file
         self.patterns: Dict[str, List[DependencyPattern]] = {}
-        self.custom_handlers: Dict[str, Dict[str, any]] = {}
+        self.custom_handlers: Dict[str, Dict[str, Any]] = {}
         self.command_executor = CommandExecutor()
         self._load_patterns()
     
@@ -143,7 +143,7 @@ class DependencyEngine:
         
         return None
     
-    def suggest_fix(self, output: str) -> Optional[Dict[str, any]]:
+    def suggest_fix(self, output: str) -> Optional[Dict[str, Any]]:
         """
         Analyze output and suggest a fix for dependency issues.
         
@@ -176,7 +176,7 @@ class DependencyEngine:
         
         return fix_info
     
-    def apply_fix(self, fix_info: Dict[str, any], dry_run: bool = False) -> Tuple[bool, str]:
+    def apply_fix(self, fix_info: Dict[str, Any], dry_run: bool = False) -> Tuple[bool, str]:
         """
         Apply the suggested fix.
         

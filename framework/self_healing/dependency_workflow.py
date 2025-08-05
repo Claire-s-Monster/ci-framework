@@ -8,7 +8,7 @@ pattern matching, fix application, verification, and git commit.
 import logging
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .command_executor import SafeCommandExecutor as CommandExecutor
 from .dependency_engine import DependencyEngine, DependencyMatch
@@ -42,7 +42,7 @@ class DependencyFixWorkflow:
         self.command_executor = CommandExecutor()
         self.syntax_verifier = SyntaxVerifierAndCommitter()
         
-    def analyze_output(self, output: str) -> Optional[Dict[str, any]]:
+    def analyze_output(self, output: str) -> Optional[Dict[str, Any]]:
         """
         Analyze output for dependency issues.
         

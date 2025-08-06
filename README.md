@@ -11,13 +11,14 @@ A **comprehensive enterprise-grade CI automation framework** providing intellige
 **CI Framework** transforms the Claire-s-Monster organization with enterprise-grade automation:
 
 - 🧠 **Intelligent CI Optimization** - 50%+ time savings through smart change detection
+- 🔧 **Self-Healing Infrastructure** - Automated failure detection, fixes, and rollback capabilities
 - 📊 **Performance Monitoring** - Statistical regression detection with historical analysis  
 - 🔒 **Multi-layered Security** - Comprehensive vulnerability scanning with SBOM generation
 - 🌐 **Cross-Platform Excellence** - Native pixi dependency resolution across all platforms
 - 🧹 **Automated Repository Hygiene** - GPG-signed cleanup with verified bot commits
 - 📦 **Standardized Quality Gates** - Zero-tolerance policy with tiered environments
 - 🤖 **AI-Development Ready** - Handles Claude, TaskMaster, Cursor, and Aider artifacts
-- ⚡ **Zero CI Failures** - Mandatory quality gates prevent broken builds
+- ⚡ **Zero CI Failures** - Self-healing prevents broken builds with automatic fixes
 
 ## 🚨 Quality Gates - Zero CI Failures
 
@@ -162,6 +163,30 @@ jobs:
 - Native GitHub runners (no Docker overhead)
 - Multi-environment validation (default, quality, quality-extended)
 - Platform-specific dependency conflict detection
+
+### 🔧 Self-Healing CI Infrastructure
+
+**Intelligent failure detection, automated fixes, and safe rollback capabilities**
+
+```yaml
+jobs:
+  self-healing:
+    uses: Claire-s-Monster/ci-framework/.github/workflows/self-healing.yml@v1.0.0
+    with:
+      healing-level: 'standard'  # quick/standard/comprehensive  
+      auto-fix: true
+      rollback-on-failure: true
+      timeout-minutes: 10
+    secrets: inherit
+```
+
+**Self-Healing Capabilities:**
+- **Dependency Resolution**: Automatic package conflict resolution and environment healing
+- **Code Formatting**: Automated lint fixes, import sorting, and style corrections
+- **Test Failures**: Pattern-based test failure analysis and automated fixes
+- **Environment Issues**: PIXI environment corruption detection and rebuilding
+- **Safe Rollback**: Automatic rollback on healing failure with git state preservation
+- **CI Integration**: Seamless integration with existing workflows for zero-downtime fixes
 
 ### 🧹 Automated Repository Hygiene
 
@@ -457,6 +482,7 @@ pixi list -e quality-extended  # if used
 | `quality-gates.yml` | Quality enforcement | tier, environment, fail-fast | success, quality-score |
 | `performance-benchmark.yml` | Performance monitoring | suite, regression-threshold | regression-detected, trend-analysis |
 | `security-scan.yml` | Security validation | security-level, enable-trivy | vulnerabilities-found, sarif-file |
+| `self-healing.yml` | Automated CI fixes | healing-level, auto-fix, rollback | healed, rollback-triggered, fixes-applied |
 | `cross-platform-validation.yml` | Platform testing | platforms, environments | platform-results, dependency-conflicts |
 | `cleanup-dev-files.yml` | Repository hygiene | cleanup-patterns, target-branches | files-removed, cleanup-needed |
 
@@ -468,6 +494,7 @@ pixi list -e quality-extended  # if used
 | Quality Gates | Quality validation | `./actions/quality-gates` |  
 | Performance Benchmark | Performance testing | `./actions/performance-benchmark` |
 | Security Scan | Security analysis | `./actions/security-scan` |
+| Self-Healing | Automated CI fixes | `./actions/self-healing` |
 | Cross-Platform Validation | Platform testing | `./actions/cross-platform-validation` |
 | Cleanup Dev Files | Repository cleanup | `./actions/cleanup-dev-files` |
 

@@ -57,10 +57,10 @@ inputs:
     required: false
     default: 'change-reports'
 
-  package-manager:
-    description: 'Force specific package manager (pixi, poetry, hatch, pip)'
+  pixi-environment:
+    description: 'PIXI environment to use for change detection'
     required: false
-    default: 'auto'
+    default: 'default'
 
   fail-fast:
     description: 'Fail immediately on analysis errors'
@@ -141,10 +141,10 @@ runs:
         python-version: '3.12'
 
     - name: Install pixi
-      uses: prefix-dev/setup-pixi@v0.4.1
+      uses: prefix-dev/setup-pixi@v0.8.13
       with:
-        pixi-version: v0.15.1
-        cache: true
+        pixi-version: v0.49.0
+        cache: false
 
     - name: Cache Change Detection Dependencies
       uses: actions/cache@v3
@@ -175,7 +175,7 @@ runs:
         ENABLE_JOB_SKIP="${{ inputs.enable-job-skipping }}"
         MONOREPO_MODE="${{ inputs.monorepo-mode }}"
         REPORTS_DIR="${{ inputs.reports-dir }}"
-        PACKAGE_MANAGER="${{ inputs.package-manager }}"
+        PIXI_ENVIRONMENT="${{ inputs.pixi-environment }}"
         FAIL_FAST="${{ inputs.fail-fast }}"
 
         echo "⚡ Change Detection and CI Optimization Action v0.0.1"
@@ -204,18 +204,9 @@ runs:
 
         echo "🔍 Comparing $BASE_REF...$HEAD_REF"
 
-        # Install change detection framework
-        if [[ -f "pyproject.toml" ]] && grep -q "\[tool\.pixi\]" pyproject.toml; then
-          echo "📦 Using pixi environment"
-          pixi install
-        elif [[ -f "pyproject.toml" ]] && grep -q "\[tool\.poetry\]" pyproject.toml; then
-          echo "📦 Using poetry environment"
-          pip install poetry
-          poetry install
-        else
-          echo "📦 Using pip environment"
-          pip install -e .
-        fi
+        # Install change detection framework using PIXI
+        echo "📦 Using PIXI environment: $PIXI_ENVIRONMENT"
+        pixi install -e "$PIXI_ENVIRONMENT"
 
         # Execute change detection using Python
         python3 << EOF

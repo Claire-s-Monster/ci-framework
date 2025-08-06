@@ -26,7 +26,7 @@ jobs:
         with:
           pixi-version: v0.49.0
           manifest-path: pyproject.toml
-          cache: true
+          cache: false
       - name: "Install Quality Dependencies"
         run: |
           pixi install -e quality || exit 1
@@ -59,7 +59,7 @@ jobs:
         with:
           pixi-version: v0.49.0
           manifest-path: pyproject.toml
-          cache: true
+          cache: false
       - name: "Install Security Dependencies"
         run: |
           pixi install -e quality-extended || exit 1
@@ -96,7 +96,7 @@ jobs:
         with:
           pixi-version: v0.49.0
           manifest-path: pyproject.toml
-          cache: true
+          cache: false
       - name: "Install CI Dependencies"
         run: |
           pixi install -e ci || exit 1

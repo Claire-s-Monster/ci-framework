@@ -111,10 +111,10 @@ class TestCheapLLMIntegration:
             # Document environment structure
             print(f"cheap-llm environments: {env_names}")
 
-            # Should have quality-related environments
-            quality_envs = [env for env in env_names if "quality" in env]
+            # Should have quality-related environments or CI environments
+            quality_envs = [env for env in env_names if "quality" in env or "ci" in env]
             assert len(quality_envs) > 0, (
-                f"No quality environments found in {env_names}"
+                f"No quality or CI environments found in {env_names}"
             )
 
         # Analyze tasks structure

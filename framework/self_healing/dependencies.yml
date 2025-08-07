@@ -1,0 +1,126 @@
+# Pattern Database for Dependency Resolution
+# This file contains patterns to identify and fix dependency-related issues
+
+version: "1.0"
+description: "Pattern database for automatic dependency resolution fixes"
+
+patterns:
+  # Pixi lock file patterns
+  pixi:
+    - id: "pixi_lock_outdated"
+      name: "Pixi lock file is outdated"
+      pattern: "The lock file is not up-to-date with pyproject.toml"
+      description: "Detects when pixi.lock is outdated compared to pyproject.toml"
+      fix_command: "pixi install"
+      tool: "pixi"
+      severity: "high"
+      requires_git_commit: true
+      commit_message_template: "fix(deps): Update pixi.lock to match pyproject.toml"
+      
+    - id: "pixi_lock_missing"
+      name: "Pixi lock file is missing"
+      pattern: "pixi.lock.*not found|missing pixi.lock"
+      description: "Detects when pixi.lock file is missing"
+      fix_command: "pixi install"
+      tool: "pixi"
+      severity: "high"
+      requires_git_commit: true
+      commit_message_template: "fix(deps): Generate missing pixi.lock file"
+
+    - id: "pixi_env_not_found"
+      name: "Pixi environment not found"
+      pattern: "Environment.*not found|Could not find environment"
+      description: "Detects when pixi environment needs to be created"
+      fix_command: "pixi install"
+      tool: "pixi"
+      severity: "high"
+      requires_git_commit: false
+      commit_message_template: ""
+
+  # Python import errors
+  python_imports:
+    - id: "module_not_found_error"
+      name: "Python module not found"
+      pattern: "ModuleNotFoundError: No module named '([^']+)'"
+      description: "Detects missing Python modules"
+      fix_command: null  # Will be handled by custom logic
+      tool: "python"
+      severity: "high"
+      requires_git_commit: false
+      commit_message_template: ""
+      capture_groups:
+        - name: "module_name"
+          index: 1
+      custom_handler: "suggest_pixi_add"
+      
+    - id: "import_error_no_module"
+      name: "Import error - no module"
+      pattern: "ImportError: No module named '?([^'\"]+)'?"
+      description: "Detects import errors for missing modules"
+      fix_command: null
+      tool: "python"
+      severity: "high"
+      requires_git_commit: false
+      commit_message_template: ""
+      capture_groups:
+        - name: "module_name"
+          index: 1
+      custom_handler: "suggest_pixi_add"
+
+  # Package manager conflicts
+  dependency_conflicts:
+    - id: "pixi_conflict_detected"
+      name: "Pixi dependency conflict"
+      pattern: "Conflict detected.*|conflicting dependencies"
+      description: "Detects dependency conflicts in pixi"
+      fix_command: null
+      tool: "pixi"
+      severity: "critical"
+      requires_git_commit: false
+      commit_message_template: ""
+      custom_handler: "notify_conflict"
+      
+    - id: "version_incompatibility"
+      name: "Version incompatibility detected"
+      pattern: "incompatible.*version|version.*incompatible"
+      description: "Detects version incompatibility issues"
+      fix_command: null
+      tool: "pixi"
+      severity: "critical"
+      requires_git_commit: false
+      commit_message_template: ""
+      custom_handler: "notify_conflict"
+
+  # Environment synchronization
+  env_sync:
+    - id: "pyproject_toml_changed"
+      name: "pyproject.toml has been modified"
+      pattern: "pyproject.toml.*modified|Dependencies have changed"
+      description: "Detects when pyproject.toml has been modified and needs sync"
+      fix_command: "pixi install"
+      tool: "pixi"
+      severity: "medium"
+      requires_git_commit: false
+      commit_message_template: ""
+      
+    - id: "missing_dependencies"
+      name: "Missing dependencies in environment"
+      pattern: "The following dependencies are missing:.*|Missing packages:"
+      description: "Detects missing dependencies that need to be installed"
+      fix_command: "pixi install"
+      tool: "pixi"
+      severity: "high"
+      requires_git_commit: false
+      commit_message_template: ""
+
+# Custom handlers configuration
+custom_handlers:
+  suggest_pixi_add:
+    description: "Suggests pixi add command for missing modules"
+    action: "suggest"
+    message_template: "Module '{module_name}' not found. Consider running: pixi add {module_name}"
+    
+  notify_conflict:
+    description: "Notifies user about dependency conflicts"
+    action: "notify"
+    message_template: "Dependency conflict detected. Manual intervention required to resolve conflicting package versions."

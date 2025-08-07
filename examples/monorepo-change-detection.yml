@@ -95,16 +95,19 @@ jobs:
           # Navigate to package directory
           cd ${{ matrix.package }}
           
-          # Install package dependencies
+          # Install package dependencies using PIXI
           if [ -f "pyproject.toml" ]; then
-            pip install -e .
+            # Install PIXI first
+            curl -fsSL https://pixi.sh/install.sh | bash
+            export PATH="$HOME/.pixi/bin:$PATH"
+            pixi install
           fi
           
           # Run package-specific tests
           if [ -d "tests" ]; then
-            pytest tests/ -v --cov=${{ matrix.package }}
+            pixi run test
           elif [ -d "../tests/${{ matrix.package }}" ]; then
-            pytest ../tests/${{ matrix.package }}/ -v
+            cd .. && pixi run test
           else
             echo "⚠️ No tests found for package ${{ matrix.package }}"
           fi
@@ -134,17 +137,21 @@ jobs:
           affected_packages="${{ needs.monorepo-change-detection.outputs.affected-packages }}"
           echo "📦 Testing integration between: $affected_packages"
           
-          # Install all affected packages
+          # Install all affected packages using PIXI
+          # Install PIXI first
+          curl -fsSL https://pixi.sh/install.sh | bash
+          export PATH="$HOME/.pixi/bin:$PATH"
+          
           for package in $(echo $affected_packages | tr ',' ' '); do
             if [ -d "$package" ] && [ -f "$package/pyproject.toml" ]; then
               echo "Installing $package..."
-              pip install -e ./$package
+              cd $package && pixi install && cd ..
             fi
           done
           
           # Run integration test suite
           if [ -d "tests/integration" ]; then
-            pytest tests/integration/ -v -m "integration"
+            pixi run test-integration
           fi
 
   # Package-specific security scans

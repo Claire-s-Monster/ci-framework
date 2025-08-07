@@ -21,8 +21,8 @@ jobs:
         id: release
         uses: googleapis/release-please-action@v4
         with:
-          # Required: Token for authentication
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Required: Token for authentication (use PAT if GITHUB_TOKEN lacks permissions)
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           # Required: Type of package (python, node, etc.)
           release-type: python
           # Optional: Config file path (will use .release-please-config.json)

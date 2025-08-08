@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  releases: write
+  pages: write
+  id-token: write
 
 jobs:
   release-please:
@@ -19,75 +22,48 @@ jobs:
     steps:
       - name: Release Please
         id: release
-        uses: google-github-actions/release-please-action@v4
+        uses: googleapis/release-please-action@v4
         with:
-          # Type of package
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           release-type: python
-          # Package name (matches pyproject.toml)
-          package-name: ci-framework-tools
-          # Version file to update
-          version-file: pyproject.toml
-          # Changelog sections configuration
-          changelog-sections: |
-            [
-              {"type":"feat","section":"🚀 Features","hidden":false},
-              {"type":"fix","section":"🐛 Bug Fixes","hidden":false},
-              {"type":"docs","section":"📚 Documentation","hidden":false},
-              {"type":"chore","section":"🔧 Maintenance","hidden":false},
-              {"type":"refactor","section":"♻️ Code Refactoring","hidden":false},
-              {"type":"perf","section":"⚡ Performance Improvements","hidden":false},
-              {"type":"test","section":"🧪 Tests","hidden":false},
-              {"type":"ci","section":"👷 CI/CD","hidden":false},
-              {"type":"build","section":"📦 Build System","hidden":false},
-              {"type":"style","section":"💄 Styling","hidden":true},
-              {"type":"revert","section":"⏪ Reverts","hidden":false}
-            ]
-          # Include component in tag
-          include-component-in-tag: false
-          # Bump minor for feat, patch for fix
-          bump-minor-pre-major: true
-          bump-patch-for-minor-pre-major: true
-          # Custom changelog header
-          changelog-header: |
-            # Changelog
-            
-            All notable changes to the CI Framework will be documented in this file.
-            
-            The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-            and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-          # Draft releases for review
-          draft: false
-          # Prerelease pattern
-          prerelease: false
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
 
-  # Optional: Publish to GitHub Packages or PyPI after release
-  publish:
+  # Create GitHub Pages deployment if release was created
+  deploy-pages:
     needs: release-please
-    runs-on: ubuntu-latest
     if: needs.release-please.outputs.release_created
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-          
-      - name: Install PIXI
-        uses: prefix-dev/setup-pixi@v0.8.13
-        with:
-          pixi-version: v0.49.0
-          cache: false
-          
-      - name: Build Package
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Build Documentation
         run: |
-          echo "📦 Building CI Framework v${{ needs.release-please.outputs.tag_name }}"
-          pixi run build || echo "⚠️ Build step not configured yet"
-          
-      - name: Release Summary
-        run: |
-          echo "## 🎉 CI Framework Release ${{ needs.release-please.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "Release successfully created and published!" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag**: ${{ needs.release-please.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Release URL**: https://github.com/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          mkdir -p _site
+          echo "# CI Framework v${{ needs.release-please.outputs.tag_name }}" > _site/index.md
+          echo "## Release Notes" >> _site/index.md
+          echo "This release includes:" >> _site/index.md
+          echo "- Self-Healing CI Infrastructure" >> _site/index.md
+          echo "- Automated CHANGELOG generation" >> _site/index.md
+          echo "- Enhanced documentation" >> _site/index.md
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

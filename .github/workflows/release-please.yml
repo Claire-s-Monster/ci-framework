@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  releases: write
+  pages: write
+  id-token: write
 
 jobs:
   release-please:
@@ -21,11 +24,12 @@ jobs:
         id: release
         uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           release-type: python
-          package-name: ci-framework
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
 
-  # Create GitHub Pages deployment if release was created  
+  # Create GitHub Pages deployment if release was created
   deploy-pages:
     needs: release-please
     if: needs.release-please.outputs.release_created
@@ -41,10 +45,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
-        
+
       - name: Build Documentation
         run: |
           mkdir -p _site
@@ -54,12 +58,12 @@ jobs:
           echo "- Self-Healing CI Infrastructure" >> _site/index.md
           echo "- Automated CHANGELOG generation" >> _site/index.md
           echo "- Enhanced documentation" >> _site/index.md
-          
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: '_site'
-          
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

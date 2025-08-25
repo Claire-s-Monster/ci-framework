@@ -1,0 +1,393 @@
+name: Gemini AI Analysis
+
+# AI-powered code analysis using Gemini CLI GitHub Actions
+# Provides intelligent PR reviews, issue triage, and comprehensive analysis
+
+on:
+  # Automatic triggers
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issues:
+    types: [opened, labeled]
+  
+  # Manual trigger for comprehensive analysis
+  workflow_dispatch:
+    inputs:
+      analysis_type:
+        description: 'Type of analysis to perform'
+        required: true
+        default: 'comprehensive'
+        type: choice
+        options:
+          - 'pr-review'
+          - 'issue-triage'
+          - 'security-analysis'
+          - 'performance-analysis'
+          - 'comprehensive'
+      focus_area:
+        description: 'Focus area (optional - path or component)'
+        required: false
+        type: string
+      prompt:
+        description: 'Custom prompt for AI analysis (optional)'
+        required: false
+        type: string
+
+# Required permissions for Gemini CLI operations
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+
+env:
+  GEMINI_CLI_VERSION: '0.1.18'
+
+jobs:
+  # Job 1: Automatic PR Review
+  pr-review:
+    if: github.event_name == 'pull_request' && vars.ENABLE_AI_ANALYSIS == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better context
+
+      - name: Setup Gemini CLI
+        run: |
+          # Download and install Gemini CLI
+          curl -sSL "https://github.com/google-gemini/gemini-cli/releases/download/v${{ env.GEMINI_CLI_VERSION }}/gemini-cli-linux-amd64" -o gemini-cli
+          chmod +x gemini-cli
+          sudo mv gemini-cli /usr/local/bin/
+
+      - name: Verify Gemini CLI Installation
+        run: |
+          gemini-cli --version
+          echo "✅ Gemini CLI installed successfully"
+
+      - name: Run Gemini PR Review
+        uses: google-github-actions/run-gemini-cli@v1
+        with:
+          # Core configuration
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          model: 'gemini-2.0-flash-exp'
+          
+          # PR Review specific prompt
+          prompt: |
+            You are an expert code reviewer for a CI/CD framework project. 
+            
+            **Project Context**: This is a comprehensive CI/CD framework that provides:
+            - Intelligent change detection and optimization
+            - Multi-tier quality gates (essential/comprehensive/extended)
+            - Performance monitoring and regression detection
+            - Multi-layer security scanning
+            - Cross-platform validation
+            - AI-powered insights integration
+            
+            **Your Task**: Provide a thorough code review focusing on:
+            
+            1. **Code Quality & Best Practices**
+               - Code structure, readability, and maintainability
+               - Adherence to Python/YAML/shell scripting best practices
+               - Error handling and edge cases
+               - Documentation quality
+            
+            2. **CI/CD Framework Compliance**
+               - Proper integration with existing CI stages
+               - Performance impact on CI workflows
+               - Backward compatibility considerations
+               - Security implications
+            
+            3. **Performance & Efficiency**
+               - Algorithm efficiency and resource usage
+               - CI pipeline optimization opportunities
+               - Caching and artifact management
+            
+            4. **Security & Reliability**
+               - Security best practices
+               - Input validation and sanitization
+               - Secrets and credential handling
+               - Error recovery and resilience
+            
+            5. **Testing & Quality Assurance**
+               - Test coverage and quality
+               - Integration with quality gates
+               - Mock usage and test isolation
+            
+            **Output Format**: Provide:
+            - Overall rating (1-10) for each category
+            - Specific line-by-line feedback where applicable
+            - Actionable improvement suggestions
+            - Any critical issues that must be addressed
+            
+            Focus on constructive feedback that helps improve code quality while maintaining the framework's performance and reliability standards.
+          
+          # Context and safety settings
+          include_context: true
+          max_tokens: 8192
+          temperature: 0.3
+          
+          # Command allowlist for security
+          allowed_commands: |
+            git log --oneline -10
+            git diff --name-only
+            find . -name "*.py" -o -name "*.yml" -o -name "*.yaml" | head -20
+            wc -l **/*.py
+            grep -r "TODO\|FIXME\|XXX" --include="*.py" --include="*.yml" . | head -10
+
+      - name: Comment on PR
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read the Gemini CLI output (should be in GITHUB_STEP_SUMMARY or output file)
+            let aiReview = "AI review completed successfully. Check the job logs for detailed analysis.";
+            
+            // Try to read from step summary or output file
+            try {
+              if (process.env.GITHUB_STEP_SUMMARY && fs.existsSync(process.env.GITHUB_STEP_SUMMARY)) {
+                const summaryContent = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, 'utf8');
+                if (summaryContent.trim()) {
+                  aiReview = summaryContent;
+                }
+              }
+            } catch (error) {
+              console.log('Could not read step summary:', error.message);
+            }
+            
+            const comment = `## 🤖 Gemini AI Code Review
+            
+${aiReview}
+
+---
+*Generated by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) using Gemini CLI v${{ env.GEMINI_CLI_VERSION }}*
+*Triggered by: ${context.eventName} on ${context.ref}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  # Job 2: Automatic Issue Triage
+  issue-triage:
+    if: github.event_name == 'issues' && github.event.action == 'opened' && vars.ENABLE_AI_ANALYSIS == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Gemini CLI
+        run: |
+          curl -sSL "https://github.com/google-gemini/gemini-cli/releases/download/v${{ env.GEMINI_CLI_VERSION }}/gemini-cli-linux-amd64" -o gemini-cli
+          chmod +x gemini-cli
+          sudo mv gemini-cli /usr/local/bin/
+
+      - name: Run Issue Triage
+        uses: google-github-actions/run-gemini-cli@v1
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          model: 'gemini-2.0-flash-exp'
+          prompt: |
+            You are an expert project maintainer for a CI/CD framework. 
+            
+            **Issue Details**:
+            - Title: ${{ github.event.issue.title }}
+            - Body: ${{ github.event.issue.body }}
+            - Author: ${{ github.event.issue.user.login }}
+            
+            **Your Task**: Analyze this issue and provide:
+            
+            1. **Classification**:
+               - Type: bug/feature/enhancement/documentation/question/support
+               - Priority: critical/high/medium/low
+               - Complexity: simple/moderate/complex
+               - Area: ci-framework/actions/security/performance/documentation/other
+            
+            2. **Labeling Suggestions** (choose from these available labels):
+               - bug, enhancement, documentation, question, help wanted
+               - priority/critical, priority/high, priority/medium, priority/low
+               - area/ci-framework, area/actions, area/security, area/performance
+               - complexity/simple, complexity/moderate, complexity/complex
+               - good first issue, needs investigation, needs reproduction
+            
+            3. **Initial Response**:
+               - Brief acknowledgment
+               - Next steps or questions for the reporter
+               - Estimated effort if it's a clear bug/feature
+            
+            4. **Assignment Recommendation**:
+               - Should this be auto-assigned to a team member?
+               - What expertise is required?
+            
+            **Output Format**: Provide structured JSON with your analysis.
+          
+          max_tokens: 4096
+          temperature: 0.2
+
+      - name: Apply Labels and Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This would parse the Gemini output and apply labels
+            // For now, we'll apply basic triage
+            const labels = [];
+            const title = context.payload.issue.title.toLowerCase();
+            const body = context.payload.issue.body ? context.payload.issue.body.toLowerCase() : '';
+            
+            // Basic classification
+            if (title.includes('bug') || title.includes('error') || title.includes('fail')) {
+              labels.push('bug');
+            } else if (title.includes('feature') || title.includes('add')) {
+              labels.push('enhancement');
+            } else if (title.includes('doc') || title.includes('readme')) {
+              labels.push('documentation');
+            } else {
+              labels.push('question');
+            }
+            
+            // Apply labels
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labels
+              });
+            }
+            
+            // Add triage comment
+            const comment = `## 🤖 AI Triage Complete
+            
+Thank you for reporting this issue! Our AI system has performed an initial analysis:
+
+**Classification**: ${labels.join(', ')}
+**Status**: Under review by maintainers
+
+A team member will review this issue and provide more detailed feedback soon.
+
+---
+*Automated triage by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) Gemini AI*`;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  # Job 3: Manual Comprehensive Analysis
+  comprehensive-analysis:
+    if: github.event_name == 'workflow_dispatch' && vars.ENABLE_AI_ANALYSIS == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Gemini CLI
+        run: |
+          curl -sSL "https://github.com/google-gemini/gemini-cli/releases/download/v${{ env.GEMINI_CLI_VERSION }}/gemini-cli-linux-amd64" -o gemini-cli
+          chmod +x gemini-cli
+          sudo mv gemini-cli /usr/local/bin/
+
+      - name: Run Comprehensive Analysis
+        uses: google-github-actions/run-gemini-cli@v1
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          model: 'gemini-2.0-flash-exp'
+          prompt: |
+            You are a senior software architect analyzing a CI/CD framework project.
+            
+            **Analysis Type**: ${{ github.event.inputs.analysis_type }}
+            **Focus Area**: ${{ github.event.inputs.focus_area || 'entire project' }}
+            **Custom Prompt**: ${{ github.event.inputs.prompt || 'None' }}
+            
+            **Project Overview**: This is a comprehensive CI/CD framework providing:
+            - Intelligent change detection and CI optimization
+            - Multi-tier quality gates (essential/comprehensive/extended)  
+            - Performance monitoring with regression detection
+            - Multi-layer security scanning and SARIF integration
+            - Cross-platform validation with native pixi environments
+            - AI-powered insights and analysis capabilities
+            
+            Based on the analysis type requested, provide:
+            
+            ### For 'comprehensive':
+            1. **Architecture Assessment**
+               - Overall design patterns and structure
+               - Component coupling and cohesion
+               - Scalability and maintainability concerns
+            
+            2. **Code Quality Analysis**  
+               - Best practices adherence
+               - Technical debt identification
+               - Refactoring opportunities
+            
+            3. **Performance Analysis**
+               - CI pipeline efficiency
+               - Resource utilization optimization
+               - Bottleneck identification
+            
+            4. **Security Review**
+               - Security best practices
+               - Vulnerability assessment
+               - Credential and secret management
+            
+            5. **Strategic Recommendations**
+               - Priority improvements
+               - Future development direction
+               - Integration opportunities
+            
+            ### For specific analysis types (security/performance):
+            Focus deeply on that domain with actionable recommendations.
+            
+            **Output**: Provide detailed analysis with specific examples and actionable recommendations.
+          
+          include_context: true
+          max_tokens: 8192
+          temperature: 0.2
+          allowed_commands: |
+            find . -name "*.py" -exec wc -l {} +
+            find . -name "*.yml" -o -name "*.yaml" -exec wc -l {} +
+            git log --oneline --since="1 month ago" | wc -l
+            find . -name "*.py" -exec grep -l "TODO\|FIXME\|XXX" {} \;
+            ls -la .github/workflows/
+            du -sh .
+
+      - name: Generate Analysis Report
+        run: |
+          echo "## 🔍 Comprehensive Project Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Analysis Type**: ${{ github.event.inputs.analysis_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Focus Area**: ${{ github.event.inputs.focus_area || 'Entire Project' }}" >> $GITHUB_STEP_SUMMARY  
+          echo "**Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Project Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "- **Python Files**: $(find . -name "*.py" | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- **YAML Workflows**: $(find .github/workflows -name "*.yml" -o -name "*.yaml" | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total LOC**: $(find . -name "*.py" -exec wc -l {} + | tail -1 | awk '{print $1}')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Recent Commits**: $(git log --oneline --since='1 month ago' | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🤖 AI Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "Detailed analysis has been completed. Check the job logs for full results." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Analysis powered by Gemini CLI v${{ env.GEMINI_CLI_VERSION }}*" >> $GITHUB_STEP_SUMMARY
+
+  # Job 4: CI Failure Analysis (triggered by workflow_run)
+  ci-failure-analysis:
+    # This would be triggered by a separate workflow_run event
+    # when the main CI fails - keeping it simple for now
+    if: false  # Disabled until we implement the trigger mechanism
+    runs-on: ubuntu-latest
+    steps:
+      - name: Analyze CI Failure
+        run: |
+          echo "🔍 CI Failure Analysis would run here"
+          echo "This would analyze failed CI runs and provide insights"

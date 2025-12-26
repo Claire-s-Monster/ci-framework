@@ -3,9 +3,32 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
-from .collector import SecurityCollector
-from .sbom_generator import SBOMGenerator
+# Add framework root to path when run as script
+# This allows importing security modules without triggering framework/__init__.py
+_script_dir = Path(__file__).resolve().parent
+_security_dir = _script_dir
+_framework_dir = _script_dir.parent
+_root_dir = _framework_dir.parent
+
+if str(_root_dir) not in sys.path:
+    sys.path.insert(0, str(_root_dir))
+
+# Prevent framework/__init__.py from being loaded by adding a fake module
+# This is a workaround to allow CLI to run without all framework dependencies
+if "framework" not in sys.modules:
+    import types
+    sys.modules["framework"] = types.ModuleType("framework")
+    sys.modules["framework"].__path__ = [str(_framework_dir)]
+    
+if "framework.security" not in sys.modules:
+    sys.modules["framework.security"] = types.ModuleType("framework.security")
+    sys.modules["framework.security"].__path__ = [str(_security_dir)]
+
+# Now we can import the modules - they'll find their relative imports via sys.modules
+from framework.security.collector import SecurityCollector
+from framework.security.sbom_generator import SBOMGenerator
 
 
 def scan_command(args: argparse.Namespace) -> None:

@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -288,7 +287,6 @@ def handle_env_info(args):
 
 def handle_generate_summary(args):
     """Handle CI run summary generation."""
-    import glob
     from pathlib import Path
     
     # Configuration constants

@@ -77,17 +77,21 @@ jobs:
           filters: |
             src:
               - '${{ inputs.package-path }}/src/**'
+              - '${{ inputs.package-path }}/framework/**'
               - '${{ inputs.package-path }}/pyproject.toml'
               - '${{ inputs.package-path }}/pixi.lock'
+              - '!${{ inputs.package-path }}/framework/tests/**'
             docs:
               - '${{ inputs.package-path }}/docs/**'
               - '${{ inputs.package-path }}/*.md'
             tests:
               - '${{ inputs.package-path }}/tests/**'
+              - '${{ inputs.package-path }}/framework/tests/**'
             ci:
               - '.github/workflows/**'
             performance:
               - '${{ inputs.package-path }}/tests/performance/**'
+              - '${{ inputs.package-path }}/framework/tests/performance/**'
             security:
               - '.github/workflows/security.yml'
 

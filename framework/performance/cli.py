@@ -3,9 +3,36 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
-from .collector import PerformanceCollector
-from .comparator import ComparisonMode, PerformanceComparator
+# Add framework root to path when run as script
+# This allows importing performance modules without triggering framework/__init__.py
+_script_dir = Path(__file__).resolve().parent
+_performance_dir = _script_dir
+_framework_dir = _script_dir.parent
+_root_dir = _framework_dir.parent
+
+if str(_root_dir) not in sys.path:
+    sys.path.insert(0, str(_root_dir))
+
+# Prevent framework/__init__.py from being loaded by adding a fake module
+# This is a workaround to allow CLI to run without all framework dependencies
+if "framework" not in sys.modules:
+    import types
+
+    sys.modules["framework"] = types.ModuleType("framework")
+    sys.modules["framework"].__path__ = [str(_framework_dir)]
+
+if "framework.performance" not in sys.modules:
+    sys.modules["framework.performance"] = types.ModuleType("framework.performance")
+    sys.modules["framework.performance"].__path__ = [str(_performance_dir)]
+
+# Now we can import the modules - they'll find their relative imports via sys.modules
+from framework.performance.collector import PerformanceCollector  # noqa: E402
+from framework.performance.comparator import (  # noqa: E402
+    ComparisonMode,
+    PerformanceComparator,
+)
 
 
 def main():

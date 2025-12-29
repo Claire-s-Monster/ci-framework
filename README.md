@@ -17,7 +17,8 @@ A **comprehensive enterprise-grade CI automation framework** providing intellige
 - 🌐 **Cross-Platform Excellence** - Native pixi dependency resolution across all platforms
 - 🧹 **Automated Repository Hygiene** - GPG-signed cleanup with verified bot commits
 - 📦 **Standardized Quality Gates** - Zero-tolerance policy with tiered environments
-- 🤖 **AI-Development Ready** - Handles Claude, TaskMaster, Cursor, and Aider artifacts
+- 🤖 **AI-Powered Insights** - Gemini CLI integration for intelligent PR reviews and issue triage
+- 🔍 **AI-Development Ready** - Handles Claude, TaskMaster, Cursor, and Aider artifacts
 - ⚡ **Zero CI Failures** - Self-healing prevents broken builds with automatic fixes
 
 ## 🚨 Quality Gates - Zero CI Failures
@@ -120,6 +121,36 @@ jobs:
 - **semgrep** - Pattern-based security detection
 - **Trivy** - Container scanning and SBOM generation
 - **SARIF Integration** - Upload to GitHub Security tab
+
+### 🤖 AI-Powered Code Analysis
+
+**Intelligent PR reviews, issue triage, and comprehensive code insights powered by Google Gemini**
+
+```yaml
+jobs:
+  ai-analysis:
+    uses: Claire-s-Monster/ci-framework/.github/workflows/gemini-ai-analysis.yml@v1.1.0
+    with:
+      analysis_type: 'pr-review'  # pr-review/issue-triage/comprehensive/security-analysis
+      focus_area: 'src/'  # Optional: focus on specific paths
+    secrets:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+```
+
+**AI Capabilities:**
+- **🔍 Automated PR Reviews** - Context-aware code analysis with actionable feedback
+- **🏷️ Intelligent Issue Triage** - Automatic classification, prioritization, and labeling
+- **🔒 Security Assessment** - AI-powered vulnerability and security best practice analysis
+- **⚡ Performance Insights** - Code efficiency and performance impact analysis
+- **📊 Comprehensive Analysis** - Full project health assessment and recommendations
+- **🚨 CI Failure Analysis** - Root cause analysis and fix suggestions for failed builds
+
+**Setup Requirements:**
+- Google AI Studio API key (`GEMINI_API_KEY` secret)
+- Repository variable `ENABLE_AI_ANALYSIS=true`
+- Enhanced permissions for PR and issue management
+
+See [Gemini AI Integration Guide](docs/gemini-ai-integration.md) for complete setup instructions.
 
 ### 📋 Quality Gates & Validation
 

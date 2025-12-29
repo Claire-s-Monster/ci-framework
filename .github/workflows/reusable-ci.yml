@@ -77,17 +77,21 @@ jobs:
           filters: |
             src:
               - '${{ inputs.package-path }}/src/**'
+              - '${{ inputs.package-path }}/framework/**'
               - '${{ inputs.package-path }}/pyproject.toml'
               - '${{ inputs.package-path }}/pixi.lock'
+              - '!${{ inputs.package-path }}/framework/tests/**'
             docs:
               - '${{ inputs.package-path }}/docs/**'
               - '${{ inputs.package-path }}/*.md'
             tests:
               - '${{ inputs.package-path }}/tests/**'
+              - '${{ inputs.package-path }}/framework/tests/**'
             ci:
               - '.github/workflows/**'
             performance:
               - '${{ inputs.package-path }}/tests/performance/**'
+              - '${{ inputs.package-path }}/framework/tests/performance/**'
             security:
               - '.github/workflows/security.yml'
 
@@ -154,7 +158,7 @@ jobs:
       - name: "Checkout CI Framework"
         uses: actions/checkout@v4
         with:
-          repository: MementoRC/ci-framework
+          repository: Claire-s-Monster/ci-framework
           path: ci-framework
       - name: "Setup PIXI Environment"
         uses: prefix-dev/setup-pixi@v0.8.13
@@ -192,7 +196,7 @@ jobs:
       - name: "Checkout CI Framework"
         uses: actions/checkout@v4
         with:
-          repository: MementoRC/ci-framework
+          repository: Claire-s-Monster/ci-framework
           path: ci-framework
       - name: "Setup PIXI Environment"
         uses: prefix-dev/setup-pixi@v0.8.13
@@ -253,7 +257,7 @@ jobs:
       - name: "Checkout CI Framework"
         uses: actions/checkout@v4
         with:
-          repository: MementoRC/ci-framework
+          repository: Claire-s-Monster/ci-framework
           path: ci-framework
       - name: "Generate Changelog"
         id: changelog
@@ -277,7 +281,7 @@ jobs:
       - name: "Checkout CI Framework"
         uses: actions/checkout@v4
         with:
-          repository: MementoRC/ci-framework
+          repository: Claire-s-Monster/ci-framework
           path: ci-framework
       - name: "Run Self-Healing Script"
         working-directory: ${{ inputs.package-path }}
@@ -298,7 +302,7 @@ jobs:
       - name: "Checkout CI Framework"
         uses: actions/checkout@v4
         with:
-          repository: MementoRC/ci-framework
+          repository: Claire-s-Monster/ci-framework
           path: ci-framework
       - name: "Generate Run Summary"
         run: |

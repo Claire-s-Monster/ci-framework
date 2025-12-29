@@ -19,6 +19,7 @@ if str(_root_dir) not in sys.path:
 # This is a workaround to allow CLI to run without all framework dependencies
 if "framework" not in sys.modules:
     import types
+
     sys.modules["framework"] = types.ModuleType("framework")
     sys.modules["framework"].__path__ = [str(_framework_dir)]
 

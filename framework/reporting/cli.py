@@ -19,6 +19,7 @@ if str(_root_dir) not in sys.path:
 # This is a workaround to allow CLI to run without all framework dependencies
 if "framework" not in sys.modules:
     import types
+
     sys.modules["framework"] = types.ModuleType("framework")
     sys.modules["framework"].__path__ = [str(_framework_dir)]
 
@@ -310,7 +311,9 @@ def handle_generate_summary(args):
         results = []
         # Search at root level and up to max_depth subdirectories
         for depth in range(max_depth + 1):
-            depth_pattern = "/".join(["*"] * depth) + f"/{pattern}" if depth > 0 else pattern
+            depth_pattern = (
+                "/".join(["*"] * depth) + f"/{pattern}" if depth > 0 else pattern
+            )
             results.extend(base_path.glob(depth_pattern))
         return results
 
@@ -383,7 +386,10 @@ def handle_generate_summary(args):
 
     # Add timestamp
     from datetime import datetime
-    summary_lines.append(f"\n---\n*Summary generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n")
+
+    summary_lines.append(
+        f"\n---\n*Summary generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n"
+    )
 
     # Write summary to file
     try:

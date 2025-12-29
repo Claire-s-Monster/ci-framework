@@ -9,7 +9,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  releases: write
   pages: write
   id-token: write
 

@@ -21,14 +21,17 @@ if "framework" not in sys.modules:
     import types
     sys.modules["framework"] = types.ModuleType("framework")
     sys.modules["framework"].__path__ = [str(_framework_dir)]
-    
+
 if "framework.performance" not in sys.modules:
     sys.modules["framework.performance"] = types.ModuleType("framework.performance")
     sys.modules["framework.performance"].__path__ = [str(_performance_dir)]
 
 # Now we can import the modules - they'll find their relative imports via sys.modules
-from framework.performance.collector import PerformanceCollector
-from framework.performance.comparator import ComparisonMode, PerformanceComparator
+from framework.performance.collector import PerformanceCollector  # noqa: E402
+from framework.performance.comparator import (  # noqa: E402
+    ComparisonMode,
+    PerformanceComparator,
+)
 
 
 def main():

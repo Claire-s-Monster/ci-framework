@@ -21,14 +21,14 @@ if "framework" not in sys.modules:
     import types
     sys.modules["framework"] = types.ModuleType("framework")
     sys.modules["framework"].__path__ = [str(_framework_dir)]
-    
+
 if "framework.security" not in sys.modules:
     sys.modules["framework.security"] = types.ModuleType("framework.security")
     sys.modules["framework.security"].__path__ = [str(_security_dir)]
 
 # Now we can import the modules - they'll find their relative imports via sys.modules
-from framework.security.collector import SecurityCollector
-from framework.security.sbom_generator import SBOMGenerator
+from framework.security.collector import SecurityCollector  # noqa: E402
+from framework.security.sbom_generator import SBOMGenerator  # noqa: E402
 
 
 def scan_command(args: argparse.Namespace) -> None:

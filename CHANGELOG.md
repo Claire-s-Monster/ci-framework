@@ -5,6 +5,20 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.1.0...v2.2.0) (2025-12-30)
+
+
+### Features
+
+* **ci:** add GPG signing for Release Please commits ([#66](https://github.com/Claire-s-Monster/ci-framework/issues/66)) ([7af0421](https://github.com/Claire-s-Monster/ci-framework/commit/7af042142acbcaed24a5c01d9d5fa3782c11b7dd))
+
+
+### Bug Fixes
+
+* **ci:** remove invalid 'releases' permission from release-please workflow ([#64](https://github.com/Claire-s-Monster/ci-framework/issues/64)) ([3bb3112](https://github.com/Claire-s-Monster/ci-framework/commit/3bb31120c5ed649ae2624ac8b9dbbb83f3bed6b3))
+* **ci:** update cleanup workflow ref from deleted branch to main ([#68](https://github.com/Claire-s-Monster/ci-framework/issues/68)) ([bb4193a](https://github.com/Claire-s-Monster/ci-framework/commit/bb4193abecb6f76974a4cccf6b216c37da7c1a06))
+* **ci:** use inline GPG import instead of external action ([#67](https://github.com/Claire-s-Monster/ci-framework/issues/67)) ([4c5bfdd](https://github.com/Claire-s-Monster/ci-framework/commit/4c5bfddb751a562f4b716a953cb833c32ec90380))
+
 ## [Unreleased]
 
 ## [2.1.0] - 2025-08-08

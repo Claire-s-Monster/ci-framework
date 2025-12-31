@@ -1,5 +1,8 @@
+---
 name: 'Repository Hygiene Check'
-description: 'Automated checks for common repository hygiene issues to prevent accidental commits of development artifacts'
+description: >-
+  Automated checks for common repository hygiene issues to prevent
+  accidental commits of development artifacts
 author: 'CI Framework'
 
 branding:
@@ -141,19 +144,19 @@ runs:
         if [[ "${{ inputs.warn-on-os-files }}" == "true" ]]; then
           echo "Checking for OS-specific files..."
           OS_FILES_FOUND=false
-          
+
           if git ls-files | grep -q "\.DS_Store$"; then
             echo "::warning::.DS_Store files tracked in git"
             DETAILS="${DETAILS}.DS_Store files found in git (warning)\n"
             OS_FILES_FOUND=true
           fi
-          
+
           if git ls-files | grep -q "Thumbs\.db$"; then
             echo "::warning::Thumbs.db files tracked in git"
             DETAILS="${DETAILS}Thumbs.db files found in git (warning)\n"
             OS_FILES_FOUND=true
           fi
-          
+
           if [[ "$OS_FILES_FOUND" == "true" ]]; then
             WARNINGS=$((WARNINGS + 1))
           else

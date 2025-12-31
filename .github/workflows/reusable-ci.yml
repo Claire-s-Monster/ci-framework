@@ -43,6 +43,16 @@ on:
         required: false
         type: string
         default: '.'
+      editable-install:
+        description: 'Install package in editable mode before testing'
+        required: false
+        type: boolean
+        default: true
+      enable-hygiene-check:
+        description: 'Enable repository hygiene checks'
+        required: false
+        type: boolean
+        default: true
     secrets:
       CODECOV_TOKEN:
         description: "Token for uploading coverage reports to Codecov"
@@ -94,6 +104,24 @@ jobs:
               - '${{ inputs.package-path }}/framework/tests/performance/**'
             security:
               - '.github/workflows/security.yml'
+              - '${{ inputs.package-path }}/pyproject.toml'
+              - '${{ inputs.package-path }}/requirements*.txt'
+              - '${{ inputs.package-path }}/setup.py'
+              - '${{ inputs.package-path }}/setup.cfg'
+              - '${{ inputs.package-path }}/poetry.lock'
+              - '${{ inputs.package-path }}/pixi.lock'
+              - '${{ inputs.package-path }}/src/**'
+
+  hygiene:
+    name: "🧹 Repository Hygiene"
+    runs-on: ubuntu-latest
+    if: inputs.enable-hygiene-check
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Check Repository Hygiene"
+        uses: ./actions/repo-hygiene
+        with:
+          project-dir: ${{ inputs.package-path }}
 
   quality:
     name: "💎 Code Quality"
@@ -111,10 +139,18 @@ jobs:
         working-directory: ${{ inputs.package-path }}
         run: |
           pixi install -e ${{ inputs.pixi-environment }}
-      - name: "Run Linters, Formatters, Type Checkers"
+      - name: "Run Linters"
         working-directory: ${{ inputs.package-path }}
         run: |
-          pixi run -e ${{ inputs.pixi-environment }} quality
+          pixi run -e ${{ inputs.pixi-environment }} lint
+      - name: "Check Code Formatting"
+        working-directory: ${{ inputs.package-path }}
+        run: |
+          pixi run -e ${{ inputs.pixi-environment }} format-check
+      - name: "Run Type Checker"
+        working-directory: ${{ inputs.package-path }}
+        run: |
+          pixi run -e ${{ inputs.pixi-environment }} typecheck
 
   test:
     name: "🧪 Test Python ${{ matrix.python-version }} on ${{ matrix.os }}"
@@ -143,6 +179,11 @@ jobs:
         working-directory: ${{ inputs.package-path }}
         run: |
           pixi install -e ${{ inputs.pixi-environment }}
+      - name: "Install Package in Editable Mode"
+        if: inputs.editable-install
+        working-directory: ${{ inputs.package-path }}
+        run: |
+          pixi run -e ${{ inputs.pixi-environment }} pip install -e . --no-deps
       - name: "Run Test Suite"
         working-directory: ${{ inputs.package-path }}
         run: |
@@ -295,7 +336,7 @@ jobs:
   summary:
     name: "✅ CI Summary"
     runs-on: ubuntu-latest
-    needs: [quality, test, security, performance, build, release, self-heal]
+    needs: [hygiene, quality, test, security, performance, build, release, self-heal]
     if: always()
     steps:
       - uses: actions/checkout@v4

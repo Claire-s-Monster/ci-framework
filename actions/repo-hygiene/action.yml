@@ -1,0 +1,190 @@
+name: 'Repository Hygiene Check'
+description: 'Automated checks for common repository hygiene issues to prevent accidental commits of development artifacts'
+author: 'CI Framework'
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  fail-on-pycache:
+    description: 'Fail if __pycache__ directories are tracked in git'
+    required: false
+    default: 'true'
+
+  fail-on-pyc:
+    description: 'Fail if .pyc files are tracked in git'
+    required: false
+    default: 'true'
+
+  fail-on-missing-gitignore:
+    description: 'Fail if .gitignore file is missing'
+    required: false
+    default: 'true'
+
+  warn-on-env-files:
+    description: 'Warn if .env files are tracked in git'
+    required: false
+    default: 'true'
+
+  warn-on-log-files:
+    description: 'Warn if .log files are tracked in git'
+    required: false
+    default: 'true'
+
+  warn-on-os-files:
+    description: 'Warn if OS-specific files (.DS_Store, Thumbs.db) are tracked'
+    required: false
+    default: 'true'
+
+  project-dir:
+    description: 'Project directory to check (default: current directory)'
+    required: false
+    default: '.'
+
+outputs:
+  success:
+    description: 'Whether hygiene checks passed'
+    value: ${{ steps.hygiene-check.outputs.success }}
+
+  violations:
+    description: 'Number of critical violations found'
+    value: ${{ steps.hygiene-check.outputs.violations }}
+
+  warnings:
+    description: 'Number of warnings found'
+    value: ${{ steps.hygiene-check.outputs.warnings }}
+
+  details:
+    description: 'Details of hygiene check results'
+    value: ${{ steps.hygiene-check.outputs.details }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Repository Hygiene Check
+      id: hygiene-check
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      run: |
+        set +e  # Don't exit on error, we'll handle it
+
+        echo "🧹 Repository Hygiene Check"
+        echo "=========================="
+        echo ""
+
+        VIOLATIONS=0
+        WARNINGS=0
+        DETAILS=""
+
+        # Check for __pycache__ tracked in git
+        if [[ "${{ inputs.fail-on-pycache }}" == "true" ]]; then
+          echo "Checking for __pycache__ directories..."
+          if git ls-files | grep -q "__pycache__"; then
+            echo "::error::❌ __pycache__ directories tracked in git"
+            DETAILS="${DETAILS}__pycache__ directories found in git\n"
+            VIOLATIONS=$((VIOLATIONS + 1))
+          else
+            echo "✅ No __pycache__ directories in git"
+          fi
+        fi
+
+        # Check for .pyc files tracked in git
+        if [[ "${{ inputs.fail-on-pyc }}" == "true" ]]; then
+          echo "Checking for .pyc files..."
+          if git ls-files | grep -q "\.pyc$"; then
+            echo "::error::❌ .pyc files tracked in git"
+            DETAILS="${DETAILS}.pyc files found in git\n"
+            VIOLATIONS=$((VIOLATIONS + 1))
+          else
+            echo "✅ No .pyc files in git"
+          fi
+        fi
+
+        # Check .gitignore exists
+        if [[ "${{ inputs.fail-on-missing-gitignore }}" == "true" ]]; then
+          echo "Checking for .gitignore..."
+          if [ ! -f .gitignore ]; then
+            echo "::error::❌ .gitignore file missing"
+            DETAILS="${DETAILS}.gitignore file missing\n"
+            VIOLATIONS=$((VIOLATIONS + 1))
+          else
+            echo "✅ .gitignore file exists"
+          fi
+        fi
+
+        # Warn about .env files
+        if [[ "${{ inputs.warn-on-env-files }}" == "true" ]]; then
+          echo "Checking for .env files..."
+          if git ls-files | grep -q "\.env$\|\.env\."; then
+            echo "::warning::.env files tracked in git"
+            DETAILS="${DETAILS}.env files found in git (warning)\n"
+            WARNINGS=$((WARNINGS + 1))
+          else
+            echo "✅ No .env files in git"
+          fi
+        fi
+
+        # Warn about .log files
+        if [[ "${{ inputs.warn-on-log-files }}" == "true" ]]; then
+          echo "Checking for .log files..."
+          if git ls-files | grep -q "\.log$"; then
+            echo "::warning::*.log files tracked in git"
+            DETAILS="${DETAILS}*.log files found in git (warning)\n"
+            WARNINGS=$((WARNINGS + 1))
+          else
+            echo "✅ No .log files in git"
+          fi
+        fi
+
+        # Warn about OS-specific files
+        if [[ "${{ inputs.warn-on-os-files }}" == "true" ]]; then
+          echo "Checking for OS-specific files..."
+          OS_FILES_FOUND=false
+          
+          if git ls-files | grep -q "\.DS_Store$"; then
+            echo "::warning::.DS_Store files tracked in git"
+            DETAILS="${DETAILS}.DS_Store files found in git (warning)\n"
+            OS_FILES_FOUND=true
+          fi
+          
+          if git ls-files | grep -q "Thumbs\.db$"; then
+            echo "::warning::Thumbs.db files tracked in git"
+            DETAILS="${DETAILS}Thumbs.db files found in git (warning)\n"
+            OS_FILES_FOUND=true
+          fi
+          
+          if [[ "$OS_FILES_FOUND" == "true" ]]; then
+            WARNINGS=$((WARNINGS + 1))
+          else
+            echo "✅ No OS-specific files in git"
+          fi
+        fi
+
+        # Summary
+        echo ""
+        echo "=========================="
+        echo "Hygiene Check Summary:"
+        echo "  Violations: $VIOLATIONS"
+        echo "  Warnings: $WARNINGS"
+        echo "=========================="
+
+        # Set outputs
+        if [[ $VIOLATIONS -eq 0 ]]; then
+          echo "success=true" >> "$GITHUB_OUTPUT"
+          echo "✅ All hygiene checks passed!"
+        else
+          echo "success=false" >> "$GITHUB_OUTPUT"
+          echo "❌ Hygiene checks failed with $VIOLATIONS violation(s)"
+        fi
+
+        echo "violations=$VIOLATIONS" >> "$GITHUB_OUTPUT"
+        echo "warnings=$WARNINGS" >> "$GITHUB_OUTPUT"
+        echo -e "details<<EOF" >> "$GITHUB_OUTPUT"
+        echo -e "$DETAILS" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+
+        # Exit with error if violations found
+        if [[ $VIOLATIONS -gt 0 ]]; then
+          exit 1
+        fi

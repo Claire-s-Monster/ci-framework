@@ -1,0 +1,63 @@
+name: Deploy GitHub Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v2.2.0)'
+        required: false
+        default: 'latest'
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy-pages:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        with:
+          enablement: true
+
+      - name: Build Documentation
+        run: |
+          mkdir -p _site
+          VERSION="${{ github.event.inputs.version }}"
+          if [ "$VERSION" = "latest" ]; then
+            VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+          fi
+          echo "# CI Framework ${VERSION}" > _site/index.md
+          echo "" >> _site/index.md
+          echo "## Release Notes" >> _site/index.md
+          echo "" >> _site/index.md
+          echo "This release includes:" >> _site/index.md
+          echo "- Self-Healing CI Infrastructure" >> _site/index.md
+          echo "- Automated CHANGELOG generation" >> _site/index.md
+          echo "- Enhanced documentation" >> _site/index.md
+          echo "" >> _site/index.md
+          echo "---" >> _site/index.md
+          echo "*Deployed: $(date -u)*" >> _site/index.md
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

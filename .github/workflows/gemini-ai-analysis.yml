@@ -261,19 +261,17 @@ jobs:
             }
             
             // Add triage comment
-            const comment = [
-              '## 🤖 AI Triage Complete',
-              '',
-              'Thank you for reporting this issue! Our AI system has performed an initial analysis:',
-              '',
-              '**Classification**: ' + labels.join(', '),
-              '**Status**: Under review by maintainers',
-              '',
-              'A team member will review this issue and provide more detailed feedback soon.',
-              '',
-              '---',
-              '*Automated triage by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) Gemini AI*'
-            ].join('\n');
+            const comment = `## 🤖 AI Triage Complete
+            
+Thank you for reporting this issue! Our AI system has performed an initial analysis:
+
+**Classification**: ${labels.join(', ')}
+**Status**: Under review by maintainers
+
+A team member will review this issue and provide more detailed feedback soon.
+
+---
+*Automated triage by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) Gemini AI*`;
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,

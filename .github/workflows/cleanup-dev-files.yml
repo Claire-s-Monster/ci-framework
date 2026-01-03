@@ -16,7 +16,7 @@ on:
         required: false
         type: string
         default: >
-          ["CLAUDE.md", ".claude/**", ".taskmaster/**", ".mcp.json", "ai_docs/**",
+          ["CLAUDE.md", "GEMINI.md", ".claude/**", ".taskmaster/**", ".mcp.json", "ai_docs/**",
            ".cursor/**", ".aider*", "**/__pycache__/**", "**/*.pyc", ".pytest_cache/**",
            "htmlcov/**", "coverage.xml", ".mypy_cache/**", ".ruff_cache/**", "build/**",
            "dist/**", "**/*.egg-info/**", "artifacts/**", "logs/**", "performance_data/**",
@@ -136,7 +136,7 @@ jobs:
           else
             # Default comprehensive cleanup patterns
             cleanup_patterns='[
-              "CLAUDE.md", ".claude/**", ".taskmaster/**", ".mcp.json", "ai_docs/**",
+              "CLAUDE.md", "GEMINI.md", ".claude/**", ".taskmaster/**", ".mcp.json", "ai_docs/**",
               ".cursor/**", ".aider*", "**/__pycache__/**", "**/*.pyc", ".pytest_cache/**",
               "htmlcov/**", "coverage.xml", ".mypy_cache/**", ".ruff_cache/**", "build/**",
               "dist/**", "**/*.egg-info/**", "artifacts/**", "logs/**", "performance_data/**",

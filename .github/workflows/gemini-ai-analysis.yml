@@ -41,7 +41,7 @@ permissions:
   actions: read
 
 env:
-  GEMINI_CLI_VERSION: '0.1.18'
+  GEMINI_CLI_VERSION: '0.13.18'
 
 jobs:
   # Job 1: Automatic PR Review

@@ -5,6 +5,18 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.2.0...v2.3.0) (2026-01-05)
+
+
+### Features
+
+* **ci:** add manual GitHub Pages deployment workflow ([#70](https://github.com/Claire-s-Monster/ci-framework/issues/70)) ([fd4ba63](https://github.com/Claire-s-Monster/ci-framework/commit/fd4ba63f59295cab3aa3b504c321a7df9d6b15cb))
+
+
+### Bug Fixes
+
+* **ci:** add enablement parameter to auto-enable GitHub Pages ([#73](https://github.com/Claire-s-Monster/ci-framework/issues/73)) ([b61a9a4](https://github.com/Claire-s-Monster/ci-framework/commit/b61a9a4379816c50db700d36b7a18fcbc7c74573))
+
 ## [2.2.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.1.0...v2.2.0) (2025-12-30)
 
 

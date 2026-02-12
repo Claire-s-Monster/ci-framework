@@ -1,4 +1,31 @@
 ---
+# ============================================================================
+# STANDALONE CI TEMPLATE - For Local Use Only
+# ============================================================================
+# This file is a TEMPLATE meant to be COPIED to your repository alongside
+# reusable-ci.yml. It provides a simplified interface to the full CI pipeline.
+#
+# USAGE PATTERNS:
+#
+# 1. REMOTE (Recommended for most users):
+#    Call reusable-ci.yml directly from ci-framework:
+#    ```yaml
+#    jobs:
+#      ci:
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+#        secrets: inherit
+#    ```
+#
+# 2. LOCAL (For customization):
+#    Copy BOTH files to your repo's .github/workflows/:
+#    - reusable-ci.yml (the full pipeline)
+#    - standalone-ci.yml (this simplified wrapper)
+#    Then call standalone-ci.yml locally, which references reusable-ci.yml
+#    via local path. This allows full customization without external deps.
+#
+# DO NOT call this file remotely - it uses local path references that only
+# work when both files exist in the same repository.
+# ============================================================================
 name: Standalone Package CI
 
 on:

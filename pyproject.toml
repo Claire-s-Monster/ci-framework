@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ci-framework-tools"
-version = "2.2.0"
+version = "2.3.0"
 description = "Internal tools and scripts for the CI Framework."
 authors = [
     { name = "MementoRC", email = "your-email@example.com" }
@@ -56,6 +56,7 @@ ruff = "*"
 # Security Scanning
 bandit = ">=1.7.0"
 pip-audit = ">=2.6.0"
+pyyaml = "*"  # Required for framework/security/cli.py SBOM generation
 
 # Code Quality Analysis
 radon = ">=6.0.0"

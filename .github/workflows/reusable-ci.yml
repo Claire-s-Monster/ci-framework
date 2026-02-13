@@ -1,4 +1,30 @@
 ---
+# ============================================================================
+# REUSABLE CI/CD PIPELINE - Primary Entry Point
+# ============================================================================
+# This is the main reusable workflow for ci-framework. It can be called:
+#
+# 1. REMOTELY from any repository (recommended):
+#    ```yaml
+#    jobs:
+#      ci:
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+#        with:
+#          pixi-environment: 'ci'
+#          python-versions: '["3.10", "3.11", "3.12"]'
+#        secrets: inherit
+#    ```
+#
+# 2. LOCALLY after copying to your repository:
+#    ```yaml
+#    jobs:
+#      ci:
+#        uses: ./.github/workflows/reusable-ci.yml
+#        secrets: inherit
+#    ```
+#
+# See standalone-ci.yml for a simplified wrapper template (local use only).
+# ============================================================================
 name: Reusable CI/CD Pipeline
 
 on:

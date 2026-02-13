@@ -2,6 +2,7 @@ name: Gemini AI Analysis
 
 # AI-powered code analysis using Gemini CLI GitHub Actions
 # Provides intelligent PR reviews, issue triage, and comprehensive analysis
+# Requires vars.ENABLE_AI_ANALYSIS=true to activate
 
 on:
   # Automatic triggers

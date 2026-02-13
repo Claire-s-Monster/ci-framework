@@ -5,6 +5,13 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1](https://github.com/Claire-s-Monster/ci-framework/compare/v2.3.0...v2.3.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* clarify workflow usage patterns and add pyyaml dependency ([#100](https://github.com/Claire-s-Monster/ci-framework/issues/100)) ([246bdd9](https://github.com/Claire-s-Monster/ci-framework/commit/246bdd993eb92cb8db6430494c420ccce730167f))
+
 ## [2.3.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.2.0...v2.3.0) (2026-01-05)
 
 

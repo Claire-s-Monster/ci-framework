@@ -517,6 +517,44 @@ pixi list -e quality-extended  # if used
 | `cross-platform-validation.yml` | Platform testing | platforms, environments | platform-results, dependency-conflicts |
 | `cleanup-dev-files.yml` | Repository hygiene | cleanup-patterns, target-branches | files-removed, cleanup-needed |
 
+### Reusable Workflow Usage Patterns
+
+The ci-framework provides two approaches for consuming reusable workflows:
+
+#### Pattern 1: Remote Call (Recommended)
+
+Call `reusable-ci.yml` directly from ci-framework - simplest setup, always up-to-date:
+
+```yaml
+jobs:
+  ci:
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+    with:
+      pixi-environment: 'ci'
+      python-versions: '["3.10", "3.11", "3.12"]'
+    secrets: inherit
+```
+
+#### Pattern 2: Local Copy (For Customization)
+
+For repositories that want full control and local customization:
+
+1. **Copy both files** to your repo's `.github/workflows/`:
+   - `reusable-ci.yml` (the full CI pipeline)
+   - `standalone-ci.yml` (simplified wrapper)
+
+2. **Customize** the workflows locally as needed
+
+3. **Call standalone-ci.yml** from your workflow:
+   ```yaml
+   jobs:
+     ci:
+       uses: ./.github/workflows/standalone-ci.yml
+       secrets: inherit
+   ```
+
+> **⚠️ Important**: `standalone-ci.yml` uses local path references and is designed as a **template for local use only**. Do not attempt to call it remotely - it will fail with `startup_failure`.
+
 ### Standalone Actions (for custom workflows)
 
 | Action | Purpose | Location |

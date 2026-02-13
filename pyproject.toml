@@ -56,6 +56,7 @@ ruff = "*"
 # Security Scanning
 bandit = ">=1.7.0"
 pip-audit = ">=2.6.0"
+pyyaml = "*"  # Required for framework/security/cli.py SBOM generation
 
 # Code Quality Analysis
 radon = ">=6.0.0"

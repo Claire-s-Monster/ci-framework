@@ -382,14 +382,53 @@ jobs:
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "*Analysis powered by Gemini CLI v${{ env.GEMINI_CLI_VERSION }}*" >> $GITHUB_STEP_SUMMARY
 
-  # Job 4: CI Failure Analysis (triggered by workflow_run)
+  # Job 4: CI Failure Analysis (runs on PR to analyze any CI issues)
   ci-failure-analysis:
-    # This would be triggered by a separate workflow_run event
-    # when the main CI fails - keeping it simple for now
-    if: false  # Disabled until we implement the trigger mechanism
+    if: github.event_name == 'pull_request' && vars.ENABLE_AI_ANALYSIS == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Analyze CI Failure
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Gemini CLI
         run: |
-          echo "🔍 CI Failure Analysis would run here"
-          echo "This would analyze failed CI runs and provide insights"
+          curl -sSL "https://github.com/google-gemini/gemini-cli/releases/download/v${{ env.GEMINI_CLI_VERSION }}/gemini-cli-linux-amd64" -o gemini-cli
+          chmod +x gemini-cli
+          sudo mv gemini-cli /usr/local/bin/
+
+      - name: Analyze PR Changes for CI Impact
+        uses: google-github-actions/run-gemini-cli@v1
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          model: 'gemini-2.0-flash-exp'
+          prompt: |
+            You are a CI/CD expert analyzing changes in a pull request.
+
+            **Your Task**: Analyze the PR changes for potential CI impact:
+
+            1. **Workflow Changes**: Are any GitHub Actions workflows modified?
+            2. **Dependency Changes**: Are there dependency updates that could affect CI?
+            3. **Test Impact**: Could these changes affect test stability?
+            4. **Build Impact**: Could these changes affect build processes?
+            5. **Security Implications**: Any security-relevant changes?
+
+            Provide concise, actionable feedback focused on CI reliability.
+
+          include_context: true
+          max_tokens: 4096
+          temperature: 0.3
+          allowed_commands: |
+            git diff --name-only HEAD~1
+            git log --oneline -5
+
+      - name: Post Analysis Summary
+        if: success()
+        run: |
+          echo "## 🔍 CI Impact Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR**: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: ${{ github.head_ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Analysis complete. See job logs for details." >> $GITHUB_STEP_SUMMARY

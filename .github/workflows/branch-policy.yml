@@ -1,0 +1,64 @@
+---
+# ============================================================================
+# BRANCH POLICY ENFORCEMENT
+# ============================================================================
+# Ensures PRs to main only come from approved source branches.
+# This enforces the workflow: feature → development → main
+#
+# Allowed sources for PRs to main:
+# - development branch
+# - release-please branches (release-please--branches--*)
+# - hotfix branches (hotfix/*) for emergency fixes
+# ============================================================================
+name: Branch Policy
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-source-branch:
+    name: "🔒 Validate PR Source"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        run: |
+          HEAD_REF="${{ github.head_ref }}"
+          echo "PR source branch: $HEAD_REF"
+
+          # Allowed patterns for PRs to main
+          ALLOWED_PATTERNS=(
+            "^development$"
+            "^release-please--branches--"
+            "^hotfix/"
+          )
+
+          ALLOWED=false
+          for pattern in "${ALLOWED_PATTERNS[@]}"; do
+            if [[ "$HEAD_REF" =~ $pattern ]]; then
+              ALLOWED=true
+              echo "✅ Branch '$HEAD_REF' matches allowed pattern: $pattern"
+              break
+            fi
+          done
+
+          if [ "$ALLOWED" = false ]; then
+            echo ""
+            echo "❌ ERROR: PRs to main must come from approved branches"
+            echo ""
+            echo "Allowed sources:"
+            echo "  • development - for regular releases"
+            echo "  • release-please--branches--* - for automated releases"
+            echo "  • hotfix/* - for emergency fixes"
+            echo ""
+            echo "Your branch: $HEAD_REF"
+            echo ""
+            echo "Please merge your changes to 'development' first,"
+            echo "then create a PR from 'development' to 'main'."
+            echo ""
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ Branch policy check passed"

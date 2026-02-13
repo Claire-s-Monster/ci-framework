@@ -68,7 +68,7 @@ jobs:
           echo "✅ Gemini CLI installed successfully"
 
       - name: Run Gemini PR Review
-        uses: google-github-actions/run-gemini-cli@v1
+        uses: google-github-actions/run-gemini-cli@v0.1.20
         with:
           # Core configuration
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
@@ -189,7 +189,7 @@ jobs:
           sudo mv gemini-cli /usr/local/bin/
 
       - name: Run Issue Triage
-        uses: google-github-actions/run-gemini-cli@v1
+        uses: google-github-actions/run-gemini-cli@v0.1.20
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           model: 'gemini-2.0-flash-exp'
@@ -300,7 +300,7 @@ jobs:
           sudo mv gemini-cli /usr/local/bin/
 
       - name: Run Comprehensive Analysis
-        uses: google-github-actions/run-gemini-cli@v1
+        uses: google-github-actions/run-gemini-cli@v0.1.20
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           model: 'gemini-2.0-flash-exp'
@@ -400,7 +400,7 @@ jobs:
           sudo mv gemini-cli /usr/local/bin/
 
       - name: Analyze PR Changes for CI Impact
-        uses: google-github-actions/run-gemini-cli@v1
+        uses: google-github-actions/run-gemini-cli@v0.1.20
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           model: 'gemini-2.0-flash-exp'

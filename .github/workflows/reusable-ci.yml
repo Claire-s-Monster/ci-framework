@@ -285,11 +285,11 @@ jobs:
         with:
           allow-licenses: ${{ inputs.allowed-licenses }}
       - name: "Initialize CodeQL"
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: 'python'
       - name: "Perform CodeQL Analysis"
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
 
   performance:
     name: "📊 Performance Analysis"
@@ -344,7 +344,7 @@ jobs:
         working-directory: ${{ inputs.package-path }}
         run: |
           pixi run -e quality-ci build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: 'dist'
           path: '${{ inputs.package-path }}/dist/'
@@ -372,7 +372,7 @@ jobs:
         run: |
           python ../ci-framework/framework/reporting/cli.py \
             generate-changelog --path .
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: 'dist'
           path: 'dist/'

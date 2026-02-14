@@ -110,7 +110,7 @@ jobs:
           ```"""
 
           response = client.models.generate_content(
-              model='gemini-2.0-flash-exp',
+              model='gemini-2.0-flash',
               contents=prompt
           )
 
@@ -195,7 +195,7 @@ jobs:
           Labels: bug, enhancement, documentation, question, help wanted, good first issue"""
 
           response = client.models.generate_content(
-              model='gemini-2.0-flash-exp',
+              model='gemini-2.0-flash',
               contents=prompt
           )
 
@@ -295,7 +295,7 @@ jobs:
           Provide: Key Findings (3-5 points), Recommendations, Risk Areas. Max 400 words."""
 
           response = client.models.generate_content(
-              model='gemini-2.0-flash-exp',
+              model='gemini-2.0-flash',
               contents=prompt
           )
 
@@ -372,7 +372,7 @@ jobs:
           Max 100 words."""
 
           response = client.models.generate_content(
-              model='gemini-2.0-flash-exp',
+              model='gemini-2.0-flash',
               contents=prompt
           )
 

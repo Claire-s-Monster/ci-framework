@@ -279,7 +279,7 @@ jobs:
       - name: "Run Security Scans"
         working-directory: ${{ inputs.package-path }}
         run: |
-          python $GITHUB_WORKSPACE/ci-framework/framework/security/cli.py scan --path .
+          python $GITHUB_WORKSPACE/ci-framework/framework/security/cli.py scan .
       - name: "Automated License Compliance Scanning"
         uses: actions/dependency-review-action@v4
         with:

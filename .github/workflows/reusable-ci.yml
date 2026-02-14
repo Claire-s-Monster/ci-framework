@@ -279,7 +279,7 @@ jobs:
       - name: "Run Security Scans"
         working-directory: ${{ inputs.package-path }}
         run: |
-          python ../ci-framework/framework/security/cli.py scan --path .
+          python $GITHUB_WORKSPACE/ci-framework/framework/security/cli.py scan --path .
       - name: "Automated License Compliance Scanning"
         uses: actions/dependency-review-action@v4
         with:
@@ -317,11 +317,11 @@ jobs:
       - name: "Run Benchmarks"
         working-directory: ${{ inputs.package-path }}
         run: |
-          python ../ci-framework/framework/performance/cli.py run --path .
+          python $GITHUB_WORKSPACE/ci-framework/framework/performance/cli.py run --path .
       - name: "Compare to Baseline & Comment on PR"
         working-directory: ${{ inputs.package-path }}
         run: |
-          python ../ci-framework/framework/performance/cli.py compare --path .
+          python $GITHUB_WORKSPACE/ci-framework/framework/performance/cli.py compare --path .
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
@@ -370,7 +370,7 @@ jobs:
         id: changelog
         working-directory: ${{ inputs.package-path }}
         run: |
-          python ../ci-framework/framework/reporting/cli.py \
+          python $GITHUB_WORKSPACE/ci-framework/framework/reporting/cli.py \
             generate-changelog --path .
       - uses: actions/download-artifact@v7
         with:
@@ -396,7 +396,7 @@ jobs:
           echo "This is a placeholder for the self-healing mechanism."
           echo "In the future, this job could automatically fix common"
           echo "test failures."
-          # Example: python ../ci-framework/framework/self_healing/cli.py \
+          # Example: python $GITHUB_WORKSPACE/ci-framework/framework/self_healing/cli.py \
           #   fix --path .
 
   summary:

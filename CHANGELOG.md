@@ -5,6 +5,13 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.3.2...v2.4.0) (2026-02-14)
+
+
+### Features
+
+* convert Gemini AI workflow to reusable workflow ([#109](https://github.com/Claire-s-Monster/ci-framework/issues/109)) ([02ee684](https://github.com/Claire-s-Monster/ci-framework/commit/02ee684d8b6d7d3c0076d5f4eafb02ea7e230c93))
+
 ## [2.3.2](https://github.com/Claire-s-Monster/ci-framework/compare/v2.3.1...v2.3.2) (2026-02-14)
 
 

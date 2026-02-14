@@ -5,6 +5,14 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1](https://github.com/Claire-s-Monster/ci-framework/compare/v2.4.0...v2.4.1) (2026-02-14)
+
+
+### Bug Fixes
+
+* sync security scan CLI fix to main ([6e02808](https://github.com/Claire-s-Monster/ci-framework/commit/6e028088a5fbda931315344efd2da39f10249dd1))
+* use positional argument for security scan CLI ([#113](https://github.com/Claire-s-Monster/ci-framework/issues/113)) ([a9f62bf](https://github.com/Claire-s-Monster/ci-framework/commit/a9f62bf0ff83f1c1232f254a9ba0506b69b7b2c9)), closes [#112](https://github.com/Claire-s-Monster/ci-framework/issues/112)
+
 ## [2.4.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.3.2...v2.4.0) (2026-02-14)
 
 

@@ -5,6 +5,13 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2](https://github.com/Claire-s-Monster/ci-framework/compare/v2.3.1...v2.3.2) (2026-02-14)
+
+
+### Bug Fixes
+
+* use absolute GITHUB_WORKSPACE path for framework CLI scripts ([#106](https://github.com/Claire-s-Monster/ci-framework/issues/106)) ([f94ac13](https://github.com/Claire-s-Monster/ci-framework/commit/f94ac13d189a90fdf3a9be4013e48777fe54ab8e))
+
 ## [2.3.1](https://github.com/Claire-s-Monster/ci-framework/compare/v2.3.0...v2.3.1) (2026-02-13)
 
 

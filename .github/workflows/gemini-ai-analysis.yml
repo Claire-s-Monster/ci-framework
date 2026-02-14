@@ -1,8 +1,8 @@
 name: Gemini AI Analysis
 
-# AI-powered code analysis using Gemini CLI GitHub Actions
+# AI-powered code analysis using Gemini CLI (direct invocation)
 # Provides intelligent PR reviews, issue triage, and comprehensive analysis
-# Requires vars.ENABLE_AI_ANALYSIS=true to activate
+# Requires vars.ENABLE_AI_ANALYSIS=true and secrets.GEMINI_API_KEY to activate
 
 on:
   # Automatic triggers
@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize, reopened]
   issues:
     types: [opened, labeled]
-  
+
   # Manual trigger for comprehensive analysis
   workflow_dispatch:
     inputs:
@@ -41,9 +41,6 @@ permissions:
   issues: write
   actions: read
 
-env:
-  GEMINI_CLI_VERSION: '0.13.18'
-
 jobs:
   # Job 1: Automatic PR Review
   pr-review:
@@ -53,121 +50,102 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for better context
+          fetch-depth: 0
 
-      - name: Setup Gemini CLI
-        run: |
-          # Download and install Gemini CLI
-          curl -sSL "https://github.com/google-gemini/gemini-cli/releases/download/v${{ env.GEMINI_CLI_VERSION }}/gemini-cli-linux-amd64" -o gemini-cli
-          chmod +x gemini-cli
-          sudo mv gemini-cli /usr/local/bin/
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Verify Gemini CLI Installation
+      - name: Install google-genai SDK
+        run: pip install google-genai
+
+      - name: Get PR diff
+        id: diff
         run: |
-          gemini-cli --version
-          echo "✅ Gemini CLI installed successfully"
+          echo "files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | head -20 | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
+          echo "diff_size=$(wc -c < /tmp/pr_diff.txt)" >> $GITHUB_OUTPUT
 
       - name: Run Gemini PR Review
-        uses: google-github-actions/run-gemini-cli@v0.1.20
-        with:
-          # Core configuration
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          model: 'gemini-2.0-flash-exp'
-          
-          # PR Review specific prompt
-          prompt: |
-            You are an expert code reviewer for a CI/CD framework project. 
-            
-            **Project Context**: This is a comprehensive CI/CD framework that provides:
-            - Intelligent change detection and optimization
-            - Multi-tier quality gates (essential/comprehensive/extended)
-            - Performance monitoring and regression detection
-            - Multi-layer security scanning
-            - Cross-platform validation
-            - AI-powered insights integration
-            
-            **Your Task**: Provide a thorough code review focusing on:
-            
-            1. **Code Quality & Best Practices**
-               - Code structure, readability, and maintainability
-               - Adherence to Python/YAML/shell scripting best practices
-               - Error handling and edge cases
-               - Documentation quality
-            
-            2. **CI/CD Framework Compliance**
-               - Proper integration with existing CI stages
-               - Performance impact on CI workflows
-               - Backward compatibility considerations
-               - Security implications
-            
-            3. **Performance & Efficiency**
-               - Algorithm efficiency and resource usage
-               - CI pipeline optimization opportunities
-               - Caching and artifact management
-            
-            4. **Security & Reliability**
-               - Security best practices
-               - Input validation and sanitization
-               - Secrets and credential handling
-               - Error recovery and resilience
-            
-            5. **Testing & Quality Assurance**
-               - Test coverage and quality
-               - Integration with quality gates
-               - Mock usage and test isolation
-            
-            **Output Format**: Provide:
-            - Overall rating (1-10) for each category
-            - Specific line-by-line feedback where applicable
-            - Actionable improvement suggestions
-            - Any critical issues that must be addressed
-            
-            Focus on constructive feedback that helps improve code quality while maintaining the framework's performance and reliability standards.
-          
-          # Context and safety settings
-          include_context: true
-          max_tokens: 8192
-          temperature: 0.3
-          
-          # Command allowlist for security
-          allowed_commands: |
-            git log --oneline -10
-            git diff --name-only
-            find . -name "*.py" -o -name "*.yml" -o -name "*.yaml" | head -20
-            wc -l **/*.py
-            grep -r "TODO\|FIXME\|XXX" --include="*.py" --include="*.yml" . | head -10
+        id: review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          cat > /tmp/review_prompt.txt << 'PROMPT_EOF'
+          You are an expert code reviewer for a CI/CD framework project.
+
+          **Project Context**: This is a comprehensive CI/CD framework that provides:
+          - Intelligent change detection and optimization
+          - Multi-tier quality gates (essential/comprehensive/extended)
+          - Performance monitoring and regression detection
+          - Multi-layer security scanning
+          - Cross-platform validation
+
+          **Changed Files**: ${{ steps.diff.outputs.files }}
+
+          **Your Task**: Review the PR changes and provide:
+          1. **Summary** (2-3 sentences)
+          2. **Code Quality** (rating 1-10, key observations)
+          3. **Security** (any concerns?)
+          4. **Suggestions** (top 3 improvements)
+
+          Keep the review concise and actionable.
+          PROMPT_EOF
+
+          # Truncate diff if too large (keep first 10000 chars)
+          head -c 10000 /tmp/pr_diff.txt > /tmp/pr_diff_truncated.txt
+
+          python3 << 'EOF'
+          import os
+          from google import genai
+
+          client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+
+          with open('/tmp/review_prompt.txt', 'r') as f:
+              prompt = f.read()
+
+          with open('/tmp/pr_diff_truncated.txt', 'r') as f:
+              diff = f.read()
+
+          full_prompt = f"{prompt}\n\n**Diff:**\n```\n{diff}\n```"
+
+          response = client.models.generate_content(
+              model='gemini-2.0-flash-exp',
+              contents=full_prompt
+          )
+
+          review = response.text
+
+          # Save for next step
+          with open('/tmp/ai_review.md', 'w') as f:
+              f.write(review)
+
+          print(review)
+          EOF
 
       - name: Comment on PR
-        if: success()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            
-            // Read the Gemini CLI output (should be in GITHUB_STEP_SUMMARY or output file)
-            let aiReview = "AI review completed successfully. Check the job logs for detailed analysis.";
-            
-            // Try to read from step summary or output file
+            let aiReview = "AI review completed. Check job logs for details.";
+
             try {
-              if (process.env.GITHUB_STEP_SUMMARY && fs.existsSync(process.env.GITHUB_STEP_SUMMARY)) {
-                const summaryContent = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, 'utf8');
-                if (summaryContent.trim()) {
-                  aiReview = summaryContent;
-                }
-              }
+              aiReview = fs.readFileSync('/tmp/ai_review.md', 'utf8');
             } catch (error) {
-              console.log('Could not read step summary:', error.message);
+              console.log('Could not read review file:', error.message);
             }
-            
+
             const comment = `## 🤖 Gemini AI Code Review
 
             ${aiReview}
 
             ---
-            *Generated by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) using Gemini CLI v${{ env.GEMINI_CLI_VERSION }}*
-            *Triggered by: ${context.eventName} on ${context.ref}*`;
+            *Generated by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) Gemini AI*
+            *PR: #${context.issue.number} | Event: ${context.eventName}*`;
 
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -182,95 +160,93 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Gemini CLI
-        run: |
-          curl -sSL "https://github.com/google-gemini/gemini-cli/releases/download/v${{ env.GEMINI_CLI_VERSION }}/gemini-cli-linux-amd64" -o gemini-cli
-          chmod +x gemini-cli
-          sudo mv gemini-cli /usr/local/bin/
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install google-genai SDK
+        run: pip install google-genai
 
       - name: Run Issue Triage
-        uses: google-github-actions/run-gemini-cli@v0.1.20
-        with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          model: 'gemini-2.0-flash-exp'
-          prompt: |
-            You are an expert project maintainer for a CI/CD framework. 
-            
-            **Issue Details**:
-            - Title: ${{ github.event.issue.title }}
-            - Body: ${{ github.event.issue.body }}
-            - Author: ${{ github.event.issue.user.login }}
-            
-            **Your Task**: Analyze this issue and provide:
-            
-            1. **Classification**:
-               - Type: bug/feature/enhancement/documentation/question/support
-               - Priority: critical/high/medium/low
-               - Complexity: simple/moderate/complex
-               - Area: ci-framework/actions/security/performance/documentation/other
-            
-            2. **Labeling Suggestions** (choose from these available labels):
-               - bug, enhancement, documentation, question, help wanted
-               - priority/critical, priority/high, priority/medium, priority/low
-               - area/ci-framework, area/actions, area/security, area/performance
-               - complexity/simple, complexity/moderate, complexity/complex
-               - good first issue, needs investigation, needs reproduction
-            
-            3. **Initial Response**:
-               - Brief acknowledgment
-               - Next steps or questions for the reporter
-               - Estimated effort if it's a clear bug/feature
-            
-            4. **Assignment Recommendation**:
-               - Should this be auto-assigned to a team member?
-               - What expertise is required?
-            
-            **Output Format**: Provide structured JSON with your analysis.
-          
-          max_tokens: 4096
-          temperature: 0.2
+        id: triage
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          python3 << 'EOF'
+          import os
+          import json
+          from google import genai
+
+          client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+
+          prompt = f"""You are an expert project maintainer for a CI/CD framework.
+
+          **Issue Details**:
+          - Title: {os.environ.get('ISSUE_TITLE', 'N/A')}
+          - Body: {os.environ.get('ISSUE_BODY', 'N/A')[:2000]}
+          - Author: {os.environ.get('ISSUE_AUTHOR', 'N/A')}
+
+          Classify this issue and respond with ONLY a JSON object:
+          {{
+            "type": "bug|feature|enhancement|documentation|question",
+            "priority": "critical|high|medium|low",
+            "labels": ["label1", "label2"],
+            "summary": "one sentence summary"
+          }}
+
+          Available labels: bug, enhancement, documentation, question, help wanted, good first issue
+          """
+
+          response = client.models.generate_content(
+              model='gemini-2.0-flash-exp',
+              contents=prompt
+          )
+
+          result = response.text
+          print(result)
+
+          with open('/tmp/triage_result.json', 'w') as f:
+              f.write(result)
+          EOF
 
       - name: Apply Labels and Comment
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           script: |
-            // This would parse the Gemini output and apply labels
-            // For now, we'll apply basic triage
-            const labels = [];
-            const title = context.payload.issue.title.toLowerCase();
-            const body = context.payload.issue.body ? context.payload.issue.body.toLowerCase() : '';
-            
-            // Basic classification
-            if (title.includes('bug') || title.includes('error') || title.includes('fail')) {
-              labels.push('bug');
-            } else if (title.includes('feature') || title.includes('add')) {
-              labels.push('enhancement');
-            } else if (title.includes('doc') || title.includes('readme')) {
-              labels.push('documentation');
-            } else {
-              labels.push('question');
+            const fs = require('fs');
+            let labels = ['question'];
+            let summary = 'Issue received and under review.';
+
+            try {
+              const raw = fs.readFileSync('/tmp/triage_result.json', 'utf8');
+              // Extract JSON from markdown code blocks if present
+              const jsonMatch = raw.match(/```json?\s*([\s\S]*?)\s*```/) || [null, raw];
+              const result = JSON.parse(jsonMatch[1] || raw);
+              labels = result.labels || [result.type || 'question'];
+              summary = result.summary || summary;
+            } catch (error) {
+              console.log('Could not parse triage result:', error.message);
             }
-            
+
             // Apply labels
-            if (labels.length > 0) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                labels: labels
-              });
-            }
-            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: labels.slice(0, 3)  // Max 3 labels
+            });
+
             // Add triage comment
             const comment = [
               '## 🤖 AI Triage Complete',
               '',
-              'Thank you for reporting this issue! Our AI system has performed an initial analysis:',
-              '',
-              '**Classification**: ' + labels.join(', '),
+              `**Summary**: ${summary}`,
+              `**Classification**: ${labels.join(', ')}`,
               '**Status**: Under review by maintainers',
-              '',
-              'A team member will review this issue and provide more detailed feedback soon.',
               '',
               '---',
               '*Automated triage by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) Gemini AI*'
@@ -293,97 +269,92 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Gemini CLI
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install google-genai SDK
+        run: pip install google-genai
+
+      - name: Gather Project Metrics
+        id: metrics
         run: |
-          curl -sSL "https://github.com/google-gemini/gemini-cli/releases/download/v${{ env.GEMINI_CLI_VERSION }}/gemini-cli-linux-amd64" -o gemini-cli
-          chmod +x gemini-cli
-          sudo mv gemini-cli /usr/local/bin/
+          echo "python_files=$(find . -name '*.py' | wc -l)" >> $GITHUB_OUTPUT
+          echo "yaml_files=$(find .github/workflows -name '*.yml' -o -name '*.yaml' 2>/dev/null | wc -l)" >> $GITHUB_OUTPUT
+          echo "recent_commits=$(git log --oneline --since='1 month ago' | wc -l)" >> $GITHUB_OUTPUT
 
       - name: Run Comprehensive Analysis
-        uses: google-github-actions/run-gemini-cli@v0.1.20
-        with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          model: 'gemini-2.0-flash-exp'
-          prompt: |
-            You are a senior software architect analyzing a CI/CD framework project.
-            
-            **Analysis Type**: ${{ github.event.inputs.analysis_type }}
-            **Focus Area**: ${{ github.event.inputs.focus_area || 'entire project' }}
-            **Custom Prompt**: ${{ github.event.inputs.prompt || 'None' }}
-            
-            **Project Overview**: This is a comprehensive CI/CD framework providing:
-            - Intelligent change detection and CI optimization
-            - Multi-tier quality gates (essential/comprehensive/extended)  
-            - Performance monitoring with regression detection
-            - Multi-layer security scanning and SARIF integration
-            - Cross-platform validation with native pixi environments
-            - AI-powered insights and analysis capabilities
-            
-            Based on the analysis type requested, provide:
-            
-            ### For 'comprehensive':
-            1. **Architecture Assessment**
-               - Overall design patterns and structure
-               - Component coupling and cohesion
-               - Scalability and maintainability concerns
-            
-            2. **Code Quality Analysis**  
-               - Best practices adherence
-               - Technical debt identification
-               - Refactoring opportunities
-            
-            3. **Performance Analysis**
-               - CI pipeline efficiency
-               - Resource utilization optimization
-               - Bottleneck identification
-            
-            4. **Security Review**
-               - Security best practices
-               - Vulnerability assessment
-               - Credential and secret management
-            
-            5. **Strategic Recommendations**
-               - Priority improvements
-               - Future development direction
-               - Integration opportunities
-            
-            ### For specific analysis types (security/performance):
-            Focus deeply on that domain with actionable recommendations.
-            
-            **Output**: Provide detailed analysis with specific examples and actionable recommendations.
-          
-          include_context: true
-          max_tokens: 8192
-          temperature: 0.2
-          allowed_commands: |
-            find . -name "*.py" -exec wc -l {} +
-            find . -name "*.yml" -o -name "*.yaml" -exec wc -l {} +
-            git log --oneline --since="1 month ago" | wc -l
-            find . -name "*.py" -exec grep -l "TODO\|FIXME\|XXX" {} \;
-            ls -la .github/workflows/
-            du -sh .
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANALYSIS_TYPE: ${{ github.event.inputs.analysis_type }}
+          FOCUS_AREA: ${{ github.event.inputs.focus_area }}
+          CUSTOM_PROMPT: ${{ github.event.inputs.prompt }}
+        run: |
+          # Get file listing for context
+          find . -name "*.py" -o -name "*.yml" | head -30 > /tmp/file_list.txt
+
+          python3 << 'EOF'
+          import os
+          from google import genai
+
+          client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+
+          with open('/tmp/file_list.txt', 'r') as f:
+              files = f.read()
+
+          analysis_type = os.environ.get('ANALYSIS_TYPE', 'comprehensive')
+          focus = os.environ.get('FOCUS_AREA', 'entire project')
+          custom = os.environ.get('CUSTOM_PROMPT', '')
+
+          prompt = f"""You are a senior software architect analyzing a CI/CD framework.
+
+          **Analysis Type**: {analysis_type}
+          **Focus Area**: {focus}
+          **Custom Instructions**: {custom or 'None'}
+
+          **Project Files** (sample):
+          {files}
+
+          Provide a concise analysis with:
+          1. **Key Findings** (3-5 bullet points)
+          2. **Recommendations** (prioritized list)
+          3. **Risk Areas** (if any)
+
+          Keep response under 500 words.
+          """
+
+          response = client.models.generate_content(
+              model='gemini-2.0-flash-exp',
+              contents=prompt
+          )
+
+          print(response.text)
+
+          with open('/tmp/analysis.md', 'w') as f:
+              f.write(response.text)
+          EOF
 
       - name: Generate Analysis Report
         run: |
           echo "## 🔍 Comprehensive Project Analysis" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Analysis Type**: ${{ github.event.inputs.analysis_type }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Focus Area**: ${{ github.event.inputs.focus_area || 'Entire Project' }}" >> $GITHUB_STEP_SUMMARY  
+          echo "**Focus Area**: ${{ github.event.inputs.focus_area || 'Entire Project' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📊 Project Metrics" >> $GITHUB_STEP_SUMMARY
-          echo "- **Python Files**: $(find . -name "*.py" | wc -l)" >> $GITHUB_STEP_SUMMARY
-          echo "- **YAML Workflows**: $(find .github/workflows -name "*.yml" -o -name "*.yaml" | wc -l)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Total LOC**: $(find . -name "*.py" -exec wc -l {} + | tail -1 | awk '{print $1}')" >> $GITHUB_STEP_SUMMARY
-          echo "- **Recent Commits**: $(git log --oneline --since='1 month ago' | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Python Files**: ${{ steps.metrics.outputs.python_files }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **YAML Workflows**: ${{ steps.metrics.outputs.yaml_files }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Recent Commits**: ${{ steps.metrics.outputs.recent_commits }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🤖 AI Analysis Results" >> $GITHUB_STEP_SUMMARY
-          echo "Detailed analysis has been completed. Check the job logs for full results." >> $GITHUB_STEP_SUMMARY
+          echo "### 🤖 AI Analysis" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/analysis.md >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "*Analysis powered by Gemini CLI v${{ env.GEMINI_CLI_VERSION }}*" >> $GITHUB_STEP_SUMMARY
+          echo "*Analysis powered by Gemini AI*" >> $GITHUB_STEP_SUMMARY
 
-  # Job 4: CI Failure Analysis (runs on PR to analyze any CI issues)
+  # Job 4: CI Impact Analysis (runs on PR)
   ci-failure-analysis:
     if: github.event_name == 'pull_request' && vars.ENABLE_AI_ANALYSIS == 'true'
     runs-on: ubuntu-latest
@@ -393,43 +364,63 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Gemini CLI
-        run: |
-          curl -sSL "https://github.com/google-gemini/gemini-cli/releases/download/v${{ env.GEMINI_CLI_VERSION }}/gemini-cli-linux-amd64" -o gemini-cli
-          chmod +x gemini-cli
-          sudo mv gemini-cli /usr/local/bin/
-
-      - name: Analyze PR Changes for CI Impact
-        uses: google-github-actions/run-gemini-cli@v0.1.20
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          model: 'gemini-2.0-flash-exp'
-          prompt: |
-            You are a CI/CD expert analyzing changes in a pull request.
+          python-version: '3.12'
 
-            **Your Task**: Analyze the PR changes for potential CI impact:
+      - name: Install google-genai SDK
+        run: pip install google-genai
 
-            1. **Workflow Changes**: Are any GitHub Actions workflows modified?
-            2. **Dependency Changes**: Are there dependency updates that could affect CI?
-            3. **Test Impact**: Could these changes affect test stability?
-            4. **Build Impact**: Could these changes affect build processes?
-            5. **Security Implications**: Any security-relevant changes?
+      - name: Get Changed Files
+        id: changes
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD > /tmp/changed_files.txt
+          cat /tmp/changed_files.txt
 
-            Provide concise, actionable feedback focused on CI reliability.
+      - name: Analyze PR for CI Impact
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python3 << 'EOF'
+          import os
+          from google import genai
 
-          include_context: true
-          max_tokens: 4096
-          temperature: 0.3
-          allowed_commands: |
-            git diff --name-only HEAD~1
-            git log --oneline -5
+          client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+
+          with open('/tmp/changed_files.txt', 'r') as f:
+              files = f.read()
+
+          prompt = f"""You are a CI/CD expert. Analyze these changed files for CI impact:
+
+          **Changed Files**:
+          {files}
+
+          Provide a brief assessment:
+          1. **CI Impact Level**: Low/Medium/High
+          2. **Workflow Changes**: Any .yml workflow files modified?
+          3. **Key Concerns**: (if any)
+          4. **Recommendation**: (one sentence)
+
+          Be concise - max 150 words.
+          """
+
+          response = client.models.generate_content(
+              model='gemini-2.0-flash-exp',
+              contents=prompt
+          )
+
+          print(response.text)
+
+          with open('/tmp/ci_analysis.md', 'w') as f:
+              f.write(response.text)
+          EOF
 
       - name: Post Analysis Summary
-        if: success()
         run: |
           echo "## 🔍 CI Impact Analysis" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**PR**: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
           echo "**Branch**: ${{ github.head_ref }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Analysis complete. See job logs for details." >> $GITHUB_STEP_SUMMARY
+          cat /tmp/ci_analysis.md >> $GITHUB_STEP_SUMMARY

@@ -52,13 +52,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
         with:
-          python-version: '3.12'
+          pixi-version: v0.41.4
+          cache: false
 
       - name: Install google-genai SDK
-        run: pip install google-genai
+        run: pixi global install google-genai
 
       - name: Get PR diff
         id: diff
@@ -160,13 +161,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
         with:
-          python-version: '3.12'
+          pixi-version: v0.41.4
+          cache: false
 
       - name: Install google-genai SDK
-        run: pip install google-genai
+        run: pixi global install google-genai
 
       - name: Run Issue Triage
         id: triage
@@ -269,13 +271,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
         with:
-          python-version: '3.12'
+          pixi-version: v0.41.4
+          cache: false
 
       - name: Install google-genai SDK
-        run: pip install google-genai
+        run: pixi global install google-genai
 
       - name: Gather Project Metrics
         id: metrics
@@ -364,13 +367,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
         with:
-          python-version: '3.12'
+          pixi-version: v0.41.4
+          cache: false
 
       - name: Install google-genai SDK
-        run: pip install google-genai
+        run: pixi global install google-genai
 
       - name: Get Changed Files
         id: changes

@@ -1,17 +1,14 @@
 name: Gemini AI Analysis
 
-# AI-powered code analysis using Gemini CLI (direct invocation)
+# AI-powered code analysis using Gemini SDK via pixi
 # Provides intelligent PR reviews, issue triage, and comprehensive analysis
 # Requires vars.ENABLE_AI_ANALYSIS=true and secrets.GEMINI_API_KEY to activate
 
 on:
-  # Automatic triggers
   pull_request:
     types: [opened, synchronize, reopened]
   issues:
     types: [opened, labeled]
-
-  # Manual trigger for comprehensive analysis
   workflow_dispatch:
     inputs:
       analysis_type:
@@ -34,7 +31,6 @@ on:
         required: false
         type: string
 
-# Required permissions for Gemini CLI operations
 permissions:
   contents: read
   pull-requests: write
@@ -42,7 +38,6 @@ permissions:
   actions: read
 
 jobs:
-  # Job 1: Automatic PR Review
   pr-review:
     if: github.event_name == 'pull_request' && vars.ENABLE_AI_ANALYSIS == 'true'
     runs-on: ubuntu-latest
@@ -58,72 +53,73 @@ jobs:
           pixi-version: v0.41.4
           cache: false
 
-      - name: Install google-genai SDK
-        run: pixi global install google-genai
+      - name: Create genai environment
+        run: |
+          mkdir -p /tmp/genai-env
+          cat > /tmp/genai-env/pixi.toml << 'TOML'
+          [project]
+          name = "genai-runner"
+          channels = ["conda-forge"]
+          platforms = ["linux-64"]
+
+          [dependencies]
+          python = ">=3.11"
+
+          [pypi-dependencies]
+          google-genai = "*"
+          TOML
+          cd /tmp/genai-env && pixi install
 
       - name: Get PR diff
         id: diff
         run: |
           echo "files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | head -20 | tr '\n' ' ')" >> $GITHUB_OUTPUT
           git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
-          echo "diff_size=$(wc -c < /tmp/pr_diff.txt)" >> $GITHUB_OUTPUT
 
       - name: Run Gemini PR Review
-        id: review
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CHANGED_FILES: ${{ steps.diff.outputs.files }}
         run: |
-          cat > /tmp/review_prompt.txt << 'PROMPT_EOF'
-          You are an expert code reviewer for a CI/CD framework project.
-
-          **Project Context**: This is a comprehensive CI/CD framework that provides:
-          - Intelligent change detection and optimization
-          - Multi-tier quality gates (essential/comprehensive/extended)
-          - Performance monitoring and regression detection
-          - Multi-layer security scanning
-          - Cross-platform validation
-
-          **Changed Files**: ${{ steps.diff.outputs.files }}
-
-          **Your Task**: Review the PR changes and provide:
-          1. **Summary** (2-3 sentences)
-          2. **Code Quality** (rating 1-10, key observations)
-          3. **Security** (any concerns?)
-          4. **Suggestions** (top 3 improvements)
-
-          Keep the review concise and actionable.
-          PROMPT_EOF
-
-          # Truncate diff if too large (keep first 10000 chars)
           head -c 10000 /tmp/pr_diff.txt > /tmp/pr_diff_truncated.txt
 
-          python3 << 'EOF'
+          cat > /tmp/genai-env/review.py << 'PYTHON'
           import os
           from google import genai
 
           client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
 
-          with open('/tmp/review_prompt.txt', 'r') as f:
-              prompt = f.read()
-
           with open('/tmp/pr_diff_truncated.txt', 'r') as f:
               diff = f.read()
 
-          full_prompt = f"{prompt}\n\n**Diff:**\n```\n{diff}\n```"
+          prompt = f"""You are an expert code reviewer for a CI/CD framework.
+
+          **Changed Files**: {os.environ.get('CHANGED_FILES', 'N/A')}
+
+          Review the PR and provide:
+          1. **Summary** (2-3 sentences)
+          2. **Code Quality** (1-10, key observations)
+          3. **Security** (any concerns?)
+          4. **Suggestions** (top 3)
+
+          Be concise.
+
+          **Diff:**
+          ```
+          {diff}
+          ```"""
 
           response = client.models.generate_content(
               model='gemini-2.0-flash-exp',
-              contents=full_prompt
+              contents=prompt
           )
 
-          review = response.text
-
-          # Save for next step
           with open('/tmp/ai_review.md', 'w') as f:
-              f.write(review)
+              f.write(response.text)
+          print(response.text)
+          PYTHON
 
-          print(review)
-          EOF
+          cd /tmp/genai-env && pixi run python review.py
 
       - name: Comment on PR
         uses: actions/github-script@v7
@@ -131,29 +127,19 @@ jobs:
           script: |
             const fs = require('fs');
             let aiReview = "AI review completed. Check job logs for details.";
-
             try {
               aiReview = fs.readFileSync('/tmp/ai_review.md', 'utf8');
-            } catch (error) {
-              console.log('Could not read review file:', error.message);
+            } catch (e) {
+              console.log('Could not read review:', e.message);
             }
-
-            const comment = `## 🤖 Gemini AI Code Review
-
-            ${aiReview}
-
-            ---
-            *Generated by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) Gemini AI*
-            *PR: #${context.issue.number} | Event: ${context.eventName}*`;
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: comment
+              body: `## 🤖 Gemini AI Code Review\n\n${aiReview}\n\n---\n*Generated by CI Framework Gemini AI*`
             });
 
-  # Job 2: Automatic Issue Triage
   issue-triage:
     if: github.event_name == 'issues' && github.event.action == 'opened' && vars.ENABLE_AI_ANALYSIS == 'true'
     runs-on: ubuntu-latest
@@ -167,53 +153,58 @@ jobs:
           pixi-version: v0.41.4
           cache: false
 
-      - name: Install google-genai SDK
-        run: pixi global install google-genai
+      - name: Create genai environment
+        run: |
+          mkdir -p /tmp/genai-env
+          cat > /tmp/genai-env/pixi.toml << 'TOML'
+          [project]
+          name = "genai-runner"
+          channels = ["conda-forge"]
+          platforms = ["linux-64"]
+
+          [dependencies]
+          python = ">=3.11"
+
+          [pypi-dependencies]
+          google-genai = "*"
+          TOML
+          cd /tmp/genai-env && pixi install
 
       - name: Run Issue Triage
-        id: triage
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
-          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
         run: |
-          python3 << 'EOF'
+          cat > /tmp/genai-env/triage.py << 'PYTHON'
           import os
-          import json
           from google import genai
 
           client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
 
-          prompt = f"""You are an expert project maintainer for a CI/CD framework.
+          title = os.environ.get('ISSUE_TITLE', 'N/A')
+          body = os.environ.get('ISSUE_BODY', 'N/A')[:2000]
 
-          **Issue Details**:
-          - Title: {os.environ.get('ISSUE_TITLE', 'N/A')}
-          - Body: {os.environ.get('ISSUE_BODY', 'N/A')[:2000]}
-          - Author: {os.environ.get('ISSUE_AUTHOR', 'N/A')}
+          prompt = f"""Classify this GitHub issue:
+          Title: {title}
+          Body: {body}
 
-          Classify this issue and respond with ONLY a JSON object:
-          {{
-            "type": "bug|feature|enhancement|documentation|question",
-            "priority": "critical|high|medium|low",
-            "labels": ["label1", "label2"],
-            "summary": "one sentence summary"
-          }}
+          Respond with ONLY JSON:
+          {{"type": "bug|feature|question", "labels": ["label1"], "summary": "one sentence"}}
 
-          Available labels: bug, enhancement, documentation, question, help wanted, good first issue
-          """
+          Labels: bug, enhancement, documentation, question, help wanted, good first issue"""
 
           response = client.models.generate_content(
               model='gemini-2.0-flash-exp',
               contents=prompt
           )
 
-          result = response.text
-          print(result)
+          with open('/tmp/triage.json', 'w') as f:
+              f.write(response.text)
+          print(response.text)
+          PYTHON
 
-          with open('/tmp/triage_result.json', 'w') as f:
-              f.write(result)
-          EOF
+          cd /tmp/genai-env && pixi run python triage.py
 
       - name: Apply Labels and Comment
         uses: actions/github-script@v7
@@ -221,47 +212,32 @@ jobs:
           script: |
             const fs = require('fs');
             let labels = ['question'];
-            let summary = 'Issue received and under review.';
+            let summary = 'Issue under review.';
 
             try {
-              const raw = fs.readFileSync('/tmp/triage_result.json', 'utf8');
-              // Extract JSON from markdown code blocks if present
-              const jsonMatch = raw.match(/```json?\s*([\s\S]*?)\s*```/) || [null, raw];
-              const result = JSON.parse(jsonMatch[1] || raw);
+              const raw = fs.readFileSync('/tmp/triage.json', 'utf8');
+              const match = raw.match(/```json?\s*([\s\S]*?)\s*```/) || [null, raw];
+              const result = JSON.parse(match[1] || raw);
               labels = result.labels || [result.type || 'question'];
               summary = result.summary || summary;
-            } catch (error) {
-              console.log('Could not parse triage result:', error.message);
+            } catch (e) {
+              console.log('Parse error:', e.message);
             }
 
-            // Apply labels
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              labels: labels.slice(0, 3)  // Max 3 labels
+              labels: labels.slice(0, 3)
             });
-
-            // Add triage comment
-            const comment = [
-              '## 🤖 AI Triage Complete',
-              '',
-              `**Summary**: ${summary}`,
-              `**Classification**: ${labels.join(', ')}`,
-              '**Status**: Under review by maintainers',
-              '',
-              '---',
-              '*Automated triage by [CI Framework](https://github.com/Claire-s-Monster/ci-framework) Gemini AI*'
-            ].join('\n');
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: comment
+              body: `## 🤖 AI Triage\n\n**Summary**: ${summary}\n**Labels**: ${labels.join(', ')}\n\n---\n*Automated by CI Framework*`
             });
 
-  # Job 3: Manual Comprehensive Analysis
   comprehensive-analysis:
     if: github.event_name == 'workflow_dispatch' && vars.ENABLE_AI_ANALYSIS == 'true'
     runs-on: ubuntu-latest
@@ -277,87 +253,66 @@ jobs:
           pixi-version: v0.41.4
           cache: false
 
-      - name: Install google-genai SDK
-        run: pixi global install google-genai
-
-      - name: Gather Project Metrics
-        id: metrics
+      - name: Create genai environment
         run: |
-          echo "python_files=$(find . -name '*.py' | wc -l)" >> $GITHUB_OUTPUT
-          echo "yaml_files=$(find .github/workflows -name '*.yml' -o -name '*.yaml' 2>/dev/null | wc -l)" >> $GITHUB_OUTPUT
-          echo "recent_commits=$(git log --oneline --since='1 month ago' | wc -l)" >> $GITHUB_OUTPUT
+          mkdir -p /tmp/genai-env
+          cat > /tmp/genai-env/pixi.toml << 'TOML'
+          [project]
+          name = "genai-runner"
+          channels = ["conda-forge"]
+          platforms = ["linux-64"]
 
-      - name: Run Comprehensive Analysis
+          [dependencies]
+          python = ">=3.11"
+
+          [pypi-dependencies]
+          google-genai = "*"
+          TOML
+          cd /tmp/genai-env && pixi install
+
+      - name: Run Analysis
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANALYSIS_TYPE: ${{ github.event.inputs.analysis_type }}
           FOCUS_AREA: ${{ github.event.inputs.focus_area }}
-          CUSTOM_PROMPT: ${{ github.event.inputs.prompt }}
         run: |
-          # Get file listing for context
-          find . -name "*.py" -o -name "*.yml" | head -30 > /tmp/file_list.txt
+          find . -name "*.py" -o -name "*.yml" | head -30 > /tmp/files.txt
 
-          python3 << 'EOF'
+          cat > /tmp/genai-env/analyze.py << 'PYTHON'
           import os
           from google import genai
 
           client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
 
-          with open('/tmp/file_list.txt', 'r') as f:
+          with open('/tmp/files.txt', 'r') as f:
               files = f.read()
 
-          analysis_type = os.environ.get('ANALYSIS_TYPE', 'comprehensive')
-          focus = os.environ.get('FOCUS_AREA', 'entire project')
-          custom = os.environ.get('CUSTOM_PROMPT', '')
+          prompt = f"""Analyze this CI/CD framework project.
+          Type: {os.environ.get('ANALYSIS_TYPE', 'comprehensive')}
+          Focus: {os.environ.get('FOCUS_AREA', 'all')}
+          Files: {files}
 
-          prompt = f"""You are a senior software architect analyzing a CI/CD framework.
-
-          **Analysis Type**: {analysis_type}
-          **Focus Area**: {focus}
-          **Custom Instructions**: {custom or 'None'}
-
-          **Project Files** (sample):
-          {files}
-
-          Provide a concise analysis with:
-          1. **Key Findings** (3-5 bullet points)
-          2. **Recommendations** (prioritized list)
-          3. **Risk Areas** (if any)
-
-          Keep response under 500 words.
-          """
+          Provide: Key Findings (3-5 points), Recommendations, Risk Areas. Max 400 words."""
 
           response = client.models.generate_content(
               model='gemini-2.0-flash-exp',
               contents=prompt
           )
 
-          print(response.text)
-
           with open('/tmp/analysis.md', 'w') as f:
               f.write(response.text)
-          EOF
+          print(response.text)
+          PYTHON
 
-      - name: Generate Analysis Report
+          cd /tmp/genai-env && pixi run python analyze.py
+
+      - name: Post Summary
         run: |
-          echo "## 🔍 Comprehensive Project Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 AI Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "**Type**: ${{ github.event.inputs.analysis_type }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Analysis Type**: ${{ github.event.inputs.analysis_type }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Focus Area**: ${{ github.event.inputs.focus_area || 'Entire Project' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📊 Project Metrics" >> $GITHUB_STEP_SUMMARY
-          echo "- **Python Files**: ${{ steps.metrics.outputs.python_files }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **YAML Workflows**: ${{ steps.metrics.outputs.yaml_files }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Recent Commits**: ${{ steps.metrics.outputs.recent_commits }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🤖 AI Analysis" >> $GITHUB_STEP_SUMMARY
           cat /tmp/analysis.md >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "*Analysis powered by Gemini AI*" >> $GITHUB_STEP_SUMMARY
 
-  # Job 4: CI Impact Analysis (runs on PR)
   ci-failure-analysis:
     if: github.event_name == 'pull_request' && vars.ENABLE_AI_ANALYSIS == 'true'
     runs-on: ubuntu-latest
@@ -373,58 +328,64 @@ jobs:
           pixi-version: v0.41.4
           cache: false
 
-      - name: Install google-genai SDK
-        run: pixi global install google-genai
-
-      - name: Get Changed Files
-        id: changes
+      - name: Create genai environment
         run: |
-          git diff --name-only origin/${{ github.base_ref }}...HEAD > /tmp/changed_files.txt
-          cat /tmp/changed_files.txt
+          mkdir -p /tmp/genai-env
+          cat > /tmp/genai-env/pixi.toml << 'TOML'
+          [project]
+          name = "genai-runner"
+          channels = ["conda-forge"]
+          platforms = ["linux-64"]
 
-      - name: Analyze PR for CI Impact
+          [dependencies]
+          python = ">=3.11"
+
+          [pypi-dependencies]
+          google-genai = "*"
+          TOML
+          cd /tmp/genai-env && pixi install
+
+      - name: Analyze CI Impact
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python3 << 'EOF'
+          git diff --name-only origin/${{ github.base_ref }}...HEAD > /tmp/changed.txt
+
+          cat > /tmp/genai-env/ci_check.py << 'PYTHON'
           import os
           from google import genai
 
           client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
 
-          with open('/tmp/changed_files.txt', 'r') as f:
+          with open('/tmp/changed.txt', 'r') as f:
               files = f.read()
 
-          prompt = f"""You are a CI/CD expert. Analyze these changed files for CI impact:
+          prompt = f"""CI/CD expert: analyze these changed files for CI impact.
+          Files: {files}
 
-          **Changed Files**:
-          {files}
+          Respond with:
+          - Impact Level: Low/Medium/High
+          - Workflow Changes: yes/no
+          - Concerns: (if any)
+          - Recommendation: (one line)
 
-          Provide a brief assessment:
-          1. **CI Impact Level**: Low/Medium/High
-          2. **Workflow Changes**: Any .yml workflow files modified?
-          3. **Key Concerns**: (if any)
-          4. **Recommendation**: (one sentence)
-
-          Be concise - max 150 words.
-          """
+          Max 100 words."""
 
           response = client.models.generate_content(
               model='gemini-2.0-flash-exp',
               contents=prompt
           )
 
-          print(response.text)
-
-          with open('/tmp/ci_analysis.md', 'w') as f:
+          with open('/tmp/ci_impact.md', 'w') as f:
               f.write(response.text)
-          EOF
+          print(response.text)
+          PYTHON
 
-      - name: Post Analysis Summary
+          cd /tmp/genai-env && pixi run python ci_check.py
+
+      - name: Post Summary
         run: |
           echo "## 🔍 CI Impact Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**PR**: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch**: ${{ github.head_ref }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          cat /tmp/ci_analysis.md >> $GITHUB_STEP_SUMMARY
+          cat /tmp/ci_impact.md >> $GITHUB_STEP_SUMMARY

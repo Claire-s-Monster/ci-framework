@@ -188,6 +188,8 @@ pixi.lock
 .taskmaster/
 .cursor/
 .aider*
+.serena/
+GEMINI.md
 
 # Development directories
 dev-outputs/

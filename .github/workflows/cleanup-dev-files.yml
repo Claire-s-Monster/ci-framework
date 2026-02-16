@@ -94,7 +94,7 @@ jobs:
           echo "Using fallback token: ${{ secrets.CI_BOT_TOKEN == '' }}"
 
       - name: Checkout target branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ matrix.branch }}
           token: ${{ secrets.CI_BOT_TOKEN || github.token }}

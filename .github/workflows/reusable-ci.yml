@@ -281,6 +281,7 @@ jobs:
         run: |
           python $GITHUB_WORKSPACE/ci-framework/framework/security/cli.py scan .
       - name: "Automated License Compliance Scanning"
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
         uses: actions/dependency-review-action@v4
         with:
           allow-licenses: ${{ inputs.allowed-licenses }}

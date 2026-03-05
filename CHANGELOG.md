@@ -5,6 +5,13 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2](https://github.com/Claire-s-Monster/ci-framework/compare/v2.4.1...v2.4.2) (2026-03-05)
+
+
+### Bug Fixes
+
+* CI improvements for dependabot and push events ([#123](https://github.com/Claire-s-Monster/ci-framework/issues/123)) ([73e1476](https://github.com/Claire-s-Monster/ci-framework/commit/73e1476ede9216f840bea96efb1a49cca134e205))
+
 ## [2.4.1](https://github.com/Claire-s-Monster/ci-framework/compare/v2.4.0...v2.4.1) (2026-02-14)
 
 

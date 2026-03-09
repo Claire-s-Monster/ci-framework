@@ -345,7 +345,7 @@ jobs:
         working-directory: ${{ inputs.package-path }}
         run: |
           pixi run -e quality-ci build
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: 'dist'
           path: '${{ inputs.package-path }}/dist/'

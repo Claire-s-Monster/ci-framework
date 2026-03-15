@@ -84,7 +84,7 @@ def check_double_expression_wrap(
         if job_if and isinstance(job_if, str):
             # Check for explicit ${{ }} in job-level if
             if "${{" in job_if and "}}" in job_if:
-                line = _find_line_number(raw_lines, f"if:")
+                line = _find_line_number(raw_lines, "if:")
                 # Search more precisely near the job definition
                 job_line = _find_line_number(raw_lines, f"  {job_name}:")
                 if job_line:

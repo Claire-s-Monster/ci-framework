@@ -38,7 +38,7 @@ class TestWorkflowLinter:
 
         result = lint_workflow(REUSABLE_CI)
         errors = [e for e in result.errors if e.severity == "error"]
-        assert not errors, f"Lint errors in reusable-ci.yml:\n" + "\n".join(
+        assert not errors, "Lint errors in reusable-ci.yml:\n" + "\n".join(
             str(e) for e in errors
         )
 
@@ -48,7 +48,7 @@ class TestWorkflowLinter:
 
         result = lint_workflow(STANDALONE_CI)
         errors = [e for e in result.errors if e.severity == "error"]
-        assert not errors, f"Lint errors in standalone-ci.yml:\n" + "\n".join(
+        assert not errors, "Lint errors in standalone-ci.yml:\n" + "\n".join(
             str(e) for e in errors
         )
 
@@ -58,7 +58,7 @@ class TestWorkflowLinter:
 
         result = lint_workflow(CI_YML)
         errors = [e for e in result.errors if e.severity == "error"]
-        assert not errors, f"Lint errors in ci.yml:\n" + "\n".join(
+        assert not errors, "Lint errors in ci.yml:\n" + "\n".join(
             str(e) for e in errors
         )
 
@@ -211,14 +211,22 @@ class TestStandaloneCIStructure:
     def test_is_not_workflow_call(self, workflow):
         """Standalone must NOT use workflow_call — it's a direct trigger template."""
         trigger = workflow.get("on", workflow.get(True, {}))
-        assert "workflow_call" not in trigger
+        if isinstance(trigger, dict):
+            assert "workflow_call" not in trigger
 
-    def test_has_push_pr_dispatch_triggers(self, workflow):
-        """Must have push, pull_request, and workflow_dispatch triggers."""
+    def test_has_dispatch_trigger(self, workflow):
+        """Must have at least workflow_dispatch trigger.
+
+        In ci-framework repo, standalone uses workflow_dispatch only to avoid
+        running against the framework itself. The comments instruct consumers
+        to add push/pull_request triggers when copying.
+        """
         trigger = workflow.get("on", workflow.get(True, {}))
-        assert "push" in trigger
-        assert "pull_request" in trigger
-        assert "workflow_dispatch" in trigger
+        # trigger can be a string "workflow_dispatch" or dict
+        if isinstance(trigger, str):
+            assert trigger == "workflow_dispatch"
+        else:
+            assert "workflow_dispatch" in trigger
 
     def test_has_configure_job(self, workflow):
         """Must have configure job for job-level settings."""

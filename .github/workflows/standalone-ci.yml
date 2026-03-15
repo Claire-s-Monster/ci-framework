@@ -27,12 +27,16 @@
 # ============================================================================
 name: Standalone Package CI
 
+# NOTE: This template uses workflow_dispatch only in ci-framework to prevent
+# it from running against the framework repo itself. When you copy this file
+# to your repository, replace the trigger below with:
+#   push:
+#     branches: [main, master, development]
+#     tags: ['v*']
+#   pull_request:
+#     branches: [main, master, development]
+#   workflow_dispatch:
 on:
-  push:
-    branches: [main, master, development]
-    tags: ['v*']
-  pull_request:
-    branches: [main, master, development]
   workflow_dispatch:
 
 permissions:

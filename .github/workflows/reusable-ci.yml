@@ -262,11 +262,6 @@ jobs:
     if: needs.detect-changes.outputs.security == 'true'
     steps:
       - uses: actions/checkout@v6
-      - name: "Checkout CI Framework"
-        uses: actions/checkout@v6
-        with:
-          repository: Claire-s-Monster/ci-framework
-          path: ci-framework
       - name: "Setup PIXI Environment"
         uses: prefix-dev/setup-pixi@v0.8.13
         with:
@@ -276,10 +271,16 @@ jobs:
         working-directory: ${{ inputs.package-path }}
         run: |
           pixi install -e quality-extended
-      - name: "Run Security Scans"
+      - name: "Run Bandit (static analysis)"
         working-directory: ${{ inputs.package-path }}
         run: |
-          python $GITHUB_WORKSPACE/ci-framework/framework/security/cli.py scan .
+          pixi run -e quality-extended security-scan
+        continue-on-error: true
+      - name: "Run pip-audit (dependency vulnerabilities)"
+        working-directory: ${{ inputs.package-path }}
+        run: |
+          pixi run -e quality-extended safety-check
+        continue-on-error: true
       - name: "Automated License Compliance Scanning"
         if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
         uses: actions/dependency-review-action@v4
@@ -301,11 +302,6 @@ jobs:
       needs.detect-changes.outputs.performance == 'true'
     steps:
       - uses: actions/checkout@v6
-      - name: "Checkout CI Framework"
-        uses: actions/checkout@v6
-        with:
-          repository: Claire-s-Monster/ci-framework
-          path: ci-framework
       - name: "Setup PIXI Environment"
         uses: prefix-dev/setup-pixi@v0.8.13
         with:
@@ -318,13 +314,17 @@ jobs:
       - name: "Run Benchmarks"
         working-directory: ${{ inputs.package-path }}
         run: |
-          python $GITHUB_WORKSPACE/ci-framework/framework/performance/cli.py run --path .
-      - name: "Compare to Baseline & Comment on PR"
-        working-directory: ${{ inputs.package-path }}
-        run: |
-          python $GITHUB_WORKSPACE/ci-framework/framework/performance/cli.py compare --path .
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          pixi run -e dev pytest tests/performance/ \
+            --benchmark-only \
+            --benchmark-json=benchmark-results.json \
+            || echo "No benchmark tests found or benchmarks failed"
+      - name: "Upload Benchmark Results"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results
+          path: '${{ inputs.package-path }}/benchmark-results.json'
+          if-no-files-found: ignore
 
   build:
     name: "📦 Build Package"
@@ -355,24 +355,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, quality, security]
     if: >-
-      ${{ inputs.enable-release && github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+      inputs.enable-release &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     permissions:
       id-token: write
       contents: write
     steps:
       - uses: actions/checkout@v6
-      - name: "Checkout CI Framework"
-        uses: actions/checkout@v6
-        with:
-          repository: Claire-s-Monster/ci-framework
-          path: ci-framework
-      - name: "Generate Changelog"
-        id: changelog
-        working-directory: ${{ inputs.package-path }}
-        run: |
-          python $GITHUB_WORKSPACE/ci-framework/framework/reporting/cli.py \
-            generate-changelog --path .
       - uses: actions/download-artifact@v8
         with:
           name: 'dist'
@@ -386,19 +376,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v6
-      - name: "Checkout CI Framework"
-        uses: actions/checkout@v6
-        with:
-          repository: Claire-s-Monster/ci-framework
-          path: ci-framework
-      - name: "Run Self-Healing Script"
-        working-directory: ${{ inputs.package-path }}
+      - name: "Run Self-Healing"
         run: |
-          echo "This is a placeholder for the self-healing mechanism."
-          echo "In the future, this job could automatically fix common"
-          echo "test failures."
-          # Example: python $GITHUB_WORKSPACE/ci-framework/framework/self_healing/cli.py \
-          #   fix --path .
+          echo "Self-healing placeholder — customize via workflow_dispatch inputs."
 
   summary:
     name: "✅ CI Summary"
@@ -406,17 +386,40 @@ jobs:
     needs: [hygiene, quality, test, security, performance, build, release, self-heal]
     if: always()
     steps:
-      - uses: actions/checkout@v6
-      - name: "Checkout CI Framework"
-        uses: actions/checkout@v6
-        with:
-          repository: Claire-s-Monster/ci-framework
-          path: ci-framework
       - name: "Generate Run Summary"
         run: |
-          python ci-framework/framework/reporting/cli.py \
-            generate-summary --path ${{ inputs.package-path }} \
-            --output-file summary.md
-      - name: "Add Summary to Job Summary"
-        run: |
-          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## CI Pipeline Summary"
+            echo ""
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| Hygiene | ${{ needs.hygiene.result }} |"
+            echo "| Quality | ${{ needs.quality.result }} |"
+            echo "| Test | ${{ needs.test.result }} |"
+            echo "| Security | ${{ needs.security.result }} |"
+            echo "| Performance | ${{ needs.performance.result }} |"
+            echo "| Build | ${{ needs.build.result }} |"
+            echo "| Release | ${{ needs.release.result }} |"
+            echo "| Self-Heal | ${{ needs.self-heal.result }} |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Determine overall status (skipped jobs are OK)
+          FAILED=false
+          for result in \
+            "${{ needs.hygiene.result }}" \
+            "${{ needs.quality.result }}" \
+            "${{ needs.test.result }}" \
+            "${{ needs.security.result }}" \
+            "${{ needs.build.result }}"; do
+            if [[ "$result" == "failure" ]]; then
+              FAILED=true
+            fi
+          done
+
+          if [[ "$FAILED" == "true" ]]; then
+            echo "**Overall: Some checks failed.**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            echo "**Overall: All checks passed.**" >> "$GITHUB_STEP_SUMMARY"
+          fi

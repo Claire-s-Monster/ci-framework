@@ -1,17 +1,20 @@
 ---
 # ============================================================================
-# STANDALONE CI TEMPLATE - Copy to Your Repository
+# STANDALONE CI TEMPLATE - Reference / Escape Hatch
 # ============================================================================
-# This is a FULLY SELF-CONTAINED CI workflow template. Copy this single file
-# to your repository's .github/workflows/ directory and customize it.
-# No external workflow or script dependencies required.
+# RECOMMENDED: Use reusable-ci.yml instead — consumers get automatic updates:
+#   jobs:
+#     ci:
+#       uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+#       secrets: inherit
 #
-# Unlike the reusable workflow (reusable-ci.yml), this template:
-#   - Runs directly with visible logs per job (no opaque startup_failure)
-#   - Has zero dependencies on ci-framework repository at runtime
-#   - Is customized by editing values in-place
+# This standalone template exists as a REFERENCE and ESCAPE HATCH for cases
+# where the reusable workflow cannot be used (e.g., debugging, forked repos
+# without cross-repo access, or full local customization).
 #
-# USAGE:
+# WARNING: Copies of this file will NOT receive upstream updates automatically.
+#
+# USAGE (if you must):
 #   1. Copy this file to .github/workflows/ci.yml in your repository
 #   2. Edit the env: block and the configure job outputs below
 #   3. Commit and push — CI runs automatically

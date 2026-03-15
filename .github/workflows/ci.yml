@@ -37,9 +37,13 @@ jobs:
           pixi run -e quality lint-full
       - name: "Run Action Lint"
         run: |
-          echo "Running actionlint on workflow files..."
-          pixi info
-          pixi run -e dev actionlint .github/workflows/*.yml || echo "Actionlint failed but continuing..."
+          pixi run -e dev actionlint .github/workflows/*.yml
+      - name: "Run Custom Workflow Lint"
+        run: |
+          pixi run -e ci python -m framework.workflow_lint \
+            .github/workflows/ci.yml \
+            .github/workflows/reusable-ci.yml \
+            .github/workflows/standalone-ci.yml
       - name: "Run Format Check"
         run: |
           echo "Running format check..."
@@ -110,57 +114,56 @@ jobs:
           pixi run -e ci pytest framework/tests/ --cov=framework --cov-report=xml || \
           pixi run -e quality pytest framework/tests/ -v
 
-  # Placeholder for more advanced integration tests of reusable workflows
-  # This would involve creating a dummy repository and calling the reusable
-  # workflows
-  # from there, then asserting their behavior.
-  # This is a complex setup and is left as a future enhancement.
-  integration-tests-reusable-workflows:
-    name: "🔗 Reusable Workflow Integration Tests"
+  workflow-validation:
+    name: "🔗 Workflow Validation Tests"
     runs-on: ubuntu-latest
     steps:
-      - name: "Explanation"
+      - uses: actions/checkout@v6
+      - name: "Set up Pixi"
+        uses: prefix-dev/setup-pixi@v0.8.13
+        with:
+          pixi-version: v0.49.0
+          manifest-path: pyproject.toml
+          cache: false
+      - name: "Install CI Dependencies"
         run: |
-          echo "This job would contain integration tests for the reusable"
-          echo "workflows (reusable-ci.yml, standalone-ci.yml)."
-          echo "It would involve setting up a dummy project, calling the"
-          echo "reusable workflows, and verifying their end-to-end behavior."
-          echo "This is a complex task that often requires a dedicated"
-          echo "testing repository or advanced GitHub Actions features."
-          echo "For now, manual verification or separate dedicated"
-          echo "integration test repositories are recommended."
+          pixi install -e ci || exit 1
+      - name: "Run Workflow Structural Tests"
+        run: |
+          pixi run -e ci pytest framework/tests/workflows/test_reusable_workflow_lint.py -v --no-cov
 
   summary:
     name: "✅ CI Summary"
     runs-on: ubuntu-latest
-    needs: [lint-and-format, security-scan, unit-tests,
-            integration-tests-reusable-workflows]
+    needs: [lint-and-format, security-scan, unit-tests, workflow-validation]
     if: always()
     steps:
       - name: "Generate Run Summary"
         run: |
-          echo "## CI Framework CI Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Job | Status |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Lint & Format | ${{ needs.lint-and-format.result }} |" \
-            >> "$GITHUB_STEP_SUMMARY"
-          echo "| Security Scan | ${{ needs.security-scan.result }} |" \
-            >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unit Tests | ${{ needs.unit-tests.result }} |" \
-            >> "$GITHUB_STEP_SUMMARY"
-          echo "| Reusable Workflow Integration Tests |" \
-            "${{ needs.integration-tests-reusable-workflows.result }} |" \
-            >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## CI Framework CI Summary"
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| Lint & Format | ${{ needs.lint-and-format.result }} |"
+            echo "| Security Scan | ${{ needs.security-scan.result }} |"
+            echo "| Unit Tests | ${{ needs.unit-tests.result }} |"
+            echo "| Workflow Validation | ${{ needs.workflow-validation.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "${{ needs.lint-and-format.result }}" == "success" && \
-                "${{ needs.security-scan.result }}" == "success" && \
-                "${{ needs.unit-tests.result }}" == "success" && \
-                "${{ needs.integration-tests-reusable-workflows.result }}" == "success" ]]; then
-            echo -e "\n**Overall Status: ✅ All CI Framework checks passed.**" \
-              >> $GITHUB_STEP_SUMMARY
-            exit 0
-          else
-            echo -e "\n**Overall Status: ❌ Some CI Framework checks failed.**" \
-              >> $GITHUB_STEP_SUMMARY
+          FAILED=false
+          for result in \
+            "${{ needs.lint-and-format.result }}" \
+            "${{ needs.security-scan.result }}" \
+            "${{ needs.unit-tests.result }}" \
+            "${{ needs.workflow-validation.result }}"; do
+            if [[ "$result" == "failure" ]]; then
+              FAILED=true
+            fi
+          done
+
+          if [[ "$FAILED" == "true" ]]; then
+            echo "**Overall: Some checks failed.**" >> "$GITHUB_STEP_SUMMARY"
             exit 1
+          else
+            echo "**Overall: All checks passed.**" >> "$GITHUB_STEP_SUMMARY"
           fi

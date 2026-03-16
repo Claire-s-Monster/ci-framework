@@ -32,6 +32,7 @@ jobs:
           ALLOWED_PATTERNS=(
             "^development$"
             "^release-please--branches--"
+            "^release/"
             "^hotfix/"
             "^dependabot/"
           )
@@ -52,6 +53,7 @@ jobs:
             echo "Allowed sources:"
             echo "  • development - for regular releases"
             echo "  • release-please--branches--* - for automated releases"
+            echo "  • release/* - for version release branches"
             echo "  • hotfix/* - for emergency fixes"
             echo "  • dependabot/* - for automated dependency updates"
             echo ""

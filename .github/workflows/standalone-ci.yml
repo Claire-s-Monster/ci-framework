@@ -1,63 +1,446 @@
 ---
 # ============================================================================
-# STANDALONE CI TEMPLATE - For Local Use Only
+# STANDALONE CI TEMPLATE - Reference / Escape Hatch
 # ============================================================================
-# This file is a TEMPLATE meant to be COPIED to your repository alongside
-# reusable-ci.yml. It provides a simplified interface to the full CI pipeline.
+# RECOMMENDED: Use reusable-ci.yml instead — consumers get automatic updates:
+#   jobs:
+#     ci:
+#       uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+#       secrets: inherit
 #
-# USAGE PATTERNS:
+# This standalone template exists as a REFERENCE and ESCAPE HATCH for cases
+# where the reusable workflow cannot be used (e.g., debugging, forked repos
+# without cross-repo access, or full local customization).
 #
-# 1. REMOTE (Recommended for most users):
-#    Call reusable-ci.yml directly from ci-framework:
-#    ```yaml
-#    jobs:
-#      ci:
-#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
-#        secrets: inherit
-#    ```
+# WARNING: Copies of this file will NOT receive upstream updates automatically.
 #
-# 2. LOCAL (For customization):
-#    Copy BOTH files to your repo's .github/workflows/:
-#    - reusable-ci.yml (the full pipeline)
-#    - standalone-ci.yml (this simplified wrapper)
-#    Then call standalone-ci.yml locally, which references reusable-ci.yml
-#    via local path. This allows full customization without external deps.
+# USAGE (if you must):
+#   1. Copy this file to .github/workflows/ci.yml in your repository
+#   2. Edit the env: block and the configure job outputs below
+#   3. Commit and push — CI runs automatically
 #
-# DO NOT call this file remotely - it uses local path references that only
-# work when both files exist in the same repository.
+# CONFIGURATION:
+#   - Step-level settings (pixi version, environment, paths) → env: block
+#   - Job-level settings (matrix, feature flags) → configure job outputs
+#   GitHub Actions restricts which contexts are available at job vs step
+#   level, so configuration is split across these two locations.
 # ============================================================================
 name: Standalone Package CI
 
+# NOTE: This template uses workflow_dispatch only in ci-framework to prevent
+# it from running against the framework repo itself. When you copy this file
+# to your repository, replace the trigger below with:
+#   push:
+#     branches: [main, master, development]
+#     tags: ['v*']
+#   pull_request:
+#     branches: [main, master, development]
+#   workflow_dispatch:
 on:
-  workflow_call:
-    inputs:
-      pixi-environment:
-        description: "The PIXI environment to use (default, quality, dev, ci)"
-        required: false
-        type: string
-        default: 'ci'
-      python-versions:
-        description: "JSON array of Python versions for the test matrix"
-        required: false
-        type: string
-        default: '["3.10", "3.11", "3.12"]'
-      os-matrix:
-        description: "JSON array of OS for the test matrix"
-        required: false
-        type: string
-        default: '["ubuntu-latest", "macos-latest"]'
-    secrets:
-      CODECOV_TOKEN:
-        required: false
-      PYPI_API_TOKEN:
-        required: false
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  id-token: write
+  security-events: write
+
+# ============================================================================
+# STEP-LEVEL CONFIGURATION — Used in step run/with blocks
+# ============================================================================
+env:
+  PIXI_VERSION: 'v0.49.0'
+  PIXI_ENVIRONMENT: 'ci'
+  PACKAGE_PATH: '.'
+  ALLOWED_LICENSES: 'MIT, Apache-2.0, BSD-3-Clause'
+  EDITABLE_INSTALL: 'true'
 
 jobs:
-  call-reusable-workflow:
-    uses: ./.github/workflows/reusable-ci.yml
-    with:
-      pixi-environment: ${{ inputs.pixi-environment }}
-      python-versions: ${{ inputs.python-versions }}
-      os-matrix: ${{ inputs.os-matrix }}
-      package-path: '.'
-    secrets: inherit
+  # ==========================================================================
+  # Job 0: Configuration
+  # Outputs values needed in job-level if: and strategy.matrix: where the
+  # env context is not available (only github/needs/vars/inputs are).
+  # Edit the values in the echo statements below to customize.
+  # ==========================================================================
+  configure:
+    name: "⚙️ Configure"
+    runs-on: ubuntu-latest
+    outputs:
+      python-versions: ${{ steps.cfg.outputs.python-versions }}
+      os-matrix: ${{ steps.cfg.outputs.os-matrix }}
+      enable-performance: ${{ steps.cfg.outputs.enable-performance }}
+      enable-release: ${{ steps.cfg.outputs.enable-release }}
+      enable-hygiene: ${{ steps.cfg.outputs.enable-hygiene }}
+    steps:
+      - name: "Set configuration outputs"
+        id: cfg
+        run: |
+          # ── Edit these values to customize your CI pipeline ──
+          {
+            echo 'python-versions=["3.10", "3.11", "3.12"]'
+            echo 'os-matrix=["ubuntu-latest", "macos-latest"]'
+            echo 'enable-performance=true'
+            echo 'enable-release=true'
+            echo 'enable-hygiene=true'
+          } >> "$GITHUB_OUTPUT"
+
+  # ==========================================================================
+  # Job 1: Detect Changes
+  # ==========================================================================
+  detect-changes:
+    name: "🔍 Detect Changes"
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.changes.outputs.src }}
+      docs: ${{ steps.changes.outputs.docs }}
+      tests: ${{ steps.changes.outputs.tests }}
+      ci: ${{ steps.changes.outputs.ci }}
+      performance: ${{ steps.changes.outputs.performance }}
+      security: ${{ steps.changes.outputs.security }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v4
+        id: changes
+        with:
+          filters: |
+            src:
+              - '${{ env.PACKAGE_PATH }}/src/**'
+              - '${{ env.PACKAGE_PATH }}/framework/**'
+              - '${{ env.PACKAGE_PATH }}/pyproject.toml'
+              - '${{ env.PACKAGE_PATH }}/pixi.lock'
+              - '!${{ env.PACKAGE_PATH }}/framework/tests/**'
+            docs:
+              - '${{ env.PACKAGE_PATH }}/docs/**'
+              - '${{ env.PACKAGE_PATH }}/*.md'
+            tests:
+              - '${{ env.PACKAGE_PATH }}/tests/**'
+              - '${{ env.PACKAGE_PATH }}/framework/tests/**'
+            ci:
+              - '.github/workflows/**'
+            performance:
+              - '${{ env.PACKAGE_PATH }}/tests/performance/**'
+              - '${{ env.PACKAGE_PATH }}/framework/tests/performance/**'
+            security:
+              - '.github/workflows/security.yml'
+              - '${{ env.PACKAGE_PATH }}/pyproject.toml'
+              - '${{ env.PACKAGE_PATH }}/pixi.toml'
+              - '${{ env.PACKAGE_PATH }}/pixi.lock'
+              - '${{ env.PACKAGE_PATH }}/requirements*.txt'
+
+  # ==========================================================================
+  # Job 2: Repository Hygiene
+  # ==========================================================================
+  hygiene:
+    name: "🧹 Repository Hygiene"
+    runs-on: ubuntu-latest
+    needs: configure
+    if: needs.configure.outputs.enable-hygiene == 'true'
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Check for pixi project"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          if [ ! -f pixi.toml ] && [ ! -f pixi.lock ]; then
+            echo "::error::No pixi.toml or pixi.lock found. ci-framework requires pixi-based projects."
+            exit 1
+          fi
+          echo "✅ Pixi project detected"
+      - name: "Check for tracked dev artifacts"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          ERRORS=0
+          # Check for __pycache__ directories
+          if git ls-files --error-unmatch '*/__pycache__/*' 2>/dev/null; then
+            echo "::error::__pycache__ directories are tracked in git"
+            ERRORS=$((ERRORS + 1))
+          fi
+          # Check for .pyc files
+          if git ls-files --error-unmatch '*.pyc' 2>/dev/null; then
+            echo "::error::.pyc files are tracked in git"
+            ERRORS=$((ERRORS + 1))
+          fi
+          # Check for .pytest_cache
+          if git ls-files --error-unmatch '.pytest_cache/*' 2>/dev/null; then
+            echo "::error::.pytest_cache is tracked in git"
+            ERRORS=$((ERRORS + 1))
+          fi
+          # Check for .mypy_cache
+          if git ls-files --error-unmatch '.mypy_cache/*' 2>/dev/null; then
+            echo "::error::.mypy_cache is tracked in git"
+            ERRORS=$((ERRORS + 1))
+          fi
+          # Check for .gitignore
+          if [ ! -f .gitignore ]; then
+            echo "::error::.gitignore file is missing"
+            ERRORS=$((ERRORS + 1))
+          fi
+          # Warnings (non-fatal)
+          if git ls-files --error-unmatch '*.env' 2>/dev/null; then
+            echo "::warning::.env files are tracked in git"
+          fi
+          if git ls-files --error-unmatch '.DS_Store' 'Thumbs.db' 2>/dev/null; then
+            echo "::warning::OS-specific files are tracked in git"
+          fi
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::Found $ERRORS hygiene issues"
+            exit 1
+          fi
+          echo "✅ Repository hygiene checks passed"
+
+  # ==========================================================================
+  # Job 3: Code Quality
+  # ==========================================================================
+  quality:
+    name: "💎 Code Quality"
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.src == 'true'
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.8.13
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: false
+      - name: "Install Dependencies"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi install -e ${{ env.PIXI_ENVIRONMENT }}
+      - name: "Run Linters, Formatters, Type Checkers"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi run -e ${{ env.PIXI_ENVIRONMENT }} quality
+
+  # ==========================================================================
+  # Job 4: Test Matrix
+  # ==========================================================================
+  test:
+    name: "🧪 Test Python ${{ matrix.python-version }} on ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    needs: [configure, detect-changes]
+    if: >-
+      needs.detect-changes.outputs.src == 'true' ||
+      needs.detect-changes.outputs.tests == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJson(needs.configure.outputs.os-matrix) }}
+        python-version: ${{ fromJson(needs.configure.outputs.python-versions) }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Setup Python ${{ matrix.python-version }}"
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.8.13
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: false
+      - name: "Install Dependencies"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi install -e ${{ env.PIXI_ENVIRONMENT }}
+      - name: "Editable Install (pixi-only)"
+        if: env.EDITABLE_INSTALL == 'true'
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          if [ ! -f pixi.toml ] && [ ! -f pixi.lock ]; then
+            echo "::error::No pixi.toml or pixi.lock found. ci-framework requires pixi-based projects."
+            exit 1
+          fi
+          pixi run -e ${{ env.PIXI_ENVIRONMENT }} pip install -e . --no-deps
+      - name: "Run Test Suite"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi run -e ${{ env.PIXI_ENVIRONMENT }} test
+
+  # ==========================================================================
+  # Job 5: Security Scan
+  # ==========================================================================
+  security:
+    name: "🛡️ Security Scan"
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.security == 'true'
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.8.13
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: false
+      - name: "Install Security Environment"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi install -e quality-extended
+      - name: "Run Bandit (static analysis)"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi run -e quality-extended security-scan
+        continue-on-error: true
+      - name: "Run pip-audit (dependency vulnerabilities)"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi run -e quality-extended safety-check
+        continue-on-error: true
+      - name: "Automated License Compliance Scanning"
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          allow-licenses: ${{ env.ALLOWED_LICENSES }}
+      - name: "Initialize CodeQL"
+        uses: github/codeql-action/init@v4
+        with:
+          languages: 'python'
+      - name: "Perform CodeQL Analysis"
+        uses: github/codeql-action/analyze@v4
+
+  # ==========================================================================
+  # Job 6: Performance Analysis
+  # ==========================================================================
+  performance:
+    name: "📊 Performance Analysis"
+    runs-on: ubuntu-latest
+    needs: [configure, detect-changes]
+    if: >-
+      needs.configure.outputs.enable-performance == 'true' &&
+      needs.detect-changes.outputs.performance == 'true'
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.8.13
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: false
+      - name: "Install Performance Environment"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi install -e dev
+      - name: "Run Benchmarks"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi run -e dev pytest tests/performance/ \
+            --benchmark-only \
+            --benchmark-json=benchmark-results.json \
+            || echo "No benchmark tests found or benchmarks failed"
+      - name: "Upload Benchmark Results"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results
+          path: '${{ env.PACKAGE_PATH }}/benchmark-results.json'
+          if-no-files-found: ignore
+
+  # ==========================================================================
+  # Job 7: Build Package
+  # ==========================================================================
+  build:
+    name: "📦 Build Package"
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.8.13
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: false
+      - name: "Install Dependencies"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi install -e ${{ env.PIXI_ENVIRONMENT }}
+      - name: "Build sdist and wheel"
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          pixi run -e ${{ env.PIXI_ENVIRONMENT }} build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: 'dist'
+          path: '${{ env.PACKAGE_PATH }}/dist/'
+
+  # ==========================================================================
+  # Job 8: Release & Publish
+  # ==========================================================================
+  release:
+    name: "🚀 Release & Publish"
+    runs-on: ubuntu-latest
+    needs: [configure, build, quality, security]
+    if: >-
+      needs.configure.outputs.enable-release == 'true' &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: 'dist'
+          path: 'dist/'
+      - name: "Publish to PyPI"
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ==========================================================================
+  # Job 9: Self-Healing
+  # ==========================================================================
+  self-heal:
+    name: "🩹 Self-Healing (Manual Trigger)"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Run Self-Healing"
+        run: |
+          echo "Self-healing placeholder — customize this job for your project."
+          echo "Examples: auto-fix lint violations, regenerate lock files,"
+          echo "update pinned dependencies, or retry flaky tests."
+
+  # ==========================================================================
+  # Job 10: CI Summary
+  # ==========================================================================
+  summary:
+    name: "✅ CI Summary"
+    runs-on: ubuntu-latest
+    needs:
+      [hygiene, quality, test, security, performance, build, release, self-heal]
+    if: always()
+    steps:
+      - name: "Generate Run Summary"
+        run: |
+          {
+            echo "## Standalone Package CI Summary"
+            echo ""
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| Hygiene | ${{ needs.hygiene.result }} |"
+            echo "| Quality | ${{ needs.quality.result }} |"
+            echo "| Test | ${{ needs.test.result }} |"
+            echo "| Security | ${{ needs.security.result }} |"
+            echo "| Performance | ${{ needs.performance.result }} |"
+            echo "| Build | ${{ needs.build.result }} |"
+            echo "| Release | ${{ needs.release.result }} |"
+            echo "| Self-Heal | ${{ needs.self-heal.result }} |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Determine overall status (skipped jobs are OK)
+          FAILED=false
+          for result in \
+            "${{ needs.hygiene.result }}" \
+            "${{ needs.quality.result }}" \
+            "${{ needs.test.result }}" \
+            "${{ needs.security.result }}" \
+            "${{ needs.build.result }}"; do
+            if [[ "$result" == "failure" ]]; then
+              FAILED=true
+            fi
+          done
+
+          if [[ "$FAILED" == "true" ]]; then
+            echo "**Overall: Some checks failed.**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            echo "**Overall: All checks passed.**" >> "$GITHUB_STEP_SUMMARY"
+          fi

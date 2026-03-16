@@ -55,9 +55,7 @@ def _find_line_number(raw_lines: list[str], pattern: str, start: int = 0) -> int
     return 0
 
 
-def _find_line_number_re(
-    raw_lines: list[str], regex: str, start: int = 0
-) -> int:
+def _find_line_number_re(raw_lines: list[str], regex: str, start: int = 0) -> int:
     """Find line number (1-indexed) matching regex."""
     compiled = re.compile(regex)
     for i, line in enumerate(raw_lines[start:], start=start):
@@ -167,9 +165,7 @@ def check_dependency_review_guard(
                 step_if = step.get("if", "")
                 if not step_if or "pull_request" not in str(step_if):
                     step_name = step.get("name", uses)
-                    line = _find_line_number(
-                        raw_lines, "dependency-review-action"
-                    )
+                    line = _find_line_number(raw_lines, "dependency-review-action")
                     errors.append(
                         LintError(
                             file=filepath,
@@ -190,7 +186,7 @@ def check_undeclared_inputs(
     filepath: str, raw_lines: list[str], workflow: dict
 ) -> list[LintError]:
     """Detect references to undeclared workflow_call inputs."""
-    errors = []
+    errors: list[LintError] = []
     trigger = workflow.get("on", workflow.get(True, {}))
     if not isinstance(trigger, dict):
         return errors
@@ -262,7 +258,7 @@ def check_summary_needs_completeness(
     filepath: str, raw_lines: list[str], workflow: dict
 ) -> list[LintError]:
     """Check that the summary job's needs: lists all other jobs."""
-    errors = []
+    errors: list[LintError] = []
     jobs = workflow.get("jobs", {})
     if "summary" not in jobs:
         return errors
@@ -351,7 +347,9 @@ def main() -> int:
     """CLI entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Custom GitHub Actions workflow linter")
+    parser = argparse.ArgumentParser(
+        description="Custom GitHub Actions workflow linter"
+    )
     parser.add_argument(
         "files",
         nargs="*",

@@ -330,9 +330,7 @@ class TestCrossFileConsistency:
                     f"standalone={standalone_actions[action]}"
                 )
 
-        assert not mismatches, (
-            "Action version mismatches:\n" + "\n".join(mismatches)
-        )
+        assert not mismatches, "Action version mismatches:\n" + "\n".join(mismatches)
 
 
 # Need re import at module level for TestReusableCIStructure.test_consistent_pixi_version

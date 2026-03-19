@@ -28,6 +28,7 @@
 #    ```
 #
 # See standalone-ci.yml for a simplified local-only template.
+# See reusable-release.yml for PyPI publishing (requires caller permissions).
 # ============================================================================
 name: Reusable CI Pipeline
 

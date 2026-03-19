@@ -40,12 +40,14 @@ jobs:
           pixi run -e dev actionlint \
             .github/workflows/ci.yml \
             .github/workflows/reusable-ci.yml \
+            .github/workflows/reusable-release.yml \
             .github/workflows/standalone-ci.yml
       - name: "Run Custom Workflow Lint"
         run: |
           pixi run -e ci python -m framework.workflow_lint \
             .github/workflows/ci.yml \
             .github/workflows/reusable-ci.yml \
+            .github/workflows/reusable-release.yml \
             .github/workflows/standalone-ci.yml
       - name: "Run Format Check"
         run: |

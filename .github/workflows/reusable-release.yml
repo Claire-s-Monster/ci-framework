@@ -1,0 +1,71 @@
+---
+# ============================================================================
+# REUSABLE RELEASE PIPELINE - PyPI Publishing
+# ============================================================================
+# Separated from reusable-ci.yml to avoid permission escalation in the CI
+# pipeline. The id-token: write permission required for PyPI trusted publishing
+# causes startup_failure when the calling repo's token scope cannot satisfy it
+# — even if the release job would be skipped via `if:` conditions.
+#
+# USAGE: Add as a separate job in your calling workflow:
+#    ```yaml
+#    jobs:
+#      ci:
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+#        secrets: inherit
+#
+#      release:
+#        needs: ci
+#        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-release.yml@main
+#        permissions:
+#          id-token: write    # Required for PyPI trusted publishing
+#          contents: write    # Required for GitHub release creation
+#        secrets: inherit
+#    ```
+#
+# WHY SEPARATE: GitHub validates ALL job permissions at workflow compilation
+# time, before any `if:` conditions are evaluated. A reusable workflow that
+# declares `id-token: write` on any job will fail for callers whose token
+# scope doesn't include it — even if that job would never run.
+# ============================================================================
+name: Reusable Release Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: >-
+          Name of the build artifact to download (must be uploaded by a
+          prior job, e.g., the build job in reusable-ci.yml)
+        required: false
+        type: string
+        default: 'dist'
+      package-path:
+        description: >-
+          Relative path to the package directory within the monorepo
+        required: false
+        type: string
+        default: '.'
+    secrets:
+      PYPI_API_TOKEN:
+        description: >-
+          PyPI API token (only needed if NOT using trusted publishing)
+        required: false
+
+jobs:
+  publish:
+    name: "🚀 Publish to PyPI"
+    runs-on: ubuntu-latest
+    # Guard: only publish on push to main/master (caller should also guard)
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: 'dist/'
+      - name: "Publish to PyPI (Trusted Publisher)"
+        uses: pypa/gh-action-pypi-publish@release/v1

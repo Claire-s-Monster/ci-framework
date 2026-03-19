@@ -5,6 +5,18 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.4.2...v2.5.0) (2026-03-17)
+
+
+### Features
+
+* standalone CI template, workflow linter, and dependency updates ([9d8fcdd](https://github.com/Claire-s-Monster/ci-framework/commit/9d8fcdd2a49c48afcb9ee394b4085d138ffbf966))
+
+
+### Bug Fixes
+
+* remove ci-framework runtime deps, add workflow validation ([#129](https://github.com/Claire-s-Monster/ci-framework/issues/129)) ([4a3f427](https://github.com/Claire-s-Monster/ci-framework/commit/4a3f427fd34c55a1615b8dfc4e5c04628b0892d3))
+
 ## [2.4.2](https://github.com/Claire-s-Monster/ci-framework/compare/v2.4.1...v2.4.2) (2026-03-05)
 
 

@@ -123,6 +123,8 @@ class FileMetrics:
     max_lines_threshold: int = 0
     worst_cc: int = 0
     max_cc_threshold: int = 0
+    worst_func_len: int = 0
+    max_func_len_threshold: int = 0
     violations: list[str] = field(default_factory=list)
 
 
@@ -142,6 +144,9 @@ def aggregate_by_file(
         elif v.rule == "high-complexity":
             fm.worst_cc = max(fm.worst_cc, v.current_value)
             fm.max_cc_threshold = v.threshold
+        elif v.rule == "function-too-long":
+            fm.worst_func_len = max(fm.worst_func_len, v.current_value)
+            fm.max_func_len_threshold = v.threshold
     return files
 
 
@@ -167,10 +172,12 @@ def format_summary(result: PolicyResult) -> str:
         return "\n".join(lines)
 
     lines.append(
-        "| File | Lines | Max Lines | Worst CC | Max CC | Violations |"
+        "| File | Lines | Max Lines | Worst CC | Max CC "
+        "| Longest Fn | Max Fn | Violations |"
     )
     lines.append(
-        "|------|-------|-----------|----------|--------|------------|"
+        "|------|-------|-----------|----------|--------"
+        "|------------|--------|------------|"
     )
 
     file_metrics = aggregate_by_file(result.violations)
@@ -178,7 +185,8 @@ def format_summary(result: PolicyResult) -> str:
         rules = ", ".join(sorted(set(fm.violations))) or "\u2014"
         lines.append(
             f"| {fm.file} | {fm.line_count} | {fm.max_lines_threshold} "
-            f"| {fm.worst_cc} | {fm.max_cc_threshold} | {rules} |"
+            f"| {fm.worst_cc} | {fm.max_cc_threshold} "
+            f"| {fm.worst_func_len} | {fm.max_func_len_threshold} | {rules} |"
         )
 
     violation_files = len(file_metrics)

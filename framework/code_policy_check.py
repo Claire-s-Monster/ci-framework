@@ -10,11 +10,7 @@ Outputs GitHub Actions annotations and a markdown summary report.
 
 from __future__ import annotations
 
-import ast
-import json
-import sys
-from dataclasses import dataclass, field
-from fnmatch import fnmatch
+from dataclasses import dataclass
 from pathlib import Path
 
 

@@ -83,3 +83,33 @@ def check_file_length(path: Path, max_lines: int) -> list[Violation]:
             )
         ]
     return []
+
+
+def check_cyclomatic_complexity(path: Path, max_cc: int) -> list[Violation]:
+    """Check per-function cyclomatic complexity using radon."""
+    from radon.complexity import cc_visit
+
+    source = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        blocks = cc_visit(source)
+    except SyntaxError:
+        return []
+
+    violations = []
+    for block in blocks:
+        if block.complexity > max_cc:
+            violations.append(
+                Violation(
+                    file=str(path),
+                    line=block.lineno,
+                    rule="high-complexity",
+                    message=(
+                        f"Function `{block.name}` has cyclomatic complexity "
+                        f"{block.complexity}, max allowed {max_cc}"
+                    ),
+                    severity="warning",
+                    current_value=block.complexity,
+                    threshold=max_cc,
+                )
+            )
+    return violations

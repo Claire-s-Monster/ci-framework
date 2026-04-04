@@ -66,3 +66,43 @@ class TestFileLength:
         f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
         violations = check_file_length(f, max_lines=500)
         assert "Organism" in violations[0].message
+
+
+from framework.code_policy_check import check_cyclomatic_complexity
+
+
+class TestCyclomaticComplexity:
+    def test_simple_function_passes(self, tmp_path):
+        f = tmp_path / "simple.py"
+        f.write_text("def hello():\n    return 1\n")
+        violations = check_cyclomatic_complexity(f, max_cc=10)
+        assert violations == []
+
+    def test_complex_function_reports_violation(self, tmp_path):
+        f = tmp_path / "complex.py"
+        # Build a function with many branches (CC > 10)
+        lines = ["def branchy(x):"]
+        for i in range(12):
+            lines.append(f"    if x == {i}:")
+            lines.append(f"        return {i}")
+        lines.append("    return -1")
+        f.write_text("\n".join(lines) + "\n")
+        violations = check_cyclomatic_complexity(f, max_cc=10)
+        assert len(violations) == 1
+        assert violations[0].rule == "high-complexity"
+        assert violations[0].current_value > 10
+        assert "branchy" in violations[0].message
+
+    def test_multiple_functions_reports_each(self, tmp_path):
+        f = tmp_path / "multi.py"
+        lines = []
+        for func_name in ("func_a", "func_b"):
+            lines.append(f"def {func_name}(x):")
+            for i in range(12):
+                lines.append(f"    if x == {i}:")
+                lines.append(f"        return {i}")
+            lines.append("    return -1")
+            lines.append("")
+        f.write_text("\n".join(lines) + "\n")
+        violations = check_cyclomatic_complexity(f, max_cc=10)
+        assert len(violations) == 2

@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
+
+_PROJECT_ROOT = str(Path(__file__).parents[3])
 
 from framework.code_policy_check import PolicyResult, Violation
 from framework.code_policy_check import check_file_length
@@ -186,3 +194,98 @@ class TestOutputFormatters:
         output = format_summary(result)
         assert "No violations" in output
         assert "5 files checked" in output
+
+
+def _cli_env() -> dict:
+    """Return env with project root on PYTHONPATH so subprocess can find framework."""
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{_PROJECT_ROOT}:{existing}" if existing else _PROJECT_ROOT
+    return env
+
+
+class TestCLI:
+    def test_arg_parsing(self, tmp_path):
+        f = tmp_path / "ok.py"
+        f.write_text("x = 1\n")
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "framework.code_policy_check",
+                "--files", json.dumps([str(f)]),
+                "--max-file-lines", "500",
+                "--max-cyclomatic-complexity", "10",
+                "--max-function-lines", "50",
+            ],
+            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
+        )
+        assert result.returncode == 0
+
+    def test_always_exits_zero(self, tmp_path):
+        f = tmp_path / "big.py"
+        f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "framework.code_policy_check",
+                "--files", json.dumps([str(f)]),
+                "--max-file-lines", "500",
+                "--max-cyclomatic-complexity", "10",
+                "--max-function-lines", "50",
+            ],
+            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
+        )
+        assert result.returncode == 0  # always 0
+        assert "::warning" in result.stdout
+
+    def test_files_json_input(self, tmp_path):
+        f1 = tmp_path / "a.py"
+        f2 = tmp_path / "b.py"
+        f1.write_text("x = 1\n")
+        f2.write_text("y = 2\n")
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "framework.code_policy_check",
+                "--files", json.dumps([str(f1), str(f2)]),
+                "--max-file-lines", "500",
+                "--max-cyclomatic-complexity", "10",
+                "--max-function-lines", "50",
+            ],
+            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
+        )
+        assert result.returncode == 0
+
+    def test_exclude_patterns_filter(self, tmp_path):
+        f = tmp_path / "test_foo.py"
+        f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "framework.code_policy_check",
+                "--files", json.dumps([str(f)]),
+                "--exclude-patterns", "**/test_*",
+                "--max-file-lines", "500",
+                "--max-cyclomatic-complexity", "10",
+                "--max-function-lines", "50",
+            ],
+            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
+        )
+        assert result.returncode == 0
+        assert "::warning" not in result.stdout  # excluded
+
+    def test_github_output(self, tmp_path):
+        f = tmp_path / "big.py"
+        f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
+        gh_output = tmp_path / "gh_output.txt"
+        gh_output.write_text("")
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "framework.code_policy_check",
+                "--files", json.dumps([str(f)]),
+                "--max-file-lines", "500",
+                "--max-cyclomatic-complexity", "10",
+                "--max-function-lines", "50",
+                "--github-output", str(gh_output),
+            ],
+            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
+        )
+        assert result.returncode == 0
+        output_content = gh_output.read_text()
+        assert "violations=1" in output_content

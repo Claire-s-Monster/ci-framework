@@ -10,7 +10,10 @@ Outputs GitHub Actions annotations and a markdown summary report.
 
 from __future__ import annotations
 
+import json
+import sys
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 
 
@@ -235,3 +238,133 @@ def check_function_length(path: Path, max_lines: int) -> list[Violation]:
                     )
                 )
     return violations
+
+
+def _filter_files(
+    files: list[str], exclude_patterns: list[str],
+) -> list[str]:
+    """Filter file list by exclude patterns using fnmatch."""
+    if not exclude_patterns:
+        return files
+    result = []
+    for f in files:
+        if not any(fnmatch(f, pat) for pat in exclude_patterns):
+            result.append(f)
+    return result
+
+
+def run_checks(
+    files: list[str],
+    exclude_patterns: list[str],
+    max_file_lines: int,
+    max_cc: int,
+    max_function_lines: int,
+) -> PolicyResult:
+    """Run all policy checks on the given files."""
+    filtered = _filter_files(files, exclude_patterns)
+    all_violations: list[Violation] = []
+    files_clean = 0
+
+    for file_path in filtered:
+        path = Path(file_path)
+        if not path.exists():
+            continue
+        file_violations: list[Violation] = []
+        file_violations.extend(check_file_length(path, max_file_lines))
+        file_violations.extend(check_cyclomatic_complexity(path, max_cc))
+        file_violations.extend(check_function_length(path, max_function_lines))
+        if file_violations:
+            all_violations.extend(file_violations)
+        else:
+            files_clean += 1
+
+    return PolicyResult(
+        violations=all_violations,
+        files_checked=len(filtered),
+        files_clean=files_clean,
+    )
+
+
+def main() -> int:
+    """CLI entrypoint."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Check Python files against code policy thresholds"
+    )
+    files_group = parser.add_mutually_exclusive_group(required=True)
+    files_group.add_argument(
+        "--files",
+        help="JSON array of file paths to check",
+    )
+    files_group.add_argument(
+        "--files-from",
+        help="Path to a file containing a JSON array of file paths",
+    )
+    parser.add_argument(
+        "--exclude-patterns", default="",
+        help="Comma-separated glob patterns to exclude",
+    )
+    parser.add_argument(
+        "--max-file-lines", type=int, default=500,
+        help="Maximum lines per file (default: 500)",
+    )
+    parser.add_argument(
+        "--max-cyclomatic-complexity", type=int, default=10,
+        help="Maximum cyclomatic complexity per function (default: 10)",
+    )
+    parser.add_argument(
+        "--max-function-lines", type=int, default=50,
+        help="Maximum lines per function (default: 50)",
+    )
+    parser.add_argument(
+        "--output-format", choices=["annotations", "json"],
+        default="annotations",
+        help="Output format (default: annotations)",
+    )
+    parser.add_argument(
+        "--github-output", default=None,
+        help="Path to $GITHUB_OUTPUT file for writing violation count",
+    )
+    args = parser.parse_args()
+
+    if args.files_from:
+        files = json.loads(Path(args.files_from).read_text())
+    else:
+        files = json.loads(args.files)
+    exclude = [p.strip() for p in args.exclude_patterns.split(",") if p.strip()]
+
+    result = run_checks(
+        files=files,
+        exclude_patterns=exclude,
+        max_file_lines=args.max_file_lines,
+        max_cc=args.max_cyclomatic_complexity,
+        max_function_lines=args.max_function_lines,
+    )
+
+    if args.output_format == "annotations":
+        annotations = format_annotations(result)
+        if annotations:
+            print(annotations)
+    else:
+        print(json.dumps([
+            {"file": v.file, "line": v.line, "rule": v.rule,
+             "message": v.message, "current_value": v.current_value,
+             "threshold": v.threshold}
+            for v in result.violations
+        ], indent=2))
+
+    # Write markdown summary
+    summary = format_summary(result)
+    Path("policy-report.md").write_text(summary)
+
+    # Write violation count to $GITHUB_OUTPUT if specified
+    if args.github_output:
+        with open(args.github_output, "a") as f:
+            f.write(f"violations={len(result.violations)}\n")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

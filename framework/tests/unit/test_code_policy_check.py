@@ -10,10 +10,17 @@ from pathlib import Path
 
 import pytest
 
-_PROJECT_ROOT = str(Path(__file__).parents[3])
+from framework.code_policy_check import (
+    PolicyResult,
+    Violation,
+    check_cyclomatic_complexity,
+    check_file_length,
+    check_function_length,
+    format_annotations,
+    format_summary,
+)
 
-from framework.code_policy_check import PolicyResult, Violation
-from framework.code_policy_check import check_file_length
+_PROJECT_ROOT = str(Path(__file__).parents[3])
 
 
 class TestDataModel:
@@ -76,9 +83,6 @@ class TestFileLength:
         assert "Organism" in violations[0].message
 
 
-from framework.code_policy_check import check_cyclomatic_complexity
-
-
 class TestCyclomaticComplexity:
     def test_simple_function_passes(self, tmp_path):
         f = tmp_path / "simple.py"
@@ -114,9 +118,6 @@ class TestCyclomaticComplexity:
         f.write_text("\n".join(lines) + "\n")
         violations = check_cyclomatic_complexity(f, max_cc=10)
         assert len(violations) == 2
-
-
-from framework.code_policy_check import check_function_length, format_annotations, format_summary
 
 
 class TestFunctionLength:
@@ -155,11 +156,15 @@ class TestFunctionLength:
 
 class TestOutputFormatters:
     def _make_violation(self, **kwargs):
-        defaults = dict(
-            file="src/api.py", line=1, rule="file-too-long",
-            message="File has 600 lines", severity="warning",
-            current_value=600, threshold=500,
-        )
+        defaults = {
+            "file": "src/api.py",
+            "line": 1,
+            "rule": "file-too-long",
+            "message": "File has 600 lines",
+            "severity": "warning",
+            "current_value": 600,
+            "threshold": 500,
+        }
         defaults.update(kwargs)
         return Violation(**defaults)
 
@@ -204,69 +209,61 @@ def _cli_env() -> dict:
     return env
 
 
+def _run_cli(args: list[str], tmp_path: Path) -> subprocess.CompletedProcess:
+    """Run the code_policy_check CLI as a subprocess with proper env."""
+    return subprocess.run(
+        [sys.executable, str(Path(_PROJECT_ROOT) / "framework" / "code_policy_check.py"), *args],
+        capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
+    )
+
+
 class TestCLI:
     def test_arg_parsing(self, tmp_path):
         f = tmp_path / "ok.py"
         f.write_text("x = 1\n")
-        result = subprocess.run(
-            [
-                sys.executable, "-m", "framework.code_policy_check",
-                "--files", json.dumps([str(f)]),
-                "--max-file-lines", "500",
-                "--max-cyclomatic-complexity", "10",
-                "--max-function-lines", "50",
-            ],
-            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
-        )
+        result = _run_cli([
+            "--files", json.dumps([str(f)]),
+            "--max-file-lines", "500",
+            "--max-cyclomatic-complexity", "10",
+            "--max-function-lines", "50",
+        ], tmp_path)
         assert result.returncode == 0
 
     def test_always_exits_zero(self, tmp_path):
         f = tmp_path / "big.py"
         f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
-        result = subprocess.run(
-            [
-                sys.executable, "-m", "framework.code_policy_check",
-                "--files", json.dumps([str(f)]),
-                "--max-file-lines", "500",
-                "--max-cyclomatic-complexity", "10",
-                "--max-function-lines", "50",
-            ],
-            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
-        )
+        result = _run_cli([
+            "--files", json.dumps([str(f)]),
+            "--max-file-lines", "500",
+            "--max-cyclomatic-complexity", "10",
+            "--max-function-lines", "50",
+        ], tmp_path)
         assert result.returncode == 0  # always 0
-        assert "::warning" in result.stdout
+        assert "::warning" in result.stdout, f"Expected annotations in stdout, got: {result.stdout!r}\nstderr: {result.stderr!r}"
 
     def test_files_json_input(self, tmp_path):
         f1 = tmp_path / "a.py"
         f2 = tmp_path / "b.py"
         f1.write_text("x = 1\n")
         f2.write_text("y = 2\n")
-        result = subprocess.run(
-            [
-                sys.executable, "-m", "framework.code_policy_check",
-                "--files", json.dumps([str(f1), str(f2)]),
-                "--max-file-lines", "500",
-                "--max-cyclomatic-complexity", "10",
-                "--max-function-lines", "50",
-            ],
-            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
-        )
+        result = _run_cli([
+            "--files", json.dumps([str(f1), str(f2)]),
+            "--max-file-lines", "500",
+            "--max-cyclomatic-complexity", "10",
+            "--max-function-lines", "50",
+        ], tmp_path)
         assert result.returncode == 0
 
     def test_exclude_patterns_filter(self, tmp_path):
         f = tmp_path / "test_foo.py"
         f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
-        result = subprocess.run(
-            [
-                sys.executable, "-m", "framework.code_policy_check",
-                "--files", json.dumps([str(f)]),
-                "--exclude-patterns", "**/test_*",
-                "--max-file-lines", "500",
-                "--max-cyclomatic-complexity", "10",
-                "--max-function-lines", "50",
-            ],
-            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
-        )
+        result = _run_cli([
+            "--files", json.dumps([str(f)]),
+            "--exclude-patterns", "**/test_*",
+            "--max-file-lines", "500",
+            "--max-cyclomatic-complexity", "10",
+            "--max-function-lines", "50",
+        ], tmp_path)
         assert result.returncode == 0
         assert "::warning" not in result.stdout  # excluded
 
@@ -275,17 +272,13 @@ class TestCLI:
         f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
         gh_output = tmp_path / "gh_output.txt"
         gh_output.write_text("")
-        result = subprocess.run(
-            [
-                sys.executable, "-m", "framework.code_policy_check",
-                "--files", json.dumps([str(f)]),
-                "--max-file-lines", "500",
-                "--max-cyclomatic-complexity", "10",
-                "--max-function-lines", "50",
-                "--github-output", str(gh_output),
-            ],
-            capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
-        )
+        result = _run_cli([
+            "--files", json.dumps([str(f)]),
+            "--max-file-lines", "500",
+            "--max-cyclomatic-complexity", "10",
+            "--max-function-lines", "50",
+            "--github-output", str(gh_output),
+        ], tmp_path)
         assert result.returncode == 0
         output_content = gh_output.read_text()
-        assert "violations=1" in output_content
+        assert "violations=1" in output_content, f"Expected violations=1, got: {output_content!r}\nstderr: {result.stderr!r}"

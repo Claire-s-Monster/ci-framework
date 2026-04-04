@@ -10,7 +10,7 @@ Outputs GitHub Actions annotations and a markdown summary report.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -113,6 +113,84 @@ def check_cyclomatic_complexity(path: Path, max_cc: int) -> list[Violation]:
                 )
             )
     return violations
+
+
+@dataclass
+class FileMetrics:
+    """Aggregated metrics for a single file."""
+    file: str
+    line_count: int = 0
+    max_lines_threshold: int = 0
+    worst_cc: int = 0
+    max_cc_threshold: int = 0
+    violations: list[str] = field(default_factory=list)
+
+
+def aggregate_by_file(
+    violations: list[Violation],
+) -> dict[str, FileMetrics]:
+    """Group violations by file, collecting worst value per metric."""
+    files: dict[str, FileMetrics] = {}
+    for v in violations:
+        if v.file not in files:
+            files[v.file] = FileMetrics(file=v.file)
+        fm = files[v.file]
+        fm.violations.append(v.rule)
+        if v.rule == "file-too-long":
+            fm.line_count = max(fm.line_count, v.current_value)
+            fm.max_lines_threshold = v.threshold
+        elif v.rule == "high-complexity":
+            fm.worst_cc = max(fm.worst_cc, v.current_value)
+            fm.max_cc_threshold = v.threshold
+    return files
+
+
+def format_annotations(result: PolicyResult) -> str:
+    """Format violations as GitHub Actions annotation commands."""
+    lines = []
+    for v in result.violations:
+        lines.append(
+            f"::warning file={v.file},line={v.line},"
+            f"title=Code Policy::{v.message}"
+        )
+    return "\n".join(lines)
+
+
+def format_summary(result: PolicyResult) -> str:
+    """Format violations as a markdown summary table."""
+    lines = ["## Code Policy Report", ""]
+
+    if not result.has_violations:
+        lines.append(
+            f"No violations found ({result.files_checked} files checked)"
+        )
+        return "\n".join(lines)
+
+    lines.append(
+        "| File | Lines | Max Lines | Worst CC | Max CC | Violations |"
+    )
+    lines.append(
+        "|------|-------|-----------|----------|--------|------------|"
+    )
+
+    file_metrics = aggregate_by_file(result.violations)
+    for fm in file_metrics.values():
+        rules = ", ".join(sorted(set(fm.violations))) or "\u2014"
+        lines.append(
+            f"| {fm.file} | {fm.line_count} | {fm.max_lines_threshold} "
+            f"| {fm.worst_cc} | {fm.max_cc_threshold} | {rules} |"
+        )
+
+    violation_files = len(file_metrics)
+    total_violations = len(result.violations)
+    file_word = "file" if violation_files == 1 else "files"
+    lines.append("")
+    lines.append(
+        f"**{total_violations} violations in {violation_files} {file_word}** "
+        f"({result.files_checked} files checked)"
+    )
+
+    return "\n".join(lines)
 
 
 def check_function_length(path: Path, max_lines: int) -> list[Violation]:

@@ -108,7 +108,7 @@ class TestCyclomaticComplexity:
         assert len(violations) == 2
 
 
-from framework.code_policy_check import check_function_length
+from framework.code_policy_check import check_function_length, format_annotations, format_summary
 
 
 class TestFunctionLength:
@@ -143,3 +143,46 @@ class TestFunctionLength:
         f.write_text("\n".join(lines) + "\n")
         violations = check_function_length(f, max_lines=50)
         assert len(violations) == 2
+
+
+class TestOutputFormatters:
+    def _make_violation(self, **kwargs):
+        defaults = dict(
+            file="src/api.py", line=1, rule="file-too-long",
+            message="File has 600 lines", severity="warning",
+            current_value=600, threshold=500,
+        )
+        defaults.update(kwargs)
+        return Violation(**defaults)
+
+    def test_annotations_format(self):
+        v = self._make_violation()
+        result = PolicyResult(violations=[v], files_checked=1, files_clean=0)
+        output = format_annotations(result)
+        assert "::warning file=src/api.py,line=1,title=Code Policy::" in output
+        assert "File has 600 lines" in output
+
+    def test_annotations_multiple_violations(self):
+        v1 = self._make_violation(rule="file-too-long")
+        v2 = self._make_violation(
+            line=42, rule="high-complexity",
+            message="Function `foo` has CC 15", current_value=15, threshold=10,
+        )
+        result = PolicyResult(violations=[v1, v2], files_checked=1, files_clean=0)
+        output = format_annotations(result)
+        assert output.count("::warning") == 2
+
+    def test_summary_markdown_table(self):
+        v = self._make_violation()
+        result = PolicyResult(violations=[v], files_checked=2, files_clean=1)
+        output = format_summary(result)
+        assert "## Code Policy Report" in output
+        assert "src/api.py" in output
+        assert "1 file" in output
+        assert "2 files checked" in output
+
+    def test_empty_results_clean_report(self):
+        result = PolicyResult(violations=[], files_checked=5, files_clean=5)
+        output = format_summary(result)
+        assert "No violations" in output
+        assert "5 files checked" in output

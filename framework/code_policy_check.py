@@ -1,0 +1,89 @@
+"""Code policy checker — file size and complexity enforcement.
+
+Checks Python files against configurable thresholds for:
+- File line count (Atomic Design Hierarchy levels)
+- Function/method cyclomatic complexity (via radon)
+- Function/method line count (via ast)
+
+Outputs GitHub Actions annotations and a markdown summary report.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import sys
+from dataclasses import dataclass, field
+from fnmatch import fnmatch
+from pathlib import Path
+
+
+@dataclass
+class Violation:
+    file: str
+    line: int
+    rule: str
+    message: str
+    severity: str
+    current_value: int
+    threshold: int
+
+
+@dataclass
+class PolicyResult:
+    violations: list[Violation]
+    files_checked: int
+    files_clean: int
+
+    @property
+    def has_violations(self) -> bool:
+        return len(self.violations) > 0
+
+
+# --- Atomic Design level names for violation messages ---
+_AG_LEVELS = [
+    (150, "Atom"),
+    (300, "Molecule"),
+    (500, "Organism"),
+]
+
+
+def _ag_level_name(max_lines: int) -> str:
+    """Return the Atomic Design level name for a given max line threshold."""
+    for limit, name in _AG_LEVELS:
+        if max_lines <= limit:
+            return name
+    return "file"  # generic label for custom thresholds above 500
+
+
+def check_file_length(path: Path, max_lines: int) -> list[Violation]:
+    """Check file line count against threshold.
+
+    Counts all physical lines excluding blank lines and lines where the
+    first non-whitespace character is '#'. Docstrings are counted.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    countable = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped == "" or stripped.startswith("#"):
+            continue
+        countable += 1
+
+    if countable > max_lines:
+        level = _ag_level_name(max_lines)
+        return [
+            Violation(
+                file=str(path),
+                line=1,
+                rule="file-too-long",
+                message=(
+                    f"File has {countable} lines — "
+                    f"exceeds {level} maximum of {max_lines}"
+                ),
+                severity="warning",
+                current_value=countable,
+                threshold=max_lines,
+            )
+        ]
+    return []

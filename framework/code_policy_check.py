@@ -113,3 +113,39 @@ def check_cyclomatic_complexity(path: Path, max_cc: int) -> list[Violation]:
                 )
             )
     return violations
+
+
+def check_function_length(path: Path, max_lines: int) -> list[Violation]:
+    """Check per-function line count using AST parsing."""
+    import ast
+
+    source = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not node.body:
+                continue
+            start = node.body[0].lineno
+            end = node.end_lineno or node.body[-1].lineno
+            length = end - start + 1
+            if length > max_lines:
+                violations.append(
+                    Violation(
+                        file=str(path),
+                        line=node.lineno,
+                        rule="function-too-long",
+                        message=(
+                            f"Function `{node.name}` has {length} lines, "
+                            f"max allowed {max_lines}"
+                        ),
+                        severity="warning",
+                        current_value=length,
+                        threshold=max_lines,
+                    )
+                )
+    return violations

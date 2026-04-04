@@ -106,3 +106,40 @@ class TestCyclomaticComplexity:
         f.write_text("\n".join(lines) + "\n")
         violations = check_cyclomatic_complexity(f, max_cc=10)
         assert len(violations) == 2
+
+
+from framework.code_policy_check import check_function_length
+
+
+class TestFunctionLength:
+    def test_short_function_passes(self, tmp_path):
+        f = tmp_path / "short.py"
+        f.write_text("def hello():\n    return 1\n")
+        violations = check_function_length(f, max_lines=50)
+        assert violations == []
+
+    def test_long_function_reports_violation(self, tmp_path):
+        f = tmp_path / "long_func.py"
+        lines = ["def big_func():"]
+        for i in range(60):
+            lines.append(f"    x_{i} = {i}")
+        lines.append("    return x_0")
+        f.write_text("\n".join(lines) + "\n")
+        violations = check_function_length(f, max_lines=50)
+        assert len(violations) == 1
+        assert violations[0].rule == "function-too-long"
+        assert "big_func" in violations[0].message
+        assert violations[0].current_value > 50
+
+    def test_nested_methods_checked_individually(self, tmp_path):
+        f = tmp_path / "nested.py"
+        lines = ["class Foo:"]
+        for method in ("method_a", "method_b"):
+            lines.append(f"    def {method}(self):")
+            for i in range(55):
+                lines.append(f"        x_{i} = {i}")
+            lines.append("        return x_0")
+            lines.append("")
+        f.write_text("\n".join(lines) + "\n")
+        violations = check_function_length(f, max_lines=50)
+        assert len(violations) == 2

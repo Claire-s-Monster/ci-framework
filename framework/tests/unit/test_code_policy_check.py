@@ -17,6 +17,8 @@ from framework.code_policy_check import (
     check_function_length,
     format_annotations,
     format_summary,
+    main as cli_main,
+    run_checks,
 )
 
 
@@ -199,9 +201,6 @@ class TestOutputFormatters:
         output = format_summary(result)
         assert "No violations" in output
         assert "5 files checked" in output
-
-
-from framework.code_policy_check import main as cli_main, run_checks
 
 
 class TestCLI:

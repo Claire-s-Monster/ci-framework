@@ -56,6 +56,11 @@ on:
         required: false
         type: number
         default: 50
+      min-dead-code-confidence:
+        description: "Minimum vulture confidence % to report dead code (0 to disable)"
+        required: false
+        type: number
+        default: 80
       fail-on-violation:
         description: "Fail the workflow on violations (false = warning only)"
         required: false
@@ -100,7 +105,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install radon
+        run: pip install radon vulture
       - name: Run code policy check
         id: check
         run: |
@@ -111,6 +116,7 @@ jobs:
             --max-file-lines ${{ inputs.max-file-lines }} \
             --max-cyclomatic-complexity ${{ inputs.max-cyclomatic-complexity }} \
             --max-function-lines ${{ inputs.max-function-lines }} \
+            --min-dead-code-confidence ${{ inputs.min-dead-code-confidence }} \
             --output-format annotations \
             --github-output "$GITHUB_OUTPUT"
       - name: Post summary

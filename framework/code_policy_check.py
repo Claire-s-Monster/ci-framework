@@ -4,6 +4,7 @@ Checks Python files against configurable thresholds for:
 - File line count (Atomic Design Hierarchy levels)
 - Function/method cyclomatic complexity (via radon)
 - Function/method line count (via ast)
+- Dead code detection (via vulture)
 
 Outputs GitHub Actions annotations and a markdown summary report.
 """
@@ -129,6 +130,7 @@ class FileMetrics:
     max_cc_threshold: int = 0
     worst_func_len: int = 0
     max_func_len_threshold: int = 0
+    worst_dead_code_confidence: int = 0
     violations: list[str] = field(default_factory=list)
 
 
@@ -151,6 +153,10 @@ def aggregate_by_file(
         elif v.rule == "function-too-long":
             fm.worst_func_len = max(fm.worst_func_len, v.current_value)
             fm.max_func_len_threshold = v.threshold
+        elif v.rule == "dead-code":
+            fm.worst_dead_code_confidence = max(
+                fm.worst_dead_code_confidence, v.current_value
+            )
     return files
 
 
@@ -238,6 +244,40 @@ def check_function_length(path: Path, max_lines: int) -> list[Violation]:
     return violations
 
 
+def check_dead_code(files: list[Path], min_confidence: int = 80) -> list[Violation]:
+    """Check for unused/dead code using vulture.
+
+    Runs vulture across all provided files at once to enable cross-file
+    analysis, filtering results by the given minimum confidence threshold.
+    """
+    from vulture import Vulture  # noqa: PLC0415
+
+    v = Vulture()
+    for path in files:
+        try:
+            code = path.read_text(encoding="utf-8", errors="replace")
+            v.scan(code, filename=str(path))
+        except SyntaxError:
+            continue
+
+    violations = []
+    for item in v.get_unused_code(min_confidence=min_confidence):
+        violations.append(
+            Violation(
+                file=item.filename,
+                line=item.first_lineno,
+                rule="dead-code",
+                message=(
+                    f"Unused {item.typ} `{item.name}` (confidence: {item.confidence}%)"
+                ),
+                severity="warning",
+                current_value=item.confidence,
+                threshold=min_confidence,
+            )
+        )
+    return violations
+
+
 def _filter_files(
     files: list[str],
     exclude_patterns: list[str],
@@ -258,11 +298,15 @@ def run_checks(
     max_file_lines: int,
     max_cc: int,
     max_function_lines: int,
+    min_dead_code_confidence: int = 80,
 ) -> PolicyResult:
     """Run all policy checks on the given files."""
     filtered = _filter_files(files, exclude_patterns)
     all_violations: list[Violation] = []
     files_clean = 0
+
+    # Track per-file violations to determine clean count
+    per_file_violations: dict[str, list[Violation]] = {}
 
     for file_path in filtered:
         path = Path(file_path)
@@ -272,6 +316,18 @@ def run_checks(
         file_violations.extend(check_file_length(path, max_file_lines))
         file_violations.extend(check_cyclomatic_complexity(path, max_cc))
         file_violations.extend(check_function_length(path, max_function_lines))
+        per_file_violations[file_path] = file_violations
+
+    # Run dead code check once across all files for cross-file analysis
+    existing_paths = [Path(fp) for fp in filtered if Path(fp).exists()]
+    dead_code_violations = check_dead_code(existing_paths, min_dead_code_confidence)
+    for v in dead_code_violations:
+        per_file_violations.setdefault(v.file, []).append(v)
+
+    for file_path in filtered:
+        if not Path(file_path).exists():
+            continue
+        file_violations = per_file_violations.get(file_path, [])
         if file_violations:
             all_violations.extend(file_violations)
         else:
@@ -324,6 +380,12 @@ def main() -> int:
         help="Maximum lines per function (default: 50)",
     )
     parser.add_argument(
+        "--min-dead-code-confidence",
+        type=int,
+        default=80,
+        help="Minimum vulture confidence to report dead code (default: 80)",
+    )
+    parser.add_argument(
         "--output-format",
         choices=["annotations", "json"],
         default="annotations",
@@ -348,6 +410,7 @@ def main() -> int:
         max_file_lines=args.max_file_lines,
         max_cc=args.max_cyclomatic_complexity,
         max_function_lines=args.max_function_lines,
+        min_dead_code_confidence=args.min_dead_code_confidence,
     )
 
     if args.output_format == "annotations":

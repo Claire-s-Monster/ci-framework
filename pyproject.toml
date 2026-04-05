@@ -35,6 +35,7 @@ pytest-mock = ">=3.14.1,<4"
 responses = ">=0.25.7,<0.26"
 tomli-w = "*"  # TOML writing for migration tools
 radon = ">=6.0.1,<7"
+vulture = ">=2.7.0"
 
 # ===== TIERED QUALITY FEATURES =====
 # TIER 1: Essential Quality Gates (ZERO-TOLERANCE)

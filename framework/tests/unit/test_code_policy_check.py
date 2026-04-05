@@ -13,6 +13,7 @@ from framework.code_policy_check import (
     PolicyResult,
     Violation,
     check_cyclomatic_complexity,
+    check_dead_code,
     check_file_length,
     check_function_length,
     format_annotations,
@@ -319,3 +320,47 @@ class TestCLI:
         assert rc == 0
         output_content = gh_output.read_text()
         assert "violations=1" in output_content
+
+
+class TestDeadCode:
+    def test_no_dead_code_passes(self, tmp_path):
+        f = tmp_path / "used.py"
+        f.write_text(
+            "def greet(name):\n    return f'Hello, {name}'\n\nresult = greet('world')\n"
+        )
+        violations = check_dead_code([f], min_confidence=80)
+        assert violations == []
+
+    def test_unused_function_detected(self, tmp_path):
+        f = tmp_path / "unused_func.py"
+        f.write_text(
+            "def used_func():\n"
+            "    return 1\n"
+            "\n"
+            "def unused_func():\n"
+            "    return 2\n"
+            "\n"
+            "x = used_func()\n"
+        )
+        violations = check_dead_code([f], min_confidence=60)
+        assert len(violations) >= 1
+        rules = [v.rule for v in violations]
+        assert "dead-code" in rules
+        messages = [v.message for v in violations]
+        assert any("unused_func" in m for m in messages)
+
+    def test_confidence_filter(self, tmp_path):
+        f = tmp_path / "maybe_unused.py"
+        # A variable that vulture may flag at lower confidence but not high
+        f.write_text(
+            "def _internal():\n"
+            "    return 42\n"
+            "\n"
+            "def public_api():\n"
+            "    return _internal()\n"
+            "\n"
+            "result = public_api()\n"
+        )
+        # At 100% confidence nothing should be flagged (all code is reachable)
+        violations = check_dead_code([f], min_confidence=100)
+        assert violations == []

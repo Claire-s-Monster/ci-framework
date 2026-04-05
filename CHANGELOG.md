@@ -5,6 +5,19 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1](https://github.com/Claire-s-Monster/ci-framework/compare/v2.5.0...v2.5.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* split release workflow to prevent startup_failure ([6329885](https://github.com/Claire-s-Monster/ci-framework/commit/63298858f7897754fc3ca9d17a1c40737ea28927))
+* split release workflow to prevent startup_failure in consumers ([cf48189](https://github.com/Claire-s-Monster/ci-framework/commit/cf481891005ae48031dc211f0e05ef38db69ddf6))
+
+
+### Documentation
+
+* add cross-reference to reusable-release.yml in header comment ([d431038](https://github.com/Claire-s-Monster/ci-framework/commit/d4310384d6db755d7a5b88a656977da4912562a1))
+
 ## [2.5.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.4.2...v2.5.0) (2026-03-17)
 
 

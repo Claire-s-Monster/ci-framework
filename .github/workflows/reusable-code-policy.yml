@@ -1,0 +1,127 @@
+---
+# ============================================================================
+# REUSABLE CODE POLICY CHECK - Structural Policy Enforcement
+# ============================================================================
+# Checks Python files against configurable thresholds for file size,
+# cyclomatic complexity, and function length. Reports violations as
+# inline PR annotations and a markdown summary.
+#
+# USAGE:
+#    ```yaml
+#    jobs:
+#      code-policy:
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-code-policy.yml@main
+#        # All inputs optional — defaults to AG policy, PR-only, warning mode
+#    ```
+#
+# See docs/code-policy-check.md for full documentation.
+# ============================================================================
+name: Reusable Code Policy Check
+
+on:
+  workflow_call:
+    inputs:
+      check-mode:
+        description: "Which files to check: 'pr' (changed files only) or 'all' (full repo)"
+        required: false
+        type: string
+        default: 'pr'
+      file-patterns:
+        description: "Glob patterns for files to check (comma-separated)"
+        required: false
+        type: string
+        default: '**/*.py'
+      exclude-patterns:
+        description: "Glob patterns to exclude (comma-separated)"
+        required: false
+        type: string
+        default: '**/tests/**,**/test_*'
+      package-path:
+        description: "Relative path to the package directory"
+        required: false
+        type: string
+        default: '.'
+      max-file-lines:
+        description: "Maximum lines per file (Atomic Design Organism ceiling)"
+        required: false
+        type: number
+        default: 500
+      max-cyclomatic-complexity:
+        description: "Maximum cyclomatic complexity per function"
+        required: false
+        type: number
+        default: 10
+      max-function-lines:
+        description: "Maximum lines per function/method"
+        required: false
+        type: number
+        default: 50
+      min-dead-code-confidence:
+        description: "Minimum vulture confidence % to report dead code (0 to disable)"
+        required: false
+        type: number
+        default: 80
+      fail-on-violation:
+        description: "Fail the workflow on violations (false = warning only)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  detect-files:
+    name: "📏 Detect Files to Check"
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.files.outputs.list }}
+      has-files: ${{ steps.files.outputs.has_files }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: files
+        run: |
+          if [ "${{ inputs.check-mode }}" = "pr" ] && [ -n "${{ github.base_ref }}" ]; then
+            files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD \
+              | grep -E '\.py$' || true)
+          else
+            files=$(find "${{ inputs.package-path }}" -name "*.py" -not -path "./.pixi/*" || true)
+          fi
+          list=$(echo "$files" | jq -R -s -c 'split("\n") | map(select(. != ""))')
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          if [ "$list" = "[]" ]; then
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  code-policy:
+    name: "📐 Code Policy Check"
+    needs: detect-files
+    if: needs.detect-files.outputs.has-files == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install radon vulture
+      - name: Run code policy check
+        id: check
+        run: |
+          echo '${{ needs.detect-files.outputs.files }}' > /tmp/files.json
+          python framework/code_policy_check.py \
+            --files-from /tmp/files.json \
+            --exclude-patterns '${{ inputs.exclude-patterns }}' \
+            --max-file-lines ${{ inputs.max-file-lines }} \
+            --max-cyclomatic-complexity ${{ inputs.max-cyclomatic-complexity }} \
+            --max-function-lines ${{ inputs.max-function-lines }} \
+            --min-dead-code-confidence ${{ inputs.min-dead-code-confidence }} \
+            --output-format annotations \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Post summary
+        if: always()
+        run: cat policy-report.md >> $GITHUB_STEP_SUMMARY
+      - name: Fail on violations
+        if: inputs.fail-on-violation && steps.check.outputs.violations > 0
+        run: exit 1

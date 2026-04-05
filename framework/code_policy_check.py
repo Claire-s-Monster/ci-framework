@@ -214,7 +214,7 @@ def check_function_length(path: Path, max_lines: int) -> list[Violation]:
 
     violations = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             if not node.body:
                 continue
             start = node.body[0].lineno

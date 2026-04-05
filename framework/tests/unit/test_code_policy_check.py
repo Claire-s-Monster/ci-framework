@@ -17,9 +17,9 @@ from framework.code_policy_check import (
     check_function_length,
     format_annotations,
     format_summary,
-    main as cli_main,
     run_checks,
 )
+from framework.code_policy_check import main as cli_main
 
 
 class TestDataModel:

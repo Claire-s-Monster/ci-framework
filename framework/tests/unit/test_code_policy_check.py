@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -19,8 +18,6 @@ from framework.code_policy_check import (
     format_annotations,
     format_summary,
 )
-
-_PROJECT_ROOT = str(Path(__file__).parents[3])
 
 
 class TestDataModel:
@@ -178,8 +175,11 @@ class TestOutputFormatters:
     def test_annotations_multiple_violations(self):
         v1 = self._make_violation(rule="file-too-long")
         v2 = self._make_violation(
-            line=42, rule="high-complexity",
-            message="Function `foo` has CC 15", current_value=15, threshold=10,
+            line=42,
+            rule="high-complexity",
+            message="Function `foo` has CC 15",
+            current_value=15,
+            threshold=10,
         )
         result = PolicyResult(violations=[v1, v2], files_checked=1, files_clean=0)
         output = format_annotations(result)
@@ -201,84 +201,122 @@ class TestOutputFormatters:
         assert "5 files checked" in output
 
 
-def _cli_env() -> dict:
-    """Return env with project root on PYTHONPATH so subprocess can find framework."""
-    env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = f"{_PROJECT_ROOT}:{existing}" if existing else _PROJECT_ROOT
-    return env
-
-
-def _run_cli(args: list[str], tmp_path: Path) -> subprocess.CompletedProcess:
-    """Run the code_policy_check CLI as a subprocess with proper env."""
-    return subprocess.run(
-        [sys.executable, str(Path(_PROJECT_ROOT) / "framework" / "code_policy_check.py"), *args],
-        capture_output=True, text=True, cwd=tmp_path, env=_cli_env(),
-    )
+from framework.code_policy_check import main as cli_main, run_checks
 
 
 class TestCLI:
-    def test_arg_parsing(self, tmp_path):
+    def _run_main(self, args: list[str], tmp_path: Path, capsys=None):
+        """Run CLI main() with given args, returning exit code."""
+        old_argv = sys.argv
+        old_cwd = os.getcwd()
+        try:
+            sys.argv = ["code_policy_check", *args]
+            os.chdir(tmp_path)
+            return cli_main()
+        finally:
+            sys.argv = old_argv
+            os.chdir(old_cwd)
+
+    def test_arg_parsing(self, tmp_path, capsys):
         f = tmp_path / "ok.py"
         f.write_text("x = 1\n")
-        result = _run_cli([
-            "--files", json.dumps([str(f)]),
-            "--max-file-lines", "500",
-            "--max-cyclomatic-complexity", "10",
-            "--max-function-lines", "50",
-        ], tmp_path)
-        assert result.returncode == 0
+        rc = self._run_main(
+            [
+                "--files",
+                json.dumps([str(f)]),
+                "--max-file-lines",
+                "500",
+                "--max-cyclomatic-complexity",
+                "10",
+                "--max-function-lines",
+                "50",
+            ],
+            tmp_path,
+        )
+        assert rc == 0
 
-    def test_always_exits_zero(self, tmp_path):
+    def test_always_exits_zero(self, tmp_path, capsys):
         f = tmp_path / "big.py"
         f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
-        result = _run_cli([
-            "--files", json.dumps([str(f)]),
-            "--max-file-lines", "500",
-            "--max-cyclomatic-complexity", "10",
-            "--max-function-lines", "50",
-        ], tmp_path)
-        assert result.returncode == 0  # always 0
-        assert "::warning" in result.stdout, f"Expected annotations in stdout, got: {result.stdout!r}\nstderr: {result.stderr!r}"
+        rc = self._run_main(
+            [
+                "--files",
+                json.dumps([str(f)]),
+                "--max-file-lines",
+                "500",
+                "--max-cyclomatic-complexity",
+                "10",
+                "--max-function-lines",
+                "50",
+            ],
+            tmp_path,
+        )
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "::warning" in captured.out
 
-    def test_files_json_input(self, tmp_path):
+    def test_files_json_input(self, tmp_path, capsys):
         f1 = tmp_path / "a.py"
         f2 = tmp_path / "b.py"
         f1.write_text("x = 1\n")
         f2.write_text("y = 2\n")
-        result = _run_cli([
-            "--files", json.dumps([str(f1), str(f2)]),
-            "--max-file-lines", "500",
-            "--max-cyclomatic-complexity", "10",
-            "--max-function-lines", "50",
-        ], tmp_path)
-        assert result.returncode == 0
+        rc = self._run_main(
+            [
+                "--files",
+                json.dumps([str(f1), str(f2)]),
+                "--max-file-lines",
+                "500",
+                "--max-cyclomatic-complexity",
+                "10",
+                "--max-function-lines",
+                "50",
+            ],
+            tmp_path,
+        )
+        assert rc == 0
 
-    def test_exclude_patterns_filter(self, tmp_path):
+    def test_exclude_patterns_filter(self, tmp_path, capsys):
         f = tmp_path / "test_foo.py"
         f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
-        result = _run_cli([
-            "--files", json.dumps([str(f)]),
-            "--exclude-patterns", "**/test_*",
-            "--max-file-lines", "500",
-            "--max-cyclomatic-complexity", "10",
-            "--max-function-lines", "50",
-        ], tmp_path)
-        assert result.returncode == 0
-        assert "::warning" not in result.stdout  # excluded
+        rc = self._run_main(
+            [
+                "--files",
+                json.dumps([str(f)]),
+                "--exclude-patterns",
+                "**/test_*",
+                "--max-file-lines",
+                "500",
+                "--max-cyclomatic-complexity",
+                "10",
+                "--max-function-lines",
+                "50",
+            ],
+            tmp_path,
+        )
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "::warning" not in captured.out  # excluded
 
-    def test_github_output(self, tmp_path):
+    def test_github_output(self, tmp_path, capsys):
         f = tmp_path / "big.py"
         f.write_text("\n".join(f"x_{i} = {i}" for i in range(600)) + "\n")
         gh_output = tmp_path / "gh_output.txt"
         gh_output.write_text("")
-        result = _run_cli([
-            "--files", json.dumps([str(f)]),
-            "--max-file-lines", "500",
-            "--max-cyclomatic-complexity", "10",
-            "--max-function-lines", "50",
-            "--github-output", str(gh_output),
-        ], tmp_path)
-        assert result.returncode == 0
+        rc = self._run_main(
+            [
+                "--files",
+                json.dumps([str(f)]),
+                "--max-file-lines",
+                "500",
+                "--max-cyclomatic-complexity",
+                "10",
+                "--max-function-lines",
+                "50",
+                "--github-output",
+                str(gh_output),
+            ],
+            tmp_path,
+        )
+        assert rc == 0
         output_content = gh_output.read_text()
-        assert "violations=1" in output_content, f"Expected violations=1, got: {output_content!r}\nstderr: {result.stderr!r}"
+        assert "violations=1" in output_content

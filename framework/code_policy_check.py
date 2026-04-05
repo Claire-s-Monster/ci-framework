@@ -121,6 +121,7 @@ def check_cyclomatic_complexity(path: Path, max_cc: int) -> list[Violation]:
 @dataclass
 class FileMetrics:
     """Aggregated metrics for a single file."""
+
     file: str
     line_count: int = 0
     max_lines_threshold: int = 0
@@ -158,8 +159,7 @@ def format_annotations(result: PolicyResult) -> str:
     lines = []
     for v in result.violations:
         lines.append(
-            f"::warning file={v.file},line={v.line},"
-            f"title=Code Policy::{v.message}"
+            f"::warning file={v.file},line={v.line},title=Code Policy::{v.message}"
         )
     return "\n".join(lines)
 
@@ -169,9 +169,7 @@ def format_summary(result: PolicyResult) -> str:
     lines = ["## Code Policy Report", ""]
 
     if not result.has_violations:
-        lines.append(
-            f"No violations found ({result.files_checked} files checked)"
-        )
+        lines.append(f"No violations found ({result.files_checked} files checked)")
         return "\n".join(lines)
 
     lines.append(
@@ -241,7 +239,8 @@ def check_function_length(path: Path, max_lines: int) -> list[Violation]:
 
 
 def _filter_files(
-    files: list[str], exclude_patterns: list[str],
+    files: list[str],
+    exclude_patterns: list[str],
 ) -> list[str]:
     """Filter file list by exclude patterns using fnmatch."""
     if not exclude_patterns:
@@ -302,28 +301,37 @@ def main() -> int:
         help="Path to a file containing a JSON array of file paths",
     )
     parser.add_argument(
-        "--exclude-patterns", default="",
+        "--exclude-patterns",
+        default="",
         help="Comma-separated glob patterns to exclude",
     )
     parser.add_argument(
-        "--max-file-lines", type=int, default=500,
+        "--max-file-lines",
+        type=int,
+        default=500,
         help="Maximum lines per file (default: 500)",
     )
     parser.add_argument(
-        "--max-cyclomatic-complexity", type=int, default=10,
+        "--max-cyclomatic-complexity",
+        type=int,
+        default=10,
         help="Maximum cyclomatic complexity per function (default: 10)",
     )
     parser.add_argument(
-        "--max-function-lines", type=int, default=50,
+        "--max-function-lines",
+        type=int,
+        default=50,
         help="Maximum lines per function (default: 50)",
     )
     parser.add_argument(
-        "--output-format", choices=["annotations", "json"],
+        "--output-format",
+        choices=["annotations", "json"],
         default="annotations",
         help="Output format (default: annotations)",
     )
     parser.add_argument(
-        "--github-output", default=None,
+        "--github-output",
+        default=None,
         help="Path to $GITHUB_OUTPUT file for writing violation count",
     )
     args = parser.parse_args()
@@ -347,12 +355,22 @@ def main() -> int:
         if annotations:
             print(annotations)
     else:
-        print(json.dumps([
-            {"file": v.file, "line": v.line, "rule": v.rule,
-             "message": v.message, "current_value": v.current_value,
-             "threshold": v.threshold}
-            for v in result.violations
-        ], indent=2))
+        print(
+            json.dumps(
+                [
+                    {
+                        "file": v.file,
+                        "line": v.line,
+                        "rule": v.rule,
+                        "message": v.message,
+                        "current_value": v.current_value,
+                        "threshold": v.threshold,
+                    }
+                    for v in result.violations
+                ],
+                indent=2,
+            )
+        )
 
     # Write markdown summary
     summary = format_summary(result)

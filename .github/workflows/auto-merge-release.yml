@@ -1,0 +1,38 @@
+---
+# ============================================================================
+# AUTO-MERGE RELEASE-PLEASE PRs
+# ============================================================================
+# Automatically merges release-please PRs after CI passes.
+# Release-please PRs are machine-generated version bumps (changelog,
+# version numbers) that don't require manual review.
+#
+# Trigger: pull_request on main from release-please branches
+# ============================================================================
+name: Auto-Merge Release
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge-release:
+    name: "🤖 Auto-Merge Release PR"
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'release-please--branches--')
+    steps:
+      - name: Enable auto-merge
+        run: |
+          gh pr merge "${{ github.event.pull_request.number }}" \
+            --auto --squash --delete-branch \
+            --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

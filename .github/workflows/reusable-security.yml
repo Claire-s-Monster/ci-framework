@@ -203,3 +203,144 @@ jobs:
       - name: Fail on high/critical
         if: inputs.fail-on-cve && steps.audit.outcome == 'failure'
         run: exit 1
+
+  sast-semgrep:
+    name: "🔬 Semgrep SAST"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run Semgrep
+        id: semgrep
+        run: semgrep ci --sarif --output=semgrep.sarif
+        env:
+          SEMGREP_RULES: p/python p/security-audit
+        continue-on-error: true
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+        continue-on-error: true
+      - name: Fail on SAST findings
+        if: inputs.fail-on-sast && steps.semgrep.outcome == 'failure'
+        run: exit 1
+
+  sast-codeql:
+    name: "🔬 CodeQL Analysis"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.has_codeql == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.detect-languages.outputs.codeql_matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          upload: true
+          category: codeql-${{ matrix.language }}
+
+  secret-scan:
+    name: "🔑 Secret Scanning"
+    needs: detect-languages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: TruffleHog scan
+        id: trufflehog
+        uses: trufflesecurity/trufflehog@v3.88.0
+        with:
+          extra_args: --only-verified
+        continue-on-error: true
+      - name: Fail on verified secrets
+        if: inputs.fail-on-secrets && steps.trufflehog.outcome == 'failure'
+        run: |
+          echo "::error::Verified secrets detected in repository"
+          exit 1
+
+  scorecard:
+    name: "📊 OpenSSF Scorecard"
+    if: inputs.scorecard
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: true
+      - name: Upload Scorecard SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scorecard.sarif
+          category: scorecard
+        continue-on-error: true
+
+  security-summary:
+    name: "🛡️ Security Summary"
+    needs:
+      - detect-languages
+      - python-dep-audit
+      - rust-dep-audit
+      - rust-deny
+      - js-dep-audit
+      - sast-semgrep
+      - sast-codeql
+      - secret-scan
+      - scorecard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Security Summary
+        run: |
+          {
+            echo "## 🛡️ Security Scan Results"
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| Python Dep Audit | ${{ needs.python-dep-audit.result }} |"
+            echo "| Rust Dep Audit | ${{ needs.rust-dep-audit.result }} |"
+            echo "| Rust Deny | ${{ needs.rust-deny.result }} |"
+            echo "| JS/TS Dep Audit | ${{ needs.js-dep-audit.result }} |"
+            echo "| Semgrep SAST | ${{ needs.sast-semgrep.result }} |"
+            echo "| CodeQL | ${{ needs.sast-codeql.result }} |"
+            echo "| Secret Scan | ${{ needs.secret-scan.result }} |"
+            echo "| OpenSSF Scorecard | ${{ needs.scorecard.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          FAILED=false
+          for result in \
+            "${{ needs.python-dep-audit.result }}" \
+            "${{ needs.rust-dep-audit.result }}" \
+            "${{ needs.rust-deny.result }}" \
+            "${{ needs.js-dep-audit.result }}" \
+            "${{ needs.secret-scan.result }}"; do
+            if [ "$result" = "failure" ]; then
+              FAILED=true
+            fi
+          done
+
+          if [ "$FAILED" = "true" ]; then
+            echo "::error::Security checks failed — see summary above"
+            exit 1
+          fi

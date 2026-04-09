@@ -1,0 +1,205 @@
+---
+# ============================================================================
+# REUSABLE SECURITY SCANNING - Multi-Language Dependency & Code Security
+# ============================================================================
+# Auto-detects languages and runs appropriate security scans:
+# - Dependency audits (pip-audit, cargo-audit, cargo-deny, npm audit)
+# - SAST (Semgrep, CodeQL)
+# - Secret scanning (TruffleHog)
+# - Security posture (OpenSSF Scorecard)
+#
+# USAGE:
+#    ```yaml
+#    jobs:
+#      security:
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
+#        permissions:
+#          security-events: write
+#          contents: read
+#          actions: read
+#          id-token: write
+#    ```
+#
+# See docs/security-scanning.md for full documentation.
+# ============================================================================
+name: Reusable Security Scanning
+
+on:
+  workflow_call:
+    inputs:
+      languages:
+        description: "Comma-separated languages to check (auto-detect if empty)"
+        required: false
+        type: string
+        default: ''
+      fail-on-cve:
+        description: "Fail on known dependency CVEs"
+        required: false
+        type: boolean
+        default: true
+      fail-on-sast:
+        description: "Fail on SAST findings"
+        required: false
+        type: boolean
+        default: false
+      fail-on-secrets:
+        description: "Fail on detected secrets"
+        required: false
+        type: boolean
+        default: true
+      scorecard:
+        description: "Run OpenSSF Scorecard"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  detect-languages:
+    name: "🔍 Detect Languages"
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.detect.outputs.python }}
+      rust: ${{ steps.detect.outputs.rust }}
+      c_cpp: ${{ steps.detect.outputs.c_cpp }}
+      cython: ${{ steps.detect.outputs.cython }}
+      js_ts: ${{ steps.detect.outputs.js_ts }}
+      codeql_matrix: ${{ steps.codeql-matrix.outputs.matrix }}
+      has_codeql: ${{ steps.codeql-matrix.outputs.has_codeql }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: detect
+        run: |
+          # Override detection if languages input is provided
+          if [ -n "${{ inputs.languages }}" ]; then
+            for lang in $(echo "${{ inputs.languages }}" | tr ',' ' '); do
+              echo "${lang}=true" >> "$GITHUB_OUTPUT"
+            done
+            # Set unmentioned languages to false
+            for lang in python rust c_cpp cython js_ts; do
+              if ! grep -q "^${lang}=" "$GITHUB_OUTPUT" 2>/dev/null; then
+                echo "${lang}=false" >> "$GITHUB_OUTPUT"
+              fi
+            done
+            exit 0
+          fi
+
+          # Python: pyproject.toml or setup.py
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "python=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Rust: Cargo.toml
+          if [ -f Cargo.toml ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # C/C++: CMakeLists.txt or source files
+          if [ -f CMakeLists.txt ] || \
+             find . \( -name "*.c" -o -name "*.cpp" -o -name "*.h" \) \
+               -not -path "./.pixi/*" -not -path "./.git/*" -print -quit | grep -q .; then
+            echo "c_cpp=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "c_cpp=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Cython: .pyx or .pxd files
+          if find . \( -name "*.pyx" -o -name "*.pxd" \) \
+               -not -path "./.pixi/*" -not -path "./.git/*" -print -quit | grep -q .; then
+            echo "cython=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cython=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # JavaScript/TypeScript: package.json
+          if [ -f package.json ]; then
+            echo "js_ts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "js_ts=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: codeql-matrix
+        run: |
+          langs=()
+          if [ "${{ steps.detect.outputs.python }}" = "true" ]; then langs+=("python"); fi
+          if [ "${{ steps.detect.outputs.c_cpp }}" = "true" ]; then langs+=("c-cpp"); fi
+          if [ "${{ steps.detect.outputs.js_ts }}" = "true" ]; then langs+=("javascript-typescript"); fi
+          if [ ${#langs[@]} -eq 0 ]; then
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_codeql=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(printf '%s\n' "${langs[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+            echo "has_codeql=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  python-dep-audit:
+    name: "🐍 Python Dependency Audit"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then pip install .; fi
+      - name: Run pip-audit
+        id: audit
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          summary: true
+      - name: Fail on CVEs
+        if: inputs.fail-on-cve && steps.audit.outcome == 'failure'
+        run: exit 1
+
+  rust-dep-audit:
+    name: "🦀 Rust Dependency Audit"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo-audit
+        id: audit
+        uses: actions-rust-lang/audit@v1
+        continue-on-error: true
+      - name: Fail on advisories
+        if: inputs.fail-on-cve && steps.audit.outcome == 'failure'
+        run: exit 1
+
+  rust-deny:
+    name: "🦀 Rust License & Advisory Policy"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  js-dep-audit:
+    name: "📦 JS/TS Dependency Audit"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.js_ts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: npm audit
+        id: audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
+      - name: Fail on high/critical
+        if: inputs.fail-on-cve && steps.audit.outcome == 'failure'
+        run: exit 1

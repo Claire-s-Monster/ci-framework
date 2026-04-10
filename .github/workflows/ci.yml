@@ -41,6 +41,8 @@ jobs:
             .github/workflows/ci.yml \
             .github/workflows/reusable-ci.yml \
             .github/workflows/reusable-release.yml \
+            .github/workflows/reusable-security.yml \
+            .github/workflows/reusable-quality.yml \
             .github/workflows/standalone-ci.yml
       - name: "Run Custom Workflow Lint"
         run: |
@@ -48,6 +50,8 @@ jobs:
             .github/workflows/ci.yml \
             .github/workflows/reusable-ci.yml \
             .github/workflows/reusable-release.yml \
+            .github/workflows/reusable-security.yml \
+            .github/workflows/reusable-quality.yml \
             .github/workflows/standalone-ci.yml
       - name: "Run Format Check"
         run: |

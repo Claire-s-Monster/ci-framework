@@ -426,7 +426,7 @@ jobs:
       - name: Install and lint
         id: lint
         run: |
-          if [ -f .eslintrc* ] || [ -f eslint.config.* ] || \
+          if compgen -G ".eslintrc*" >/dev/null || compgen -G "eslint.config.*" >/dev/null || \
              jq -e '.scripts.lint' package.json >/dev/null 2>&1; then
             npm ci
             npm run lint

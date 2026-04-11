@@ -5,6 +5,30 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.6.0...v2.7.0) (2026-04-11)
+
+
+### Features
+
+* add multi-language security and quality to reusable-ci.yml ([cc08477](https://github.com/Claire-s-Monster/ci-framework/commit/cc08477da9d4d4f955e2acf294f3974d62199923))
+* add reusable-quality.yml with multi-language quality checks ([d4157a8](https://github.com/Claire-s-Monster/ci-framework/commit/d4157a8fa45b0f89d6afde8d983485e4dbc95fc8))
+* add reusable-security.yml and reusable-quality.yml ([90788f9](https://github.com/Claire-s-Monster/ci-framework/commit/90788f9a315006f22daa0286a9aeab82dee6b9e0))
+* add reusable-security.yml with language detection and dep audits ([115e421](https://github.com/Claire-s-Monster/ci-framework/commit/115e421fb1672a84cb75b37100ead036d67d324c))
+* add SAST, secret scanning, scorecard to reusable-security.yml ([7f70ce7](https://github.com/Claire-s-Monster/ci-framework/commit/7f70ce729c3ad99f9e3b6e81d176e30a05a34760))
+* automate release flow with auto-merge and main→development sync ([b21cc6a](https://github.com/Claire-s-Monster/ci-framework/commit/b21cc6ac30663be2c23fb0a9c6a7ca5395513444))
+* automate release flow with auto-merge and sync-back ([9543da5](https://github.com/Claire-s-Monster/ci-framework/commit/9543da53bf10e1a8179bebf0078acf65c582a0de))
+* inline multi-language security & quality into reusable-ci.yml ([4b7c75d](https://github.com/Claire-s-Monster/ci-framework/commit/4b7c75d47e4372ff1074644e7eee4e4cf88eaf07))
+
+
+### Bug Fixes
+
+* resolve shellcheck SC2144 — use compgen instead of -f with globs ([5995db4](https://github.com/Claire-s-Monster/ci-framework/commit/5995db4cc2bdb3b1fe813a6ce2d5f08220850999))
+
+
+### Documentation
+
+* add consumer documentation for multi-language CI ([d6b1d09](https://github.com/Claire-s-Monster/ci-framework/commit/d6b1d0931d91fb2597770d8588fe281d127ff14d))
+
 ## [2.6.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.5.1...v2.6.0) (2026-04-06)
 
 

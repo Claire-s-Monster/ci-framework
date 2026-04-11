@@ -1,0 +1,90 @@
+---
+# ============================================================================
+# SYNC MAIN → DEVELOPMENT
+# ============================================================================
+# After merges to main (releases, hotfixes), automatically creates and
+# merges a PR to sync changes back to development. This ensures
+# development always has the latest version bumps, changelogs, and
+# any hotfix patches.
+#
+# Flow: main merge → this workflow → PR main→development → auto-merge
+# ============================================================================
+name: Sync Main to Development
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-to-development:
+    name: "🔄 Sync Main → Development"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check if sync needed
+        id: check
+        run: |
+          # Compare main and development — skip if identical
+          MAIN_SHA=$(git rev-parse origin/main)
+          DEV_SHA=$(git rev-parse origin/development)
+          if [ "$MAIN_SHA" = "$DEV_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Main and development are identical — no sync needed"
+          else
+            # Check if there are commits on main not in development
+            AHEAD=$(git rev-list --count origin/development..origin/main)
+            if [ "$AHEAD" -eq 0 ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Development already has all main commits"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Main is $AHEAD commits ahead of development"
+            fi
+          fi
+
+      - name: Create sync PR
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          # Check if a sync PR already exists
+          EXISTING=$(gh pr list \
+            --base development --head main \
+            --state open --json number --jq '.[0].number' \
+            --repo "${{ github.repository }}" || true)
+
+          if [ -n "$EXISTING" ]; then
+            echo "Sync PR #$EXISTING already exists — enabling auto-merge"
+            gh pr merge "$EXISTING" \
+              --auto --merge --repo "${{ github.repository }}" || true
+          else
+            # Create new PR and enable auto-merge
+            PR_URL=$(gh pr create \
+              --base development --head main \
+              --title "chore: sync main back to development" \
+              --body "$(cat <<'EOF'
+          ## Automated Sync
+
+          Syncs release changes (version bumps, changelog, hotfixes) from `main` back to `development`.
+
+          This PR is auto-created and auto-merged after CI passes.
+
+          🤖 Automated by [sync-main-to-development](../.github/workflows/sync-main-to-development.yml)
+          EOF
+              )" \
+              --repo "${{ github.repository }}")
+
+            PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+            echo "Created sync PR #$PR_NUMBER"
+
+            gh pr merge "$PR_NUMBER" \
+              --auto --merge --repo "${{ github.repository }}" || true
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

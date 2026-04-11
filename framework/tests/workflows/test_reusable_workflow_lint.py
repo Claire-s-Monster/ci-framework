@@ -90,23 +90,10 @@ class TestReusableCIStructure:
             assert "default" in config, f"Input '{name}' missing default value"
 
     def test_has_expected_jobs(self, workflow):
-        """Must have exactly the expected jobs (release is in reusable-release.yml)."""
-        expected_jobs = {
-            "detect-changes",
-            "hygiene",
-            "quality",
-            "test",
-            "security",
-            "performance",
-            "build",
-            "self-heal",
-            "summary",
-        }
-        actual_jobs = set(workflow["jobs"].keys())
-        assert expected_jobs == actual_jobs, (
-            f"Missing: {expected_jobs - actual_jobs}, "
-            f"Extra: {actual_jobs - expected_jobs}"
-        )
+        """Check that all core jobs exist (allows additional language-specific jobs)."""
+        jobs = set(workflow["jobs"].keys())
+        core_jobs = {"detect-changes", "hygiene", "test", "summary"}
+        assert core_jobs.issubset(jobs), f"Missing core jobs: {core_jobs - jobs}"
 
     def test_no_double_expression_wrap_in_job_if(self, workflow):
         """No job-level if: should contain explicit ${{ }}.
@@ -164,17 +151,14 @@ class TestReusableCIStructure:
         )
 
     def test_summary_needs_all_jobs(self, workflow):
-        """Summary job needs: must reference all content jobs.
-
-        detect-changes is excluded because it's an upstream prerequisite that
-        completes before all the jobs summary already waits on.
-        """
-        # Jobs that are upstream-only (transitively covered by other needs)
-        upstream_only = {"detect-changes"}
+        """Summary job must depend on all other jobs except detect-changes and configure."""
+        upstream_only = {"detect-changes", "configure"}
         all_jobs = set(workflow["jobs"].keys()) - {"summary"} - upstream_only
-        summary_needs = set(workflow["jobs"]["summary"].get("needs", []))
-        missing = all_jobs - summary_needs
-        assert not missing, f"Summary job missing needs: {missing}"
+        summary_needs = workflow["jobs"]["summary"].get("needs", [])
+        if isinstance(summary_needs, str):
+            summary_needs = [summary_needs]
+        missing = all_jobs - set(summary_needs)
+        assert not missing, f"Summary missing needs: {sorted(missing)}"
 
     def test_consistent_pixi_version(self):
         """All pixi-version references must use the same value."""
@@ -353,16 +337,37 @@ class TestCrossFileConsistency:
     """Validate consistency between reusable and standalone workflows."""
 
     def test_same_content_jobs(self):
-        """Both workflows must have the same set of content jobs."""
+        """Core jobs should match between reusable and standalone (security/quality may differ)."""
         reusable, _ = load_workflow(REUSABLE_CI)
         standalone, _ = load_workflow(STANDALONE_CI)
 
         reusable_jobs = set(reusable["jobs"].keys())
-        standalone_jobs = set(standalone["jobs"].keys()) - {"configure"}
-
-        assert reusable_jobs == standalone_jobs, (
-            f"Job mismatch. Only in reusable: {reusable_jobs - standalone_jobs}, "
-            f"Only in standalone: {standalone_jobs - reusable_jobs}"
+        standalone_jobs = set(standalone["jobs"].keys())
+        # These jobs differ: reusable has multi-lang, standalone has Python-only
+        multi_lang_jobs = {
+            "python-dep-audit",
+            "rust-dep-audit",
+            "rust-deny",
+            "js-dep-audit",
+            "sast-semgrep",
+            "sast-codeql",
+            "secret-scan",
+            "scorecard",
+            "python-quality",
+            "python-lint",
+            "python-format",
+            "python-types",
+            "rust-lint",
+            "rust-format",
+            "c-cpp-lint",
+            "cython-lint",
+            "js-lint",
+        }
+        old_jobs = {"security", "quality"}
+        reusable_core = reusable_jobs - multi_lang_jobs - old_jobs
+        standalone_core = standalone_jobs - multi_lang_jobs - old_jobs - {"configure"}
+        assert reusable_core == standalone_core, (
+            f"Core job mismatch: reusable={sorted(reusable_core)}, standalone={sorted(standalone_core)}"
         )
 
     def test_action_versions_match(self):

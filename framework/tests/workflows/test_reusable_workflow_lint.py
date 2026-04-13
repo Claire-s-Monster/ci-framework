@@ -14,6 +14,7 @@ import yaml
 
 WORKFLOWS_DIR = Path(".github/workflows")
 REUSABLE_CI = WORKFLOWS_DIR / "reusable-ci.yml"
+REUSABLE_RELEASE = WORKFLOWS_DIR / "reusable-release.yml"
 STANDALONE_CI = WORKFLOWS_DIR / "standalone-ci.yml"
 CI_YML = WORKFLOWS_DIR / "ci.yml"
 
@@ -88,25 +89,11 @@ class TestReusableCIStructure:
         for name, config in inputs.items():
             assert "default" in config, f"Input '{name}' missing default value"
 
-    def test_has_all_10_jobs(self, workflow):
-        """Must have exactly the expected 10 jobs."""
-        expected_jobs = {
-            "detect-changes",
-            "hygiene",
-            "quality",
-            "test",
-            "security",
-            "performance",
-            "build",
-            "release",
-            "self-heal",
-            "summary",
-        }
-        actual_jobs = set(workflow["jobs"].keys())
-        assert expected_jobs == actual_jobs, (
-            f"Missing: {expected_jobs - actual_jobs}, "
-            f"Extra: {actual_jobs - expected_jobs}"
-        )
+    def test_has_expected_jobs(self, workflow):
+        """Check that all core jobs exist (allows additional language-specific jobs)."""
+        jobs = set(workflow["jobs"].keys())
+        core_jobs = {"detect-changes", "hygiene", "test", "summary"}
+        assert core_jobs.issubset(jobs), f"Missing core jobs: {core_jobs - jobs}"
 
     def test_no_double_expression_wrap_in_job_if(self, workflow):
         """No job-level if: should contain explicit ${{ }}.
@@ -156,14 +143,6 @@ class TestReusableCIStructure:
                         "pull_request event guard. It only works on PR events."
                     )
 
-    def test_release_if_no_double_wrap(self, workflow):
-        """Release job if: must not have the double ${{ }} bug."""
-        release = workflow["jobs"]["release"]
-        release_if = release.get("if", "")
-        assert "${{" not in str(release_if), (
-            f"Release job if: has double ${{{{ }}}}: '{release_if}'"
-        )
-
     def test_summary_job_always_runs(self, workflow):
         """Summary job must use if: always() to run even on failures."""
         summary = workflow["jobs"]["summary"]
@@ -172,17 +151,14 @@ class TestReusableCIStructure:
         )
 
     def test_summary_needs_all_jobs(self, workflow):
-        """Summary job needs: must reference all content jobs.
-
-        detect-changes is excluded because it's an upstream prerequisite that
-        completes before all the jobs summary already waits on.
-        """
-        # Jobs that are upstream-only (transitively covered by other needs)
-        upstream_only = {"detect-changes"}
+        """Summary job must depend on all other jobs except detect-changes and configure."""
+        upstream_only = {"detect-changes", "configure"}
         all_jobs = set(workflow["jobs"].keys()) - {"summary"} - upstream_only
-        summary_needs = set(workflow["jobs"]["summary"].get("needs", []))
-        missing = all_jobs - summary_needs
-        assert not missing, f"Summary job missing needs: {missing}"
+        summary_needs = workflow["jobs"]["summary"].get("needs", [])
+        if isinstance(summary_needs, str):
+            summary_needs = [summary_needs]
+        missing = all_jobs - set(summary_needs)
+        assert not missing, f"Summary missing needs: {sorted(missing)}"
 
     def test_consistent_pixi_version(self):
         """All pixi-version references must use the same value."""
@@ -235,8 +211,8 @@ class TestStandaloneCIStructure:
         assert "python-versions" in outputs
         assert "os-matrix" in outputs
 
-    def test_has_all_10_content_jobs(self, workflow):
-        """Must have all 10 content jobs (same as reusable) plus configure."""
+    def test_has_expected_jobs(self, workflow):
+        """Must have expected content jobs (same as reusable) plus configure."""
         expected = {
             "configure",
             "detect-changes",
@@ -246,7 +222,6 @@ class TestStandaloneCIStructure:
             "security",
             "performance",
             "build",
-            "release",
             "self-heal",
             "summary",
         }
@@ -284,6 +259,76 @@ class TestStandaloneCIStructure:
 
 
 # ============================================================================
+# Structural validation for reusable-release.yml
+# ============================================================================
+
+
+class TestReusableReleaseStructure:
+    """Validate reusable-release.yml structure and correctness."""
+
+    @pytest.fixture()
+    def workflow(self) -> dict:
+        wf, _ = load_workflow(REUSABLE_RELEASE)
+        return wf
+
+    def test_is_workflow_call_trigger(self, workflow):
+        """Must use workflow_call trigger for reusable pattern."""
+        trigger = workflow.get("on", workflow.get(True, {}))
+        assert "workflow_call" in trigger
+
+    def test_no_permissions_declared(self, workflow):
+        """Must NOT declare top-level or job-level permissions.
+
+        The caller must provide id-token: write and contents: write at the
+        calling job level. If the reusable workflow declares these permissions
+        itself, it causes startup_failure for callers whose token scope
+        cannot satisfy them.
+        """
+        # No top-level permissions
+        assert "permissions" not in workflow, (
+            "reusable-release.yml must not declare top-level permissions — "
+            "the caller provides them"
+        )
+        # No job-level permissions
+        for job_name, job_config in workflow["jobs"].items():
+            if isinstance(job_config, dict):
+                assert "permissions" not in job_config, (
+                    f"Job '{job_name}' must not declare permissions — "
+                    "the caller provides them"
+                )
+
+    def test_has_event_guard(self, workflow):
+        """Publish job must guard against non-push events."""
+        publish = workflow["jobs"]["publish"]
+        job_if = str(publish.get("if", ""))
+        assert "push" in job_if, (
+            "Publish job must guard on push event to prevent accidental "
+            "publishing on PRs"
+        )
+
+    def test_downloads_artifact(self, workflow):
+        """Must download the build artifact from the CI pipeline."""
+        publish = workflow["jobs"]["publish"]
+        download_steps = [
+            s
+            for s in publish.get("steps", [])
+            if isinstance(s, dict) and "download-artifact" in s.get("uses", "")
+        ]
+        assert download_steps, "Publish job must download build artifact"
+
+    def test_no_double_expression_wrap(self, workflow):
+        """No job-level if: should contain explicit ${{ }}."""
+        for job_name, job_config in workflow["jobs"].items():
+            if not isinstance(job_config, dict):
+                continue
+            job_if = job_config.get("if")
+            if job_if and isinstance(job_if, str):
+                assert "${{" not in job_if, (
+                    f"Job '{job_name}' has double ${{{{ }}}} in if: '{job_if}'"
+                )
+
+
+# ============================================================================
 # Cross-file consistency
 # ============================================================================
 
@@ -292,16 +337,37 @@ class TestCrossFileConsistency:
     """Validate consistency between reusable and standalone workflows."""
 
     def test_same_content_jobs(self):
-        """Both workflows must have the same set of content jobs."""
+        """Core jobs should match between reusable and standalone (security/quality may differ)."""
         reusable, _ = load_workflow(REUSABLE_CI)
         standalone, _ = load_workflow(STANDALONE_CI)
 
         reusable_jobs = set(reusable["jobs"].keys())
-        standalone_jobs = set(standalone["jobs"].keys()) - {"configure"}
-
-        assert reusable_jobs == standalone_jobs, (
-            f"Job mismatch. Only in reusable: {reusable_jobs - standalone_jobs}, "
-            f"Only in standalone: {standalone_jobs - reusable_jobs}"
+        standalone_jobs = set(standalone["jobs"].keys())
+        # These jobs differ: reusable has multi-lang, standalone has Python-only
+        multi_lang_jobs = {
+            "python-dep-audit",
+            "rust-dep-audit",
+            "rust-deny",
+            "js-dep-audit",
+            "sast-semgrep",
+            "sast-codeql",
+            "secret-scan",
+            "scorecard",
+            "python-quality",
+            "python-lint",
+            "python-format",
+            "python-types",
+            "rust-lint",
+            "rust-format",
+            "c-cpp-lint",
+            "cython-lint",
+            "js-lint",
+        }
+        old_jobs = {"security", "quality"}
+        reusable_core = reusable_jobs - multi_lang_jobs - old_jobs
+        standalone_core = standalone_jobs - multi_lang_jobs - old_jobs - {"configure"}
+        assert reusable_core == standalone_core, (
+            f"Core job mismatch: reusable={sorted(reusable_core)}, standalone={sorted(standalone_core)}"
         )
 
     def test_action_versions_match(self):

@@ -1,0 +1,338 @@
+---
+# ============================================================================
+# REUSABLE QUALITY CHECKS - Multi-Language Lint, Format, Typecheck
+# ============================================================================
+# Auto-detects languages and runs appropriate quality checks:
+# - Python: Ruff lint, Ruff format, mypy
+# - Rust: clippy, rustfmt
+# - C/C++: clang-tidy, cppcheck
+# - Cython: cython-lint
+# - JS/TS: ESLint
+#
+# USAGE:
+#    ```yaml
+#    jobs:
+#      quality:
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-quality.yml@main
+#        permissions:
+#          contents: read
+#    ```
+#
+# See docs/quality-checks.md for full documentation.
+# ============================================================================
+name: Reusable Quality Checks
+
+on:
+  workflow_call:
+    inputs:
+      languages:
+        description: "Comma-separated languages to check (auto-detect if empty)"
+        required: false
+        type: string
+        default: ''
+      fail-on-lint:
+        description: "Fail on lint violations"
+        required: false
+        type: boolean
+        default: true
+      fail-on-format:
+        description: "Fail on format violations"
+        required: false
+        type: boolean
+        default: true
+      fail-on-typecheck:
+        description: "Fail on type checking errors"
+        required: false
+        type: boolean
+        default: false
+      python-version:
+        description: "Python version for quality tools"
+        required: false
+        type: string
+        default: '3.12'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  detect-languages:
+    name: "🔍 Detect Languages"
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.detect.outputs.python }}
+      rust: ${{ steps.detect.outputs.rust }}
+      c_cpp: ${{ steps.detect.outputs.c_cpp }}
+      cython: ${{ steps.detect.outputs.cython }}
+      js_ts: ${{ steps.detect.outputs.js_ts }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: detect
+        run: |
+          if [ -n "${{ inputs.languages }}" ]; then
+            for lang in $(echo "${{ inputs.languages }}" | tr ',' ' '); do
+              echo "${lang}=true" >> "$GITHUB_OUTPUT"
+            done
+            for lang in python rust c_cpp cython js_ts; do
+              if ! grep -q "^${lang}=" "$GITHUB_OUTPUT" 2>/dev/null; then
+                echo "${lang}=false" >> "$GITHUB_OUTPUT"
+              fi
+            done
+            exit 0
+          fi
+
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "python=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f Cargo.toml ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f CMakeLists.txt ] || \
+             find . \( -name "*.c" -o -name "*.cpp" -o -name "*.h" \) \
+               -not -path "./.pixi/*" -not -path "./.git/*" -print -quit | grep -q .; then
+            echo "c_cpp=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "c_cpp=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if find . \( -name "*.pyx" -o -name "*.pxd" \) \
+               -not -path "./.pixi/*" -not -path "./.git/*" -print -quit | grep -q .; then
+            echo "cython=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cython=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f package.json ]; then
+            echo "js_ts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "js_ts=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  python-lint:
+    name: "🐍 Python Lint"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        id: lint
+        run: ruff check . --output-format=github
+        continue-on-error: true
+      - name: Fail on lint
+        if: inputs.fail-on-lint && steps.lint.outcome == 'failure'
+        run: exit 1
+
+  python-format:
+    name: "🐍 Python Format"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff format check
+        id: format
+        run: ruff format --check .
+        continue-on-error: true
+      - name: Fail on format
+        if: inputs.fail-on-format && steps.format.outcome == 'failure'
+        run: exit 1
+
+  python-types:
+    name: "🐍 Python Type Check"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install mypy
+        run: pip install mypy
+      - name: Run mypy
+        id: typecheck
+        run: mypy . --ignore-missing-imports
+        continue-on-error: true
+      - name: Fail on typecheck
+        if: inputs.fail-on-typecheck && steps.typecheck.outcome == 'failure'
+        run: exit 1
+
+  rust-lint:
+    name: "🦀 Rust Lint (Clippy)"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - name: Clippy
+        id: clippy
+        run: cargo clippy -- -D warnings
+        continue-on-error: true
+      - name: Fail on lint
+        if: inputs.fail-on-lint && steps.clippy.outcome == 'failure'
+        run: exit 1
+
+  rust-format:
+    name: "🦀 Rust Format"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+      - name: rustfmt check
+        id: format
+        run: cargo fmt --check
+        continue-on-error: true
+      - name: Fail on format
+        if: inputs.fail-on-format && steps.format.outcome == 'failure'
+        run: exit 1
+
+  c-cpp-lint:
+    name: "⚙️ C/C++ Lint"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.c_cpp == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cpp-linter/cpp-linter-action@v2
+        id: linter
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          style: file
+          tidy-checks: ''
+          version: 17
+          files-changed-only: true
+          thread-comments: true
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: cpp-linter.sarif
+          category: cpp-linter
+        continue-on-error: true
+      - name: Fail on lint
+        if: inputs.fail-on-lint && steps.linter.outputs.checks-failed > 0
+        run: exit 1
+
+  cython-lint:
+    name: "🔧 Cython Lint"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.cython == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install cython-lint
+        run: pip install cython-lint
+      - name: Run cython-lint
+        id: lint
+        run: |
+          find . \( -name "*.pyx" -o -name "*.pxd" \) \
+            -not -path "./.pixi/*" -not -path "./.git/*" \
+            -exec cython-lint {} +
+        continue-on-error: true
+      - name: Fail on lint
+        if: inputs.fail-on-lint && steps.lint.outcome == 'failure'
+        run: exit 1
+
+  js-lint:
+    name: "📦 JS/TS Lint (ESLint)"
+    needs: detect-languages
+    if: needs.detect-languages.outputs.js_ts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install and lint
+        id: lint
+        run: |
+          if compgen -G ".eslintrc*" >/dev/null || compgen -G "eslint.config.*" >/dev/null || \
+             jq -e '.scripts.lint' package.json >/dev/null 2>&1; then
+            npm ci
+            npm run lint
+          else
+            echo "No ESLint config found, skipping"
+          fi
+        continue-on-error: true
+      - name: Fail on lint
+        if: inputs.fail-on-lint && steps.lint.outcome == 'failure'
+        run: exit 1
+
+  quality-summary:
+    name: "✨ Quality Summary"
+    needs:
+      - detect-languages
+      - python-lint
+      - python-format
+      - python-types
+      - rust-lint
+      - rust-format
+      - c-cpp-lint
+      - cython-lint
+      - js-lint
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Quality Summary
+        run: |
+          {
+            echo "## ✨ Quality Check Results"
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| Python Lint | ${{ needs.python-lint.result }} |"
+            echo "| Python Format | ${{ needs.python-format.result }} |"
+            echo "| Python Types | ${{ needs.python-types.result }} |"
+            echo "| Rust Lint | ${{ needs.rust-lint.result }} |"
+            echo "| Rust Format | ${{ needs.rust-format.result }} |"
+            echo "| C/C++ Lint | ${{ needs.c-cpp-lint.result }} |"
+            echo "| Cython Lint | ${{ needs.cython-lint.result }} |"
+            echo "| JS/TS Lint | ${{ needs.js-lint.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          FAILED=false
+          for result in \
+            "${{ needs.python-lint.result }}" \
+            "${{ needs.python-format.result }}" \
+            "${{ needs.rust-lint.result }}" \
+            "${{ needs.rust-format.result }}" \
+            "${{ needs.c-cpp-lint.result }}" \
+            "${{ needs.cython-lint.result }}" \
+            "${{ needs.js-lint.result }}"; do
+            if [ "$result" = "failure" ]; then
+              FAILED=true
+            fi
+          done
+
+          if [ "$FAILED" = "true" ]; then
+            echo "::error::Quality checks failed — see summary above"
+            exit 1
+          fi

@@ -5,6 +5,74 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.6.0...v2.7.0) (2026-04-11)
+
+
+### Features
+
+* add multi-language security and quality to reusable-ci.yml ([cc08477](https://github.com/Claire-s-Monster/ci-framework/commit/cc08477da9d4d4f955e2acf294f3974d62199923))
+* add reusable-quality.yml with multi-language quality checks ([d4157a8](https://github.com/Claire-s-Monster/ci-framework/commit/d4157a8fa45b0f89d6afde8d983485e4dbc95fc8))
+* add reusable-security.yml and reusable-quality.yml ([90788f9](https://github.com/Claire-s-Monster/ci-framework/commit/90788f9a315006f22daa0286a9aeab82dee6b9e0))
+* add reusable-security.yml with language detection and dep audits ([115e421](https://github.com/Claire-s-Monster/ci-framework/commit/115e421fb1672a84cb75b37100ead036d67d324c))
+* add SAST, secret scanning, scorecard to reusable-security.yml ([7f70ce7](https://github.com/Claire-s-Monster/ci-framework/commit/7f70ce729c3ad99f9e3b6e81d176e30a05a34760))
+* automate release flow with auto-merge and main→development sync ([b21cc6a](https://github.com/Claire-s-Monster/ci-framework/commit/b21cc6ac30663be2c23fb0a9c6a7ca5395513444))
+* automate release flow with auto-merge and sync-back ([9543da5](https://github.com/Claire-s-Monster/ci-framework/commit/9543da53bf10e1a8179bebf0078acf65c582a0de))
+* inline multi-language security & quality into reusable-ci.yml ([4b7c75d](https://github.com/Claire-s-Monster/ci-framework/commit/4b7c75d47e4372ff1074644e7eee4e4cf88eaf07))
+
+
+### Bug Fixes
+
+* resolve shellcheck SC2144 — use compgen instead of -f with globs ([5995db4](https://github.com/Claire-s-Monster/ci-framework/commit/5995db4cc2bdb3b1fe813a6ce2d5f08220850999))
+
+
+### Documentation
+
+* add consumer documentation for multi-language CI ([d6b1d09](https://github.com/Claire-s-Monster/ci-framework/commit/d6b1d0931d91fb2597770d8588fe281d127ff14d))
+
+## [2.6.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.5.1...v2.6.0) (2026-04-06)
+
+
+### Features
+
+* add annotation and summary formatters for code policy ([c977e31](https://github.com/Claire-s-Monster/ci-framework/commit/c977e31b8ed0f9529120d8e2e7c5e0b2860d5d41))
+* add CLI entrypoint with exclude filtering and GitHub output ([2863b6c](https://github.com/Claire-s-Monster/ci-framework/commit/2863b6c6acf0945522cea91da88b106b5118b34e))
+* add cyclomatic complexity check using radon ([6ab8ee1](https://github.com/Claire-s-Monster/ci-framework/commit/6ab8ee179825772aea02ba0f611405041f35b2b2))
+* add data model and file length check for code policy ([2565143](https://github.com/Claire-s-Monster/ci-framework/commit/2565143352dad7b736006a2bf4bd75754c1657ba))
+* add function length check using ast ([927874b](https://github.com/Claire-s-Monster/ci-framework/commit/927874bd1b76026f9abeb999647e496bbe1af7b7))
+* add reusable code policy check workflow ([2e39e7f](https://github.com/Claire-s-Monster/ci-framework/commit/2e39e7fbd121c9e170239a08e09f45a36c2b6c71))
+* add reusable-code-policy.yml workflow ([063da78](https://github.com/Claire-s-Monster/ci-framework/commit/063da782509209d7d68b03838cbe30d379a50f17))
+* add vulture dead code detection to code policy check ([57958ca](https://github.com/Claire-s-Monster/ci-framework/commit/57958cad5948133a60dc833702741f81259374c4))
+* add vulture dead code detection to reusable workflow ([2657d01](https://github.com/Claire-s-Monster/ci-framework/commit/2657d01ba201eb6beb74a9e7fdc5eb2163e98a1c))
+
+
+### Bug Fixes
+
+* add function-too-long to FileMetrics aggregation and summary table ([1fc9ec2](https://github.com/Claire-s-Monster/ci-framework/commit/1fc9ec2fa23582c3db168b8d1fc99e2983c98a5a))
+* move cli_main and run_checks imports to top of test file (E402) ([2e233ac](https://github.com/Claire-s-Monster/ci-framework/commit/2e233acbdbdae09abd279626e78aa9c0a759c629))
+* remove unused imports from code_policy_check.py ([591126f](https://github.com/Claire-s-Monster/ci-framework/commit/591126f68224f63ebba91354aba12881d5122232))
+* resolve lint violations and CLI test reliability in CI ([8262090](https://github.com/Claire-s-Monster/ci-framework/commit/8262090b48dd668f48c9b2d00b3b94bceac42d9b))
+* resolve ruff I001 import sorting and UP038 isinstance union ([be3df74](https://github.com/Claire-s-Monster/ci-framework/commit/be3df748d5eef83b7bae922b31fa01a3687846a8))
+* target dependabot PRs to development branch instead of main ([83267f6](https://github.com/Claire-s-Monster/ci-framework/commit/83267f6589d61f7bfd1f767b65fc5fc1edfd1846))
+* use in-process CLI tests and apply ruff formatting ([8880896](https://github.com/Claire-s-Monster/ci-framework/commit/88808968396a95fcc498c67afdefae57cbf836bd))
+
+
+### Documentation
+
+* add consumer documentation for code policy check ([2767310](https://github.com/Claire-s-Monster/ci-framework/commit/27673100708a8dbf24cb8f142830420639ba94c8))
+
+## [2.5.1](https://github.com/Claire-s-Monster/ci-framework/compare/v2.5.0...v2.5.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* split release workflow to prevent startup_failure ([6329885](https://github.com/Claire-s-Monster/ci-framework/commit/63298858f7897754fc3ca9d17a1c40737ea28927))
+* split release workflow to prevent startup_failure in consumers ([cf48189](https://github.com/Claire-s-Monster/ci-framework/commit/cf481891005ae48031dc211f0e05ef38db69ddf6))
+
+
+### Documentation
+
+* add cross-reference to reusable-release.yml in header comment ([d431038](https://github.com/Claire-s-Monster/ci-framework/commit/d4310384d6db755d7a5b88a656977da4912562a1))
+
 ## [2.5.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.4.2...v2.5.0) (2026-03-17)
 
 

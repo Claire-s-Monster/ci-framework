@@ -6,7 +6,7 @@ This document describes the pixi-first features in the CI Framework that enforce
 
 The CI Framework is designed exclusively for pixi-based Python projects. These features ensure:
 
-1. **Pixi Project Validation** - Fail fast if pixi.toml/pixi.lock not found
+1. **Pixi Project Validation** - Fail fast if no pixi configuration found (pixi.toml, pixi.lock, or [tool.pixi] in pyproject.toml)
 2. **Editable Package Install** - Auto-install packages in editable mode within pixi
 3. **Repository Hygiene Checks** - Prevent dev artifacts from being committed
 4. **Expanded Security Triggers** - Detect dependency changes for security scans
@@ -26,7 +26,7 @@ For pixi-based projects, the local package is not automatically installed in the
 The CI framework automatically runs `pip install -e . --no-deps` within the pixi environment before tests.
 
 **Key behaviors:**
-- Fails if no `pixi.toml` or `pixi.lock` found (pixi-only enforcement)
+- Fails if no pixi configuration found: `pixi.toml`, `pixi.lock`, or `[tool.pixi]` in `pyproject.toml`
 - Uses `--no-deps` to prevent conflicts with pixi-managed dependencies
 - Runs within the pixi environment context
 
@@ -64,7 +64,7 @@ The `hygiene` job validates:
 - `.pytest_cache` tracked in git
 - `.mypy_cache` tracked in git
 - Missing `.gitignore` file
-- Missing `pixi.toml` or `pixi.lock` (pixi-only enforcement)
+- Missing pixi configuration: no `pixi.toml`, `pixi.lock`, or `[tool.pixi]` in `pyproject.toml`
 
 **Warnings (non-fatal):**
 - `.env` files tracked in git
@@ -103,7 +103,7 @@ This ensures any dependency change triggers a security review.
 
 ## Pixi-Only Enforcement
 
-The CI Framework explicitly requires pixi-based projects. If `pixi.toml` or `pixi.lock` is not found:
+The CI Framework explicitly requires pixi-based projects. If none of `pixi.toml`, `pixi.lock`, or a `[tool.pixi]` section in `pyproject.toml` is found:
 
 1. **Hygiene check** fails with clear error message
 2. **Editable install** fails with clear error message
@@ -114,7 +114,7 @@ This prevents pip-only projects from using the framework incorrectly.
 ### Error Message
 
 ```
-::error::No pixi.toml or pixi.lock found. ci-framework requires pixi-based projects.
+::error::No pixi.toml or pixi.lock found, and no [tool.pixi] section in pyproject.toml. ci-framework requires pixi-based projects.
 ```
 
 ---
@@ -140,3 +140,5 @@ pixi task add quality "ruff check . && mypy ."
 ```
 
 Then commit `pixi.toml` and `pixi.lock` to your repository.
+
+Alternatively, you can configure pixi directly in `pyproject.toml` using the `[tool.pixi]` section — see the [pixi documentation](https://pixi.sh/latest/reference/pyproject_toml/) for details.

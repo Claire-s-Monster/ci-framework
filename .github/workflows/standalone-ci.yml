@@ -140,8 +140,8 @@ jobs:
       - name: "Check for pixi project"
         working-directory: ${{ env.PACKAGE_PATH }}
         run: |
-          if [ ! -f pixi.toml ] && [ ! -f pixi.lock ]; then
-            echo "::error::No pixi.toml or pixi.lock found. ci-framework requires pixi-based projects."
+          if [ ! -f pixi.toml ] && [ ! -f pixi.lock ] && ! grep -q '\[tool\.pixi' pyproject.toml 2>/dev/null; then
+            echo "::error::No pixi.toml or pixi.lock found, and no [tool.pixi] section in pyproject.toml. ci-framework requires pixi-based projects."
             exit 1
           fi
           echo "✅ Pixi project detected"
@@ -245,8 +245,8 @@ jobs:
         if: env.EDITABLE_INSTALL == 'true'
         working-directory: ${{ env.PACKAGE_PATH }}
         run: |
-          if [ ! -f pixi.toml ] && [ ! -f pixi.lock ]; then
-            echo "::error::No pixi.toml or pixi.lock found. ci-framework requires pixi-based projects."
+          if [ ! -f pixi.toml ] && [ ! -f pixi.lock ] && ! grep -q '\[tool\.pixi' pyproject.toml 2>/dev/null; then
+            echo "::error::No pixi.toml or pixi.lock found, and no [tool.pixi] section in pyproject.toml. ci-framework requires pixi-based projects."
             exit 1
           fi
           pixi run -e ${{ env.PIXI_ENVIRONMENT }} pip install -e . --no-deps

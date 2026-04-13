@@ -96,10 +96,16 @@ class DependencyAnalyzer:
         ):
             detected.append("pip")
 
-        # Check for pixi (pixi.toml, pixi.lock)
-        if (self.project_path / "pixi.toml").exists() or (
-            self.project_path / "pixi.lock"
-        ).exists():
+        # Check for pixi (pixi.toml, pixi.lock, or [tool.pixi] in pyproject.toml)
+        pyproject = self.project_path / "pyproject.toml"
+        has_pixi_in_pyproject = (
+            pyproject.exists() and "[tool.pixi" in pyproject.read_text()
+        )
+        if (
+            (self.project_path / "pixi.toml").exists()
+            or (self.project_path / "pixi.lock").exists()
+            or has_pixi_in_pyproject
+        ):
             detected.append("pixi")
 
         # Check for conda (environment.yml, conda-lock.yml)

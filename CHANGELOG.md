@@ -5,6 +5,14 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.7.0...v2.8.0) (2026-04-13)
+
+
+### Features
+
+* accept [tool.pixi] in pyproject.toml + dependabot auto-merge ([556d878](https://github.com/Claire-s-Monster/ci-framework/commit/556d8780998bf0971ca682b2442980ceffb97ee9))
+* accept [tool.pixi] in pyproject.toml as valid pixi config ([9c49a16](https://github.com/Claire-s-Monster/ci-framework/commit/9c49a16e0c2039530565e7256e4a6f02ce382957))
+
 ## [2.7.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.6.0...v2.7.0) (2026-04-11)
 
 

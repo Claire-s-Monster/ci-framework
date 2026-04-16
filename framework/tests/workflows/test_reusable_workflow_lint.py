@@ -366,7 +366,9 @@ class TestCrossFileConsistency:
         old_jobs = {"security", "quality"}
         # Optional service-container jobs only in reusable workflow
         optional_service_jobs = {"test-postgres"}
-        reusable_core = reusable_jobs - multi_lang_jobs - old_jobs - optional_service_jobs
+        reusable_core = (
+            reusable_jobs - multi_lang_jobs - old_jobs - optional_service_jobs
+        )
         standalone_core = standalone_jobs - multi_lang_jobs - old_jobs - {"configure"}
         assert reusable_core == standalone_core, (
             f"Core job mismatch: reusable={sorted(reusable_core)}, standalone={sorted(standalone_core)}"

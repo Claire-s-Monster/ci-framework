@@ -5,6 +5,19 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.8.0...v2.9.0) (2026-04-16)
+
+
+### Features
+
+* add optional PostgreSQL service container support ([eaa4a79](https://github.com/Claire-s-Monster/ci-framework/commit/eaa4a79891e6b3bc6876f47443b7af024f8f522c))
+* add optional PostgreSQL service container support ([#164](https://github.com/Claire-s-Monster/ci-framework/issues/164)) ([e863745](https://github.com/Claire-s-Monster/ci-framework/commit/e863745399012cd6f317339b12194c1c317f4b38))
+
+
+### Bug Fixes
+
+* **tests:** exclude test-postgres from cross-file core job comparison ([4902059](https://github.com/Claire-s-Monster/ci-framework/commit/49020590208e0861204a996a457cbe6bbb7c64d7))
+
 ## [2.8.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.7.0...v2.8.0) (2026-04-13)
 
 

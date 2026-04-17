@@ -144,10 +144,8 @@ on:
         required: false
 
 permissions:
-  security-events: write
   contents: read
   actions: read
-  id-token: write
 
 jobs:
   detect-changes:
@@ -375,6 +373,9 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.c_cpp == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: cpp-linter/cpp-linter-action@v2
@@ -519,6 +520,9 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
     container:
       image: semgrep/semgrep
     steps:
@@ -547,6 +551,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:

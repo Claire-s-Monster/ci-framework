@@ -13,7 +13,8 @@ on:
 permissions:
   actions: read
   contents: read
-  security-events: write  # Required for CodeQL SARIF uploads
+  security-events: write  # CodeQL/Semgrep/C++ lint SARIF uploads
+  id-token: write          # OpenSSF Scorecard
 
 jobs:
   lint-and-format:

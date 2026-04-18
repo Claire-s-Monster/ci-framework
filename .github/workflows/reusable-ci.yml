@@ -7,6 +7,12 @@
 #
 # USAGE (recommended — remote call):
 #    ```yaml
+#    permissions:
+#      contents: read
+#      actions: read
+#      security-events: write   # SARIF uploads (CodeQL, Semgrep, C/C++ lint)
+#      id-token: write          # OpenSSF Scorecard
+#
 #    jobs:
 #      ci:
 #        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
@@ -143,9 +149,13 @@ on:
         description: "Token for Sourcery AI code reviewer"
         required: false
 
-permissions:
-  contents: read
-  actions: read
+# NOTE: No top-level permissions block. For workflow_call, the CALLER
+# controls the GITHUB_TOKEN permissions. A top-level block here would
+# cap all per-job permissions, breaking security-events and id-token
+# grants needed by SARIF upload and Scorecard jobs.
+#
+# Callers should grant at minimum:
+#   contents: read, actions: read, security-events: write, id-token: write
 
 jobs:
   detect-changes:

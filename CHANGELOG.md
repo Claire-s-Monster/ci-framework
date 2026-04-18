@@ -5,6 +5,20 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.2](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.1...v2.9.2) (2026-04-18)
+
+
+### Bug Fixes
+
+* release automation token and reusable-ci permissions ([01ad23a](https://github.com/Claire-s-Monster/ci-framework/commit/01ad23a9216c0a22ce84584e733cba442bb17035))
+* scope write permissions per-job for Scorecard compliance ([0dafe1c](https://github.com/Claire-s-Monster/ci-framework/commit/0dafe1cd4aea5750bb426f96ab4748dbd7ee2a44))
+* use CI_BOT_TOKEN for auto-merge and remove reusable-ci top-level permissions ([b4269e9](https://github.com/Claire-s-Monster/ci-framework/commit/b4269e92f992179cea3537f9950558a66161008b))
+
+
+### Documentation
+
+* show SHA pinning in reusable-ci usage example ([621d35e](https://github.com/Claire-s-Monster/ci-framework/commit/621d35e64f1548d387baee6b89c9ddc569a0f878))
+
 ## [2.9.1](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.0...v2.9.1) (2026-04-17)
 
 

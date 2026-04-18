@@ -7,13 +7,20 @@
 #
 # USAGE (recommended — remote call):
 #    ```yaml
+#    permissions: read-all          # Scorecard-safe top-level
+#
 #    jobs:
 #      ci:
-#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+#        permissions:               # Elevated grants scoped to this job
+#          contents: read
+#          actions: read
+#          security-events: write   # SARIF uploads (CodeQL, Semgrep, C/C++ lint)
+#          id-token: write          # OpenSSF Scorecard
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@<sha>  # <version>
 #        with:
 #          pixi-environment: 'ci'
 #          python-versions: '["3.10", "3.11", "3.12"]'
-#          enable-postgres: true  # optional: adds PostgreSQL service container
+#          enable-postgres: true    # optional: adds PostgreSQL service container
 #        secrets: inherit
 #    ```
 #
@@ -143,9 +150,13 @@ on:
         description: "Token for Sourcery AI code reviewer"
         required: false
 
-permissions:
-  contents: read
-  actions: read
+# NOTE: No top-level permissions block. For workflow_call, the CALLER
+# controls the GITHUB_TOKEN permissions. A top-level block here would
+# cap all per-job permissions, breaking security-events and id-token
+# grants needed by SARIF upload and Scorecard jobs.
+#
+# Callers should grant at the job level (not top-level, to satisfy Scorecard):
+#   contents: read, actions: read, security-events: write, id-token: write
 
 jobs:
   detect-changes:

@@ -16,7 +16,7 @@
 #          actions: read
 #          security-events: write   # SARIF uploads (CodeQL, Semgrep, C/C++ lint)
 #          id-token: write          # OpenSSF Scorecard
-#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+#        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@<sha>  # <version>
 #        with:
 #          pixi-environment: 'ci'
 #          python-versions: '["3.10", "3.11", "3.12"]'

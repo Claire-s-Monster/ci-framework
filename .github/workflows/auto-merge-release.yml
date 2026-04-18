@@ -35,4 +35,7 @@ jobs:
             --auto --squash --delete-branch \
             --repo "${{ github.repository }}"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CI_BOT_TOKEN (PAT) required so the merge push triggers
+          # downstream on:push workflows (e.g. release-please).
+          # GITHUB_TOKEN pushes are silently ignored by Actions.
+          GH_TOKEN: ${{ secrets.CI_BOT_TOKEN || secrets.GITHUB_TOKEN }}

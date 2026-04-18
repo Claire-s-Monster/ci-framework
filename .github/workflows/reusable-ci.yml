@@ -7,19 +7,20 @@
 #
 # USAGE (recommended — remote call):
 #    ```yaml
-#    permissions:
-#      contents: read
-#      actions: read
-#      security-events: write   # SARIF uploads (CodeQL, Semgrep, C/C++ lint)
-#      id-token: write          # OpenSSF Scorecard
+#    permissions: read-all          # Scorecard-safe top-level
 #
 #    jobs:
 #      ci:
+#        permissions:               # Elevated grants scoped to this job
+#          contents: read
+#          actions: read
+#          security-events: write   # SARIF uploads (CodeQL, Semgrep, C/C++ lint)
+#          id-token: write          # OpenSSF Scorecard
 #        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
 #        with:
 #          pixi-environment: 'ci'
 #          python-versions: '["3.10", "3.11", "3.12"]'
-#          enable-postgres: true  # optional: adds PostgreSQL service container
+#          enable-postgres: true    # optional: adds PostgreSQL service container
 #        secrets: inherit
 #    ```
 #
@@ -154,7 +155,7 @@ on:
 # cap all per-job permissions, breaking security-events and id-token
 # grants needed by SARIF upload and Scorecard jobs.
 #
-# Callers should grant at minimum:
+# Callers should grant at the job level (not top-level, to satisfy Scorecard):
 #   contents: read, actions: read, security-events: write, id-token: write
 
 jobs:

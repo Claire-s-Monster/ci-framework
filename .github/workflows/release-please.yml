@@ -31,7 +31,11 @@ jobs:
         id: release
         uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # CI_BOT_TOKEN so the PR is authored by CIFrameworkBot (a repo
+          # collaborator), not github-actions[bot] (outside collaborator).
+          # Avoids "workflows awaiting approval" on public repos and ensures
+          # the merge push triggers downstream on:push workflows.
+          token: ${{ secrets.CI_BOT_TOKEN }}
           release-type: python
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json

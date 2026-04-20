@@ -5,6 +5,14 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.1](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.0...v2.9.1) (2026-04-17)
+
+
+### Bug Fixes
+
+* scope security-events and id-token permissions per-job ([485e39f](https://github.com/Claire-s-Monster/ci-framework/commit/485e39f952f0a4f74e0638f45c421364315531c9))
+* scope security-events and id-token permissions per-job ([6927a8d](https://github.com/Claire-s-Monster/ci-framework/commit/6927a8d45535b4f9fc2b5a9623edb3c7b97255ac))
+
 ## [2.9.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.8.0...v2.9.0) (2026-04-16)
 
 

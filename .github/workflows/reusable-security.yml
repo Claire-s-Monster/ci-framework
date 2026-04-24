@@ -65,9 +65,9 @@ on:
         required: false
 
 # NOTE: No top-level permissions block. For workflow_call the CALLER
-# controls GITHUB_TOKEN permissions, and a top-level block here would
-# cap all jobs (preventing security-events: write even when the caller
-# grants it).  Each job below declares its own least-privilege set.
+# controls GITHUB_TOKEN permissions.  Each job below declares its own
+# least-privilege set.  SARIF uploads use CI_BOT_TOKEN (PAT) so
+# callers never need security-events: write on GITHUB_TOKEN.
 
 jobs:
   detect-languages:
@@ -247,7 +247,6 @@ jobs:
     if: needs.detect-languages.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
       contents: read
     strategy:
       fail-fast: false
@@ -297,7 +296,6 @@ jobs:
     if: inputs.scorecard
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
       id-token: write
       actions: read
       contents: read

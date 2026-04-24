@@ -17,17 +17,17 @@ jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write
 ```
 
 **Required permissions:**
-- `security-events: write` — Upload SARIF reports to GitHub Security tab
 - `contents: read` — Read source code
 - `actions: read` — Read workflow metadata
 - `id-token: write` — For CodeQL authentication
+- `security-events: write` (OPTIONAL) — Upload SARIF reports to GitHub Security tab. Omit for clean Scorecard Token-Permissions score.
 
 All inputs are optional. The workflow will auto-detect your languages and use sensible defaults.
 
@@ -93,7 +93,7 @@ jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write
@@ -110,7 +110,7 @@ jobs:
     with:
       fail-on-sast: true
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write
@@ -127,7 +127,7 @@ jobs:
     with:
       languages: 'python,rust'
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write
@@ -146,7 +146,7 @@ jobs:
       fail-on-secrets: false
       fail-on-sast: false
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write
@@ -163,7 +163,7 @@ jobs:
     with:
       scorecard: false
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write
@@ -218,7 +218,7 @@ jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write

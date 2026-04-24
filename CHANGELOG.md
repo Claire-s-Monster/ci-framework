@@ -5,6 +5,19 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.3](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.2...v2.9.3) (2026-04-24)
+
+
+### Bug Fixes
+
+* eliminate security-events: write requirement for consumer repos ([4645ce9](https://github.com/Claire-s-Monster/ci-framework/commit/4645ce9666ff810514a4b136cbdf9121c1393a69))
+* eliminate security-events: write requirement for consumer repos ([31b6759](https://github.com/Claire-s-Monster/ci-framework/commit/31b6759b111e9672f72a39584553ccc8370e1ea4))
+
+
+### Documentation
+
+* mark security-events: write as optional for Scorecard compliance ([021c51c](https://github.com/Claire-s-Monster/ci-framework/commit/021c51c2aac3913baa0c575fb67e78e62d5902a8))
+
 ## [2.9.2](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.1...v2.9.2) (2026-04-20)
 
 

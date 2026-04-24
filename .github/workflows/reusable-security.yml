@@ -14,10 +14,13 @@
 #      security:
 #        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
 #        permissions:
-#          security-events: write
 #          contents: read
 #          actions: read
 #          id-token: write
+#          # security-events: write — NOT NEEDED when CI_BOT_TOKEN is
+#          # provided via secrets: inherit.  Omit for clean Scorecard
+#          # Token-Permissions score.
+#        secrets: inherit           # passes CI_BOT_TOKEN for SARIF uploads
 #    ```
 #
 # See docs/security-scanning.md for full documentation.
@@ -52,12 +55,19 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      CI_BOT_TOKEN:
+        description: >-
+          PAT with security_events scope for SARIF uploads.  When
+          provided, callers do NOT need security-events: write on
+          GITHUB_TOKEN, keeping Scorecard Token-Permissions clean.
+          Falls back to github.token.
+        required: false
 
-permissions:
-  security-events: write
-  contents: read
-  actions: read
-  id-token: write
+# NOTE: No top-level permissions block. For workflow_call the CALLER
+# controls GITHUB_TOKEN permissions, and a top-level block here would
+# cap all jobs (preventing security-events: write even when the caller
+# grants it).  Each job below declares its own least-privilege set.
 
 jobs:
   detect-languages:
@@ -225,6 +235,7 @@ jobs:
         with:
           sarif_file: semgrep.sarif
           category: semgrep
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true
       - name: Fail on SAST findings
         if: inputs.fail-on-sast && steps.semgrep.outcome == 'failure'
@@ -237,6 +248,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -249,8 +261,16 @@ jobs:
       - uses: github/codeql-action/autobuild@v4
       - uses: github/codeql-action/analyze@v4
         with:
-          upload: true
+          upload: false
+          output: codeql-results
           category: codeql-${{ matrix.language }}
+      - name: Upload CodeQL SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: codeql-results/${{ matrix.language }}.sarif
+          category: codeql-${{ matrix.language }}
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
+        continue-on-error: true
 
   secret-scan:
     name: "🔑 Secret Scanning"
@@ -295,6 +315,7 @@ jobs:
         with:
           sarif_file: scorecard.sarif
           category: scorecard
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true
 
   security-summary:

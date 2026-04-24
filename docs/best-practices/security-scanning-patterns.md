@@ -283,7 +283,7 @@ jobs:
   security:
     runs-on: ubuntu-latest
     permissions:
-      security-events: write  # Required for SARIF upload
+      security-events: write  # optional — required only for SARIF upload to Security tab
     steps:
       - uses: actions/checkout@v4
       

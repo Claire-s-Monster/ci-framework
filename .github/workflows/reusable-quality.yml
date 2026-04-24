@@ -51,9 +51,10 @@ on:
         type: string
         default: '3.12'
 
-permissions:
-  contents: read
-  security-events: write
+# NOTE: No top-level permissions block. For workflow_call the CALLER
+# controls GITHUB_TOKEN permissions.  Each job below declares its own
+# least-privilege set; SARIF uploads use continue-on-error so the
+# pipeline succeeds even when security-events: write is not granted.
 
 jobs:
   detect-languages:

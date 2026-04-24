@@ -524,7 +524,7 @@ pixi run lint
    # Add required permissions
    permissions:
      contents: read
-     security-events: write  # For SARIF uploads
+     # security-events: write  # optional — for SARIF uploads
      actions: read          # For artifact access
    ```
 
@@ -855,7 +855,7 @@ jobs:
    # Add required permissions to workflow
    permissions:
      contents: read           # Read repository contents
-     security-events: write   # Upload SARIF reports
+     # security-events: write # optional — upload SARIF reports (omit for Scorecard compliance)
      actions: read           # Access action artifacts
      issues: write           # Comment on PRs
      pull-requests: write    # Update PR status
@@ -942,9 +942,9 @@ env:
    
    **🛠️ Solution:**
    ```yaml
-   # Required permissions for SARIF upload
+   # Permissions for SARIF upload (optional)
    permissions:
-     security-events: write  # Critical for SARIF
+     security-events: write  # optional — only needed for SARIF upload
      contents: read
    
    # Upload SARIF results
@@ -1036,7 +1036,8 @@ env:
 # Balanced security configuration
 [tool.ci-framework.security-scan]
 default_level = "medium"
-enable_sarif = true
+enable_sarif = true  # optional — enables SARIF upload for Security tab
+# omit enable_sarif for clean Scorecard Token-Permissions score
 
 # Tool-specific settings
 [tool.ci-framework.security-scan.bandit]

@@ -5,6 +5,14 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.5](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.4...v2.9.5) (2026-04-24)
+
+
+### Bug Fixes
+
+* replace pip-audit with pixi-native dependency audit ([b3fe618](https://github.com/Claire-s-Monster/ci-framework/commit/b3fe618e118455f20f67509dc094e2937f6b95d4))
+* replace pip-audit with pixi-native dependency audit ([2b093c2](https://github.com/Claire-s-Monster/ci-framework/commit/2b093c2d44723b17b8ee964530454b09412fdde8))
+
 ## [2.9.4](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.3...v2.9.4) (2026-04-24)
 
 

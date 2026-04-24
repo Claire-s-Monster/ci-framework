@@ -158,7 +158,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       id-token: write
       checks: write
     secrets: inherit
@@ -166,7 +166,7 @@ jobs:
 
 - `contents: write` — Create/update releases and badges
 - `pull-requests: write` — Post coverage reports to PRs
-- `security-events: write` — Upload SARIF to Security tab
+- `security-events: write` (OPTIONAL) — Upload SARIF to Security tab. Omit for clean Scorecard Token-Permissions score.
 - `id-token: write` — For CodeQL and PyPI token exchange
 - `checks: write` — Annotations in workflow summary
 - `secrets: inherit` — Access repository secrets for publishing
@@ -188,7 +188,7 @@ jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write
@@ -300,7 +300,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       id-token: write
       checks: write
     secrets: inherit

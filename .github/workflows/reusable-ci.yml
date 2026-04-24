@@ -14,8 +14,10 @@
 #        permissions:               # Elevated grants scoped to this job
 #          contents: read
 #          actions: read
-#          security-events: write   # SARIF uploads (CodeQL, Semgrep, C/C++ lint)
 #          id-token: write          # OpenSSF Scorecard
+#          # security-events: write — NOT NEEDED when CI_BOT_TOKEN is
+#          # provided (see secrets below).  Omit for clean Scorecard
+#          # Token-Permissions score.
 #        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@<sha>  # <version>
 #        with:
 #          pixi-environment: 'ci'
@@ -149,14 +151,26 @@ on:
       SOURCERY_TOKEN:
         description: "Token for Sourcery AI code reviewer"
         required: false
+      CI_BOT_TOKEN:
+        description: >-
+          PAT with security_events scope for SARIF uploads (CodeQL,
+          Semgrep, Scorecard).  When provided, callers do NOT need
+          security-events: write on GITHUB_TOKEN, keeping Scorecard
+          Token-Permissions clean.  Falls back to github.token.
+        required: false
 
 # NOTE: No top-level permissions block. For workflow_call, the CALLER
 # controls the GITHUB_TOKEN permissions. A top-level block here would
-# cap all per-job permissions, breaking security-events and id-token
-# grants needed by SARIF upload and Scorecard jobs.
+# cap all per-job permissions, breaking id-token grants needed by
+# Scorecard jobs.
 #
 # Callers should grant at the job level (not top-level, to satisfy Scorecard):
-#   contents: read, actions: read, security-events: write, id-token: write
+#   contents: read, actions: read, id-token: write
+#
+# SARIF uploads (CodeQL, Semgrep, Scorecard) use CI_BOT_TOKEN when
+# available, falling back to github.token.  This avoids needing
+# security-events: write on GITHUB_TOKEN.  All upload steps use
+# continue-on-error as a safety net.
 
 jobs:
   detect-changes:
@@ -405,6 +419,7 @@ jobs:
         with:
           sarif_file: cpp-linter.sarif
           category: cpp-linter
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true
       - name: Fail on lint
         if: inputs.fail-on-lint && steps.linter.outputs.checks-failed > 0
@@ -550,6 +565,7 @@ jobs:
         with:
           sarif_file: semgrep.sarif
           category: semgrep
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true
       - name: Fail on SAST findings
         if: inputs.fail-on-sast && steps.semgrep.outcome == 'failure'
@@ -575,8 +591,16 @@ jobs:
       - uses: github/codeql-action/autobuild@v4
       - uses: github/codeql-action/analyze@v4
         with:
-          upload: true
+          upload: false
+          output: codeql-results
           category: codeql-${{ matrix.language }}
+      - name: Upload CodeQL SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: codeql-results/${{ matrix.language }}.sarif
+          category: codeql-${{ matrix.language }}
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
+        continue-on-error: true
 
   secret-scan:
     name: "🔑 Secret Scanning"
@@ -621,6 +645,7 @@ jobs:
         with:
           sarif_file: scorecard.sarif
           category: scorecard
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true
 
   # ============================================================================

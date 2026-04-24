@@ -207,7 +207,7 @@ jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     permissions:
-      security-events: write
+      # security-events: write  # optional — enables SARIF upload to Security tab
       contents: read
       actions: read
       id-token: write

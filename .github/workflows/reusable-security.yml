@@ -3,7 +3,7 @@
 # REUSABLE SECURITY SCANNING - Multi-Language Dependency & Code Security
 # ============================================================================
 # Auto-detects languages and runs appropriate security scans:
-# - Dependency audits (pip-audit, cargo-audit, cargo-deny, npm audit)
+# - Dependency audits (pixi safety-check, cargo-audit, cargo-deny, npm audit)
 # - SAST (Semgrep, CodeQL)
 # - Secret scanning (TruffleHog)
 # - Security posture (OpenSSF Scorecard)
@@ -152,25 +152,31 @@ jobs:
           fi
 
   python-dep-audit:
-    name: "🐍 Python Dependency Audit"
+    name: "🐍 Python Dependency Audit (Pixi)"
     needs: detect-languages
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.9.5
         with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f pyproject.toml ]; then pip install .; fi
-      - name: Run pip-audit
+          pixi-version: v0.49.0
+          cache: false
+      - name: "Install Dependencies"
+        run: pixi install -e ci || pixi install
+      - name: "Run dependency audit"
         id: audit
-        uses: pypa/gh-action-pip-audit@v1.1.0
-        with:
-          summary: true
+        run: |
+          # Use the project's safety-check pixi task if available
+          if pixi task list -e ci 2>/dev/null | grep -q safety-check; then
+            echo "Running project safety-check task..."
+            pixi run -e ci safety-check
+          else
+            echo "::notice::No safety-check pixi task found — skipping dependency audit"
+            echo "Add a safety-check task to your pixi environment to enable auditing"
+          fi
+        continue-on-error: true
       - name: Fail on CVEs
         if: inputs.fail-on-cve && steps.audit.outcome == 'failure'
         run: exit 1

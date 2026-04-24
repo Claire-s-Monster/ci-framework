@@ -5,6 +5,14 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.4](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.3...v2.9.4) (2026-04-24)
+
+
+### Bug Fixes
+
+* remove internal security-events: write from reusable workflows ([41e8381](https://github.com/Claire-s-Monster/ci-framework/commit/41e83812f63457f8e60b10e9e2749d6b99c9dc37))
+* remove security-events: write from reusable workflow job permissions ([8623317](https://github.com/Claire-s-Monster/ci-framework/commit/8623317121ca26959cf9ba263c1ffc77eabd0725))
+
 ## [2.9.3](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.2...v2.9.3) (2026-04-24)
 
 

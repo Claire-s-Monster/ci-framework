@@ -399,7 +399,6 @@ jobs:
     if: needs.detect-changes.outputs.c_cpp == 'true'
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
       contents: read
     steps:
       - uses: actions/checkout@v6
@@ -547,7 +546,6 @@ jobs:
     if: needs.detect-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
       contents: read
     container:
       image: semgrep/semgrep
@@ -577,7 +575,6 @@ jobs:
     if: needs.detect-changes.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
       contents: read
     strategy:
       fail-fast: false
@@ -627,7 +624,6 @@ jobs:
     if: inputs.scorecard
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
       id-token: write
       actions: read
       contents: read

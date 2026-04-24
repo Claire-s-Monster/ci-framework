@@ -190,6 +190,7 @@ pixi.lock
 .aider*
 .serena/
 GEMINI.md
+docs/superpowers/
 
 # Development directories
 dev-outputs/

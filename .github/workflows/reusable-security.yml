@@ -159,7 +159,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: "Setup PIXI Environment"
-        uses: prefix-dev/setup-pixi@v0.9.5
+        uses: prefix-dev/setup-pixi@v0.9.6
         with:
           pixi-version: v0.49.0
           cache: false

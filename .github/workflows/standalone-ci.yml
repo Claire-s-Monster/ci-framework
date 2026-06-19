@@ -256,7 +256,7 @@ jobs:
   # Job 5: Security Scan
   # ==========================================================================
   security:
-    name: "🛡️ Security Scan"
+    name: "Security Scan"
     runs-on: ubuntu-latest
     permissions:
       contents: read

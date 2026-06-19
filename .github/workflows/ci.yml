@@ -60,7 +60,7 @@ jobs:
           pixi run -e quality typecheck || echo "Type check completed with issues"
 
   security-scan:
-    name: "🛡️ Security Scan"
+    name: "Security Scan"
     runs-on: ubuntu-latest
     permissions:
       contents: read

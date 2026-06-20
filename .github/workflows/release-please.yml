@@ -28,7 +28,7 @@ jobs:
 
       - name: Release Please
         id: release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         with:
           # CI_BOT_TOKEN (PAT) so the PR is authored by CIFrameworkBot (a repo
           # collaborator), not github-actions[bot] (outside collaborator).

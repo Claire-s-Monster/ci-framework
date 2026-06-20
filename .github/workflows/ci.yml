@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: "Set up Pixi"
-        uses: prefix-dev/setup-pixi@v0.9.5
+        uses: prefix-dev/setup-pixi@v0.9.6
         with:
           pixi-version: v0.49.0
           manifest-path: pyproject.toml
@@ -60,7 +60,7 @@ jobs:
           pixi run -e quality typecheck || echo "Type check completed with issues"
 
   security-scan:
-    name: "🛡️ Security Scan"
+    name: "Security Scan"
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -68,7 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: "Set up Pixi"
-        uses: prefix-dev/setup-pixi@v0.9.5
+        uses: prefix-dev/setup-pixi@v0.9.6
         with:
           pixi-version: v0.49.0
           manifest-path: pyproject.toml
@@ -105,7 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: "Set up Pixi"
-        uses: prefix-dev/setup-pixi@v0.9.5
+        uses: prefix-dev/setup-pixi@v0.9.6
         with:
           pixi-version: v0.49.0
           manifest-path: pyproject.toml
@@ -129,7 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: "Set up Pixi"
-        uses: prefix-dev/setup-pixi@v0.9.5
+        uses: prefix-dev/setup-pixi@v0.9.6
         with:
           pixi-version: v0.49.0
           manifest-path: pyproject.toml

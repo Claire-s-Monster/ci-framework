@@ -75,7 +75,7 @@ jobs:
       files: ${{ steps.files.outputs.list }}
       has-files: ${{ steps.files.outputs.has_files }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: files
@@ -100,7 +100,7 @@ jobs:
     if: needs.detect-files.outputs.has-files == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'

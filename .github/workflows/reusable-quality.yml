@@ -67,7 +67,7 @@ jobs:
       cython: ${{ steps.detect.outputs.cython }}
       js_ts: ${{ steps.detect.outputs.js_ts }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - id: detect
         run: |
           if [ -n "${{ inputs.languages }}" ]; then
@@ -121,7 +121,7 @@ jobs:
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python-version }}
@@ -141,7 +141,7 @@ jobs:
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python-version }}
@@ -161,7 +161,7 @@ jobs:
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python-version }}
@@ -181,7 +181,7 @@ jobs:
     if: needs.detect-languages.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy
@@ -199,7 +199,7 @@ jobs:
     if: needs.detect-languages.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt
@@ -217,7 +217,7 @@ jobs:
     if: needs.detect-languages.outputs.c_cpp == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: cpp-linter/cpp-linter-action@v2
         id: linter
         env:
@@ -245,7 +245,7 @@ jobs:
     if: needs.detect-languages.outputs.cython == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -268,7 +268,7 @@ jobs:
     if: needs.detect-languages.outputs.js_ts == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Node
         uses: actions/setup-node@v6
         with:

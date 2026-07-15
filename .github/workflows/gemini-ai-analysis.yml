@@ -1,5 +1,11 @@
 name: Gemini AI Analysis
 
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: write
+
 # Self-use wrapper that calls the reusable workflow
 # Other repos should use reusable-gemini-ai.yml directly
 

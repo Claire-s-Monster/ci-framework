@@ -111,6 +111,11 @@ on:
         required: false
         type: boolean
         default: true
+      codeql:
+        description: "Run CodeQL SAST in this workflow. Default false: CodeQL is owned by reusable-security.yml so the two workflows don't upload the same codeql-<lang> category and produce a neutral CodeQL check (issue #215). Enable only when consuming reusable-ci.yml WITHOUT reusable-security.yml."
+        required: false
+        type: boolean
+        default: false
       # --- Quality inputs ---
       fail-on-lint:
         description: "Fail on lint violations"
@@ -580,7 +585,10 @@ jobs:
   sast-codeql:
     name: "🔬 CodeQL Analysis"
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_codeql == 'true'
+    # Gated off by default to avoid colliding with reusable-security.yml on the
+    # codeql-<lang> SARIF category (issue #215). Opt in via the `codeql` input
+    # when using this workflow standalone (no reusable-security.yml).
+    if: inputs.codeql && needs.detect-changes.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

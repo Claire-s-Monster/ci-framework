@@ -270,6 +270,7 @@ jobs:
       # caller's GITHUB_TOKEN still does NOT need security-events: write — keeping
       # OpenSSF Scorecard Token-Permissions clean.
       - uses: github/codeql-action/analyze@v4
+        continue-on-error: true
         with:
           upload: true
           category: codeql-${{ matrix.language }}

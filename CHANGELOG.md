@@ -5,6 +5,17 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.7](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.6...v2.9.7) (2026-07-15)
+
+
+### Bug Fixes
+
+* **ci:** grant gemini-ai-analysis.yml the permissions its reusable workflow needs ([03bb471](https://github.com/Claire-s-Monster/ci-framework/commit/03bb471487b5f3d4dfbe5e473548575997d0d438))
+* **ci:** grant gemini-ai-analysis.yml the permissions its reusable workflow needs ([8aa9b25](https://github.com/Claire-s-Monster/ci-framework/commit/8aa9b252afb5bdb0e6931db1f94ebc54d8a13a4c))
+* **ci:** keep CodeQL analyze non-blocking with continue-on-error ([#222](https://github.com/Claire-s-Monster/ci-framework/issues/222)) ([4f55357](https://github.com/Claire-s-Monster/ci-framework/commit/4f55357cad9bc3b99be495a4aa1341d651eca106))
+* **ci:** set native CodeQL check conclusion via analyze upload:true ([#222](https://github.com/Claire-s-Monster/ci-framework/issues/222)) ([4929453](https://github.com/Claire-s-Monster/ci-framework/commit/49294534b08fe1c837a925a4740a31a7bf4be668))
+* **ci:** set native CodeQL check conclusion via analyze upload:true ([#222](https://github.com/Claire-s-Monster/ci-framework/issues/222)) ([7e79d25](https://github.com/Claire-s-Monster/ci-framework/commit/7e79d258147b3bb30f8255a2f9d074fe45cad0aa))
+
 ## [2.9.6](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.5...v2.9.6) (2026-07-15)
 
 

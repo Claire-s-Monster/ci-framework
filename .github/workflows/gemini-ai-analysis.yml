@@ -34,6 +34,6 @@ jobs:
       enable-ci-analysis: true
       enable-issue-triage: true
       enable-comprehensive: true
-      gemini-model: 'gemini-2.0-flash'
+      gemini-model: 'gemini-3.5-flash'
     secrets:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

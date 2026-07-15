@@ -5,6 +5,15 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.6](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.5...v2.9.6) (2026-07-15)
+
+
+### Bug Fixes
+
+* **ci:** drop emoji prefix from Security Scan job name ([83131a3](https://github.com/Claire-s-Monster/ci-framework/commit/83131a3f63400f2be691bbfa5e04f411dd84669b))
+* **ci:** drop emoji prefix from Security Scan job name ([563fc34](https://github.com/Claire-s-Monster/ci-framework/commit/563fc340900f72af12614c04ceb485250e552d74))
+* **ci:** gate reusable-ci.yml CodeQL behind `codeql` input to prevent duplicate codeql-python upload ([#215](https://github.com/Claire-s-Monster/ci-framework/issues/215)) ([#216](https://github.com/Claire-s-Monster/ci-framework/issues/216)) ([64aedd1](https://github.com/Claire-s-Monster/ci-framework/commit/64aedd129770345e786ff64b502dc92285ad2e38))
+
 ## [2.9.5](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.4...v2.9.5) (2026-04-24)
 
 

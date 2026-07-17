@@ -277,11 +277,15 @@ jobs:
           fi
 
       - id: codeql-matrix
+        env:
+          # Map the input to an env var instead of inlining the ${{ }} expression
+          # into the shell — avoids GitHub Actions expression/shell injection.
+          CODEQL_LANGUAGES: ${{ inputs.codeql-languages }}
         run: |
           langs=()
-          if [ -n "${{ inputs.codeql-languages }}" ]; then
+          if [ -n "$CODEQL_LANGUAGES" ]; then
             # Explicit allowlist overrides autodetection for CodeQL only (issue #227)
-            IFS=',' read -ra requested <<< "${{ inputs.codeql-languages }}"
+            IFS=',' read -ra requested <<< "$CODEQL_LANGUAGES"
             for l in "${requested[@]}"; do
               l="$(echo "$l" | tr -d '[:space:]')"
               [ -n "$l" ] && langs+=("$l")

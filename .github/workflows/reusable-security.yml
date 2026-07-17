@@ -148,36 +148,16 @@ jobs:
             echo "js_ts=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Shared composite action (referenced by pinned remote ref because a
+      # ./-relative local action would resolve against the CALLER's checkout
+      # in a reusable workflow, not this repo — issue #227).
       - id: codeql-matrix
-        env:
-          # Map the input to an env var instead of inlining the ${{ }} expression
-          # into the shell — avoids GitHub Actions expression/shell injection.
-          CODEQL_LANGUAGES: ${{ inputs.codeql-languages }}
-        run: |
-          langs=()
-          if [ -n "$CODEQL_LANGUAGES" ]; then
-            # Explicit allowlist overrides autodetection for CodeQL only (issue #227)
-            IFS=',' read -ra requested <<< "$CODEQL_LANGUAGES"
-            for l in "${requested[@]}"; do
-              l="$(echo "$l" | tr -d '[:space:]')"
-              if [[ "$l" =~ ^(python|c-cpp|javascript-typescript)$ ]]; then
-                langs+=("$l")
-              elif [ -n "$l" ]; then
-                echo "::warning::Ignoring unsupported CodeQL language '$l' (valid: python, c-cpp, javascript-typescript)"
-              fi
-            done
-          else
-            if [ "${{ steps.detect.outputs.python }}" = "true" ]; then langs+=("python"); fi
-            if [ "${{ steps.detect.outputs.c_cpp }}" = "true" ]; then langs+=("c-cpp"); fi
-            if [ "${{ steps.detect.outputs.js_ts }}" = "true" ]; then langs+=("javascript-typescript"); fi
-          fi
-          if [ ${#langs[@]} -eq 0 ]; then
-            echo "matrix=[]" >> "$GITHUB_OUTPUT"
-            echo "has_codeql=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "matrix=$(printf '%s\n' "${langs[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
-            echo "has_codeql=true" >> "$GITHUB_OUTPUT"
-          fi
+        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@main
+        with:
+          codeql-languages: ${{ inputs.codeql-languages }}
+          python: ${{ steps.detect.outputs.python }}
+          c_cpp: ${{ steps.detect.outputs.c_cpp }}
+          js_ts: ${{ steps.detect.outputs.js_ts }}
 
   python-dep-audit:
     name: "🐍 Python Dependency Audit (Pixi)"

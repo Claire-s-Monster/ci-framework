@@ -160,7 +160,11 @@ jobs:
             IFS=',' read -ra requested <<< "$CODEQL_LANGUAGES"
             for l in "${requested[@]}"; do
               l="$(echo "$l" | tr -d '[:space:]')"
-              [ -n "$l" ] && langs+=("$l")
+              if [[ "$l" =~ ^(python|c-cpp|javascript-typescript)$ ]]; then
+                langs+=("$l")
+              elif [ -n "$l" ]; then
+                echo "::warning::Ignoring unsupported CodeQL language '$l' (valid: python, c-cpp, javascript-typescript)"
+              fi
             done
           else
             if [ "${{ steps.detect.outputs.python }}" = "true" ]; then langs+=("python"); fi

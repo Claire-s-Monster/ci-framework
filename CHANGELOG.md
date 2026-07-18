@@ -5,6 +5,16 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.8](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.7...v2.9.8) (2026-07-18)
+
+
+### Bug Fixes
+
+* **ci:** add codeql-languages allowlist + harden c-cpp CodeQL leg ([#227](https://github.com/Claire-s-Monster/ci-framework/issues/227)) ([d8cb23d](https://github.com/Claire-s-Monster/ci-framework/commit/d8cb23d083f894d4e054321881414d8514f9146b))
+* **ci:** add codeql-languages allowlist + harden c-cpp leg ([#227](https://github.com/Claire-s-Monster/ci-framework/issues/227)) ([503b8b7](https://github.com/Claire-s-Monster/ci-framework/commit/503b8b7aac6b122b2451c85074257b321f026c3b))
+* **ci:** avoid expression injection in codeql-matrix step ([#227](https://github.com/Claire-s-Monster/ci-framework/issues/227)) ([5dae189](https://github.com/Claire-s-Monster/ci-framework/commit/5dae189593e176e2746adb8e061df9f37defc1e3))
+* **ci:** validate codeql-languages against strict allowlist ([#227](https://github.com/Claire-s-Monster/ci-framework/issues/227)) ([fac4555](https://github.com/Claire-s-Monster/ci-framework/commit/fac455573498c2f8ec30bc7df6424afb7b1432dd))
+
 ## [2.9.7](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.6...v2.9.7) (2026-07-15)
 
 

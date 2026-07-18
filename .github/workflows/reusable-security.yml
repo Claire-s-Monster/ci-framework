@@ -35,6 +35,17 @@ on:
         required: false
         type: string
         default: ''
+      codeql-languages:
+        description: >-
+          Comma-separated CodeQL language allowlist (e.g. "python"). When set,
+          overrides autodetection for the CodeQL matrix ONLY — unlike
+          `languages`, which restricts every security scan. Lets a caller keep
+          autodetect for dependency/secret scans while pinning CodeQL to
+          specific languages (issue #227). Valid values: python, c-cpp,
+          javascript-typescript. Empty (default) = autodetect from sources.
+        required: false
+        type: string
+        default: ''
       fail-on-cve:
         description: "Fail on known dependency CVEs"
         required: false
@@ -137,19 +148,16 @@ jobs:
             echo "js_ts=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Shared composite action (referenced by pinned remote ref because a
+      # ./-relative local action would resolve against the CALLER's checkout
+      # in a reusable workflow, not this repo — issue #227).
       - id: codeql-matrix
-        run: |
-          langs=()
-          if [ "${{ steps.detect.outputs.python }}" = "true" ]; then langs+=("python"); fi
-          if [ "${{ steps.detect.outputs.c_cpp }}" = "true" ]; then langs+=("c-cpp"); fi
-          if [ "${{ steps.detect.outputs.js_ts }}" = "true" ]; then langs+=("javascript-typescript"); fi
-          if [ ${#langs[@]} -eq 0 ]; then
-            echo "matrix=[]" >> "$GITHUB_OUTPUT"
-            echo "has_codeql=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "matrix=$(printf '%s\n' "${langs[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
-            echo "has_codeql=true" >> "$GITHUB_OUTPUT"
-          fi
+        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@main
+        with:
+          codeql-languages: ${{ inputs.codeql-languages }}
+          python: ${{ steps.detect.outputs.python }}
+          c_cpp: ${{ steps.detect.outputs.c_cpp }}
+          js_ts: ${{ steps.detect.outputs.js_ts }}
 
   python-dep-audit:
     name: "🐍 Python Dependency Audit (Pixi)"
@@ -263,7 +271,13 @@ jobs:
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-      - uses: github/codeql-action/autobuild@v4
+          # c-cpp uses build-mode: none so a repo with no C/C++ build system
+          # (Cython-generated sources or a committed test fixture) isn't
+          # hard-failed by autobuild, which would cascade into a required CI
+          # failure (issue #227). Other languages keep the default build mode.
+          build-mode: ${{ matrix.language == 'c-cpp' && 'none' || '' }}
+      - if: matrix.language != 'c-cpp'
+        uses: github/codeql-action/autobuild@v4
       # upload: true uses the native code-scanning path so the aggregate `CodeQL`
       # check reports success instead of `neutral` (issue #222). The upload is
       # performed with CI_BOT_TOKEN (a PAT with the security_events scope), so the

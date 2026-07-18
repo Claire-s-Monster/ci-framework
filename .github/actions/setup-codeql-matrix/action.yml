@@ -1,0 +1,74 @@
+name: 'Setup CodeQL Matrix'
+description: >-
+  Build the CodeQL language matrix from an explicit allowlist
+  (codeql-languages) or, when empty, from autodetected language flags.
+  Emits `matrix` (JSON array) and `has_codeql` for a downstream
+  sast-codeql job. Shared by reusable-ci.yml and reusable-security.yml
+  (issue #227).
+
+inputs:
+  codeql-languages:
+    description: >-
+      Comma-separated CodeQL language allowlist (python, c-cpp,
+      javascript-typescript). When non-empty, overrides autodetection.
+    required: false
+    default: ''
+  python:
+    description: 'Autodetect flag: python sources present ("true"/"false").'
+    required: false
+    default: 'false'
+  c_cpp:
+    description: 'Autodetect flag: C/C++ sources present ("true"/"false").'
+    required: false
+    default: 'false'
+  js_ts:
+    description: 'Autodetect flag: JS/TS sources present ("true"/"false").'
+    required: false
+    default: 'false'
+
+outputs:
+  matrix:
+    description: 'JSON array of CodeQL languages for the analysis matrix.'
+    value: ${{ steps.build.outputs.matrix }}
+  has_codeql:
+    description: 'Whether any CodeQL language is present ("true"/"false").'
+    value: ${{ steps.build.outputs.has_codeql }}
+
+runs:
+  using: composite
+  steps:
+    - id: build
+      shell: bash
+      env:
+        # Map inputs to env vars instead of inlining ${{ }} expressions into
+        # the shell — avoids GitHub Actions expression/shell injection.
+        CODEQL_LANGUAGES: ${{ inputs.codeql-languages }}
+        DETECT_PYTHON: ${{ inputs.python }}
+        DETECT_C_CPP: ${{ inputs.c_cpp }}
+        DETECT_JS_TS: ${{ inputs.js_ts }}
+      run: |
+        langs=()
+        if [ -n "$CODEQL_LANGUAGES" ]; then
+          # Explicit allowlist overrides autodetection for CodeQL only (issue #227)
+          IFS=',' read -ra requested <<< "$CODEQL_LANGUAGES"
+          for l in "${requested[@]}"; do
+            l="$(echo "$l" | tr -d '[:space:]')"
+            [ -z "$l" ] && continue
+            if [[ "$l" =~ ^(python|c-cpp|javascript-typescript)$ ]]; then
+              langs+=("$l")
+            else
+              echo "::warning::Ignoring unsupported CodeQL language '$l' (valid: python, c-cpp, javascript-typescript)"
+            fi
+          done
+        else
+          if [ "$DETECT_PYTHON" = "true" ]; then langs+=("python"); fi
+          if [ "$DETECT_C_CPP" = "true" ]; then langs+=("c-cpp"); fi
+          if [ "$DETECT_JS_TS" = "true" ]; then langs+=("javascript-typescript"); fi
+        fi
+        if [ ${#langs[@]} -eq 0 ]; then
+          echo "matrix=[]" >> "$GITHUB_OUTPUT"
+          echo "has_codeql=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "matrix=$(printf '%s\n' "${langs[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          echo "has_codeql=true" >> "$GITHUB_OUTPUT"
+        fi

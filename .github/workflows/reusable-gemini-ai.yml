@@ -50,7 +50,11 @@ permissions:
 
 jobs:
   pr-review:
-    if: inputs.enable-pr-review && github.event_name == 'pull_request'
+    # GitHub withholds repository secrets from pull_request-triggered runs
+    # authored by dependabot[bot] (same protection class as fork-PR secrets),
+    # so GEMINI_API_KEY is unavailable here regardless of repo config. Skip
+    # cleanly instead of failing.
+    if: inputs.enable-pr-review && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -153,7 +157,9 @@ jobs:
             });
 
   ci-analysis:
-    if: inputs.enable-ci-analysis && github.event_name == 'pull_request'
+    # See pr-review job: dependabot[bot]-authored pull_request runs have no
+    # access to repository secrets, so GEMINI_API_KEY is unavailable here.
+    if: inputs.enable-ci-analysis && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

@@ -5,6 +5,18 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.9](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.8...v2.9.9) (2026-07-29)
+
+
+### Bug Fixes
+
+* **ci:** bump pinned pixi CLI version to v0.74.0 (schema v7 support) ([e1c4612](https://github.com/Claire-s-Monster/ci-framework/commit/e1c4612b9f8cd445fd81255d3e5f097eaf457e4c))
+* **ci:** bump pinned pixi CLI version to v0.74.0 (schema v7 support) ([a7a5a10](https://github.com/Claire-s-Monster/ci-framework/commit/a7a5a10cf4022448e528c63c48d55cb3dda39210))
+* **ci:** key dependabot ai-analysis skip off PR author, not github.actor ([af1eb10](https://github.com/Claire-s-Monster/ci-framework/commit/af1eb10485591a355cd1455d83e26344692ec750))
+* **ci:** key dependabot ai-analysis skip off PR author, not github.actor ([26c85ae](https://github.com/Claire-s-Monster/ci-framework/commit/26c85ae514b9efbe810ea008a5fbdcd28ad39447))
+* **ci:** skip Gemini AI review on dependabot pull_request runs ([da9faa6](https://github.com/Claire-s-Monster/ci-framework/commit/da9faa62d56cc84cbf55e61d9889c79dec7c4ac8))
+* **ci:** skip Gemini AI review on dependabot pull_request runs ([d69692d](https://github.com/Claire-s-Monster/ci-framework/commit/d69692d291038d8099c07435154592e9d1ef852f))
+
 ## [2.9.8](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.7...v2.9.8) (2026-07-18)
 
 

@@ -93,10 +93,6 @@ dev = {features = ["quality", "quality-extended", "quality-ci", "dev-specialized
 # CI environment (quality + CI reporting)
 ci = {features = ["quality", "quality-ci"], solve-group = "default"}
 
-# Ensure proper environment isolation
-[tool.pixi.activation]
-env = { PYTHONNOUSERSITE = "1" }
-
 [tool.pixi.tasks]
 # ===== TIER 1: CORE DEVELOPMENT TASKS (ESSENTIAL) =====
 # Installation & Setup

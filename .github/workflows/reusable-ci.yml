@@ -720,6 +720,8 @@ jobs:
           pixi run -e ${{ inputs.pixi-environment }} pip install -e . --no-deps
       - name: "Run Test Suite"
         working-directory: ${{ inputs.package-path }}
+        env:
+          PYTHONNOUSERSITE: "1" # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
         run: |
           pixi run -e ${{ inputs.pixi-environment }} test
 
@@ -777,6 +779,8 @@ jobs:
           pixi run -e ${{ inputs.pixi-environment }} pip install -e . --no-deps
       - name: "Run Test Suite (with PostgreSQL)"
         working-directory: ${{ inputs.package-path }}
+        env:
+          PYTHONNOUSERSITE: "1" # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
         run: |
           pixi run -e ${{ inputs.pixi-environment }} test
 

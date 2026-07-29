@@ -445,7 +445,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install cython-lint
@@ -694,7 +694,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: "Setup Python ${{ matrix.python-version }}"
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: "Setup PIXI Environment"
@@ -751,7 +751,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: "Setup Python ${{ matrix.python-version }}"
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: "Setup PIXI Environment"

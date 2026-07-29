@@ -249,6 +249,8 @@ jobs:
           pixi run -e ${{ env.PIXI_ENVIRONMENT }} pip install -e . --no-deps
       - name: "Run Test Suite"
         working-directory: ${{ env.PACKAGE_PATH }}
+        env:
+          PYTHONNOUSERSITE: "1" # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
         run: |
           pixi run -e ${{ env.PIXI_ENVIRONMENT }} test
 

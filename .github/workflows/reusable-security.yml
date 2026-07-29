@@ -150,9 +150,12 @@ jobs:
 
       # Shared composite action (referenced by pinned remote ref because a
       # ./-relative local action would resolve against the CALLER's checkout
-      # in a reusable workflow, not this repo — issue #227).
+      # in a reusable workflow, not this repo — issue #227). Pinned to a
+      # release tag rather than @main to avoid version drift for consumers
+      # pinned to an older workflow tag (issue #230); release-please keeps
+      # this ref in lockstep via the x-release-please-version marker.
       - id: codeql-matrix
-        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@main
+        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v2.9.8 # x-release-please-version
         with:
           codeql-languages: ${{ inputs.codeql-languages }}
           python: ${{ steps.detect.outputs.python }}

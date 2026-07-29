@@ -45,7 +45,7 @@ echo 'install-dev = "pip install -e ."' >> pyproject.toml
 - name: Setup Pixi
   uses: prefix-dev/setup-pixi@v0.8.11  # Use latest version
   with:
-    pixi-version: v0.49.0  # Use stable pixi version
+    pixi-version: v0.74.0  # Use stable pixi version
 ```
 
 **Alternative Solution** (Poetry):

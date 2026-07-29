@@ -36,7 +36,7 @@ on:
         description: 'Pixi version to use'
         required: false
         type: string
-        default: 'v0.41.4'
+        default: 'v0.74.0'
     secrets:
       GEMINI_API_KEY:
         description: 'Google Gemini API key'

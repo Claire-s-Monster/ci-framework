@@ -169,7 +169,7 @@ jobs:
       - name: "Setup PIXI Environment"
         uses: prefix-dev/setup-pixi@v0.10.0
         with:
-          pixi-version: v0.49.0
+          pixi-version: v0.74.0
           cache: false
       - name: "Install Dependencies"
         run: pixi install -e ci || pixi install

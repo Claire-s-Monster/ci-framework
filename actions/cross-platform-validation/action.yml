@@ -39,11 +39,6 @@ inputs:
     required: false
     default: '15'
     
-  pixi-version:
-    description: 'Pixi version to use'
-    required: false
-    default: 'v0.15.1'
-    
   cache:
     description: 'Enable pixi caching (disabled for cross-platform to ensure fresh resolution)'
     required: false

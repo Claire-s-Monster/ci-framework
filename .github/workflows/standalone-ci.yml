@@ -48,7 +48,7 @@ permissions: read-all
 # STEP-LEVEL CONFIGURATION — Used in step run/with blocks
 # ============================================================================
 env:
-  PIXI_VERSION: 'v0.49.0'
+  PIXI_VERSION: 'v0.74.0'
   PIXI_ENVIRONMENT: 'ci'
   PACKAGE_PATH: '.'
   ALLOWED_LICENSES: 'MIT, Apache-2.0, BSD-3-Clause'

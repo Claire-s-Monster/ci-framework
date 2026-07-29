@@ -120,7 +120,7 @@ class TestCIMatrixValidation:
         # Verify environment variable is set
         env = ci_template_content.get("env", {})
         assert "PIXI_VERSION" in env, "PIXI_VERSION environment variable not set"
-        assert env["PIXI_VERSION"] == "v0.49.0", "Unexpected pixi version"
+        assert env["PIXI_VERSION"] == "v0.74.0", "Unexpected pixi version"
 
     def test_matrix_artifact_naming(self, ci_template_content):
         """Test that artifacts are properly named per matrix combination"""

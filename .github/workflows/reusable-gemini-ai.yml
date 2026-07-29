@@ -36,7 +36,7 @@ on:
         description: 'Pixi version to use'
         required: false
         type: string
-        default: 'v0.41.4'
+        default: 'v0.74.0'
     secrets:
       GEMINI_API_KEY:
         description: 'Google Gemini API key'
@@ -50,7 +50,13 @@ permissions:
 
 jobs:
   pr-review:
-    if: inputs.enable-pr-review && github.event_name == 'pull_request'
+    # GitHub withholds repository secrets from pull_request-triggered runs
+    # authored by dependabot[bot] (same protection class as fork-PR secrets),
+    # so GEMINI_API_KEY is unavailable here regardless of repo config. Skip
+    # cleanly instead of failing. Use the PR author, not github.actor, since
+    # github.actor reflects whoever triggers this run (e.g. a manual rerun)
+    # and would otherwise defeat this check.
+    if: inputs.enable-pr-review && github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -153,7 +159,10 @@ jobs:
             });
 
   ci-analysis:
-    if: inputs.enable-ci-analysis && github.event_name == 'pull_request'
+    # See pr-review job: dependabot[bot]-authored pull_request runs have no
+    # access to repository secrets, so GEMINI_API_KEY is unavailable here.
+    # Checked via the PR author since github.actor breaks on manual reruns.
+    if: inputs.enable-ci-analysis && github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

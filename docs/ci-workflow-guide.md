@@ -188,7 +188,7 @@ Add project-specific environment variables:
 
 ```yaml
 env:
-  PIXI_VERSION: v0.49.0
+  PIXI_VERSION: v0.74.0
   # Add your custom variables
   API_BASE_URL: https://api.example.com
   ENVIRONMENT: ci
@@ -209,7 +209,7 @@ env:
 - name: Setup Pixi
   uses: prefix-dev/setup-pixi@v0.8.11  # Use latest version
   with:
-    pixi-version: v0.49.0  # Use specific pixi version
+    pixi-version: v0.74.0  # Use specific pixi version
 ```
 
 #### 2. "No module named 'your_module'"

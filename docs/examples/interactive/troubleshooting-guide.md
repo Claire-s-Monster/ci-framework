@@ -332,7 +332,7 @@ def fast_function(items):
    - name: Install pixi
      uses: prefix-dev/setup-pixi@v0.8.11
      with:
-       pixi-version: v0.15.1
+       pixi-version: v0.74.0
    ```
 
 2. **Environment resolution errors**

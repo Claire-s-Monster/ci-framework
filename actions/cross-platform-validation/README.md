@@ -106,7 +106,6 @@ jobs:
 | `test-commands` | Test commands to run (newline-separated) | No | `pixi run test\npixi run lint` |
 | `fail-fast` | Stop on first platform failure | No | `'false'` |
 | `timeout` | Timeout in minutes per platform | No | `'15'` |
-| `pixi-version` | Pixi version to use | No | `'v0.15.1'` |
 | `cache` | Enable pixi caching | No | `'false'` |
 | `platform-matrix` | Custom platform matrix JSON | No | `''` |
 | `pre-test-setup` | Commands before testing | No | `''` |

@@ -155,7 +155,7 @@ jobs:
       # pinned to an older workflow tag (issue #230); release-please keeps
       # this ref in lockstep via the x-release-please-version marker.
       - id: codeql-matrix
-        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v2.9.8 # x-release-please-version
+        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v2.9.9 # x-release-please-version
         with:
           codeql-languages: ${{ inputs.codeql-languages }}
           python: ${{ steps.detect.outputs.python }}

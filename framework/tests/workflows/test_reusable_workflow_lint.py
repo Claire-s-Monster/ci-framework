@@ -210,8 +210,7 @@ class TestPixiVersionInput:
         assert sites, f"No pixi-version: sites with a value found in {path}"
         for lineno, value in sites:
             assert value == "${{ inputs.pixi-version }}", (
-                f"{path}:{lineno} pixi-version does not reference the input: "
-                f"'{value}'"
+                f"{path}:{lineno} pixi-version does not reference the input: '{value}'"
             )
 
     @pytest.mark.parametrize("path", [REUSABLE_CI, REUSABLE_SECURITY])

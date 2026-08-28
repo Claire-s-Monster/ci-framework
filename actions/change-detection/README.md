@@ -83,6 +83,7 @@ jobs:
 | `reports-dir` | Directory for reports | `change-reports` | No |
 | `package-manager` | Force package manager (pixi/poetry/hatch/pip) | `auto` | No |
 | `fail-fast` | Fail immediately on errors | `false` | No |
+| `pixi-version` | Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7. | `v0.74.0` | No |
 
 ## Outputs
 

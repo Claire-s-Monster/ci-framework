@@ -47,6 +47,11 @@ inputs:
     required: false
     default: 'quality'
 
+  pixi-version:
+    description: 'Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7.'
+    required: false
+    default: 'v0.74.0'
+
 outputs:
   success:
     description: 'Whether all quality gates passed'
@@ -91,7 +96,7 @@ runs:
     - name: Install pixi
       uses: prefix-dev/setup-pixi@v0.8.13
       with:
-        pixi-version: v0.74.0
+        pixi-version: ${{ inputs.pixi-version }}
         cache: false
 
     - name: Cache Quality Gates Dependencies

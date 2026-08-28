@@ -67,6 +67,7 @@ This action provides unified security scanning by integrating multiple security 
 | `enable-trivy` | Enable Trivy scanning | No | `false` |
 | `sarif-upload` | Upload SARIF to GitHub Security | No | `true` |
 | `sbom-generation` | Generate SBOM | No | `false` |
+| `pixi-version` | Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7. | No | `v0.74.0` |
 
 ## Outputs
 

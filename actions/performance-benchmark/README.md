@@ -51,6 +51,7 @@ jobs:
 | `compare-baseline` | Compare against baseline and detect regressions | No | `true` |
 | `fail-on-regression` | Fail the action if performance regression is detected | No | `true` |
 | `parallel` | Run benchmarks in parallel when possible | No | `false` |
+| `pixi-version` | Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7. | No | `v0.74.0` |
 
 ## Outputs
 

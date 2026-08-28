@@ -7,6 +7,7 @@ checkout fragility, missing event guards, etc.).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -15,8 +16,15 @@ import yaml
 WORKFLOWS_DIR = Path(".github/workflows")
 REUSABLE_CI = WORKFLOWS_DIR / "reusable-ci.yml"
 REUSABLE_RELEASE = WORKFLOWS_DIR / "reusable-release.yml"
+REUSABLE_SECURITY = WORKFLOWS_DIR / "reusable-security.yml"
 STANDALONE_CI = WORKFLOWS_DIR / "standalone-ci.yml"
 CI_YML = WORKFLOWS_DIR / "ci.yml"
+
+# Matches a `pixi-version:` site that carries a value on the same line (i.e.
+# excludes the bare `pixi-version:` key that introduces the input definition,
+# whose `default:` lives on a following line).
+PIXI_VERSION_SITE_RE = re.compile(r"pixi-version:\s*(\S.*?)\s*$")
+HARDCODED_PIXI_VERSION_RE = re.compile(r"pixi-version:\s*(v[0-9]\S*)")
 
 
 def load_workflow(path: Path) -> tuple[dict, list[str]]:
@@ -160,15 +168,84 @@ class TestReusableCIStructure:
         missing = all_jobs - set(summary_needs)
         assert not missing, f"Summary missing needs: {sorted(missing)}"
 
-    def test_consistent_pixi_version(self):
-        """All pixi-version references must use the same value."""
-        _, raw_lines = load_workflow(REUSABLE_CI)
-        versions = set()
-        for line in raw_lines:
-            match = re.search(r"pixi-version:\s*(\S+)", line)
-            if match and "#" not in line.split("pixi-version:")[0]:
-                versions.add(match.group(1))
-        assert len(versions) <= 1, f"Multiple pixi versions: {versions}"
+
+# ============================================================================
+# pixi-version input: no hardcoded drift, all sites reference the input
+# ============================================================================
+
+
+class TestPixiVersionInput:
+    """Validate the pixi-version workflow_call input across reusable workflows.
+
+    reusable-ci.yml and reusable-security.yml both take a `pixi-version`
+    input so the pinned pixi CLI version can be overridden per-caller
+    (issue #250). These tests replace the old test_consistent_pixi_version,
+    which became vacuous once every site was rewritten to the literal string
+    `${{ inputs.pixi-version }}` (a single-element set no matter what the
+    input's actual default is).
+    """
+
+    @pytest.mark.parametrize("path", [REUSABLE_CI, REUSABLE_SECURITY])
+    def test_no_hardcoded_pixi_version_literal(self, path):
+        """No pixi-version site may hardcode a literal version like v0.74.0."""
+        _, raw_lines = load_workflow(path)
+        for lineno, line in enumerate(raw_lines, start=1):
+            if line.strip().startswith("default:"):
+                continue
+            match = HARDCODED_PIXI_VERSION_RE.search(line)
+            assert not match, (
+                f"{path}:{lineno} hardcodes pixi-version '{match.group(1)}' "
+                "instead of using ${{ inputs.pixi-version }}"
+            )
+
+    @pytest.mark.parametrize("path", [REUSABLE_CI, REUSABLE_SECURITY])
+    def test_setup_pixi_steps_reference_input(self, path):
+        """Every setup-pixi pixi-version: site must resolve to the input expression."""
+        _, raw_lines = load_workflow(path)
+        sites = [
+            (lineno, match.group(1))
+            for lineno, line in enumerate(raw_lines, start=1)
+            if (match := PIXI_VERSION_SITE_RE.search(line))
+        ]
+        assert sites, f"No pixi-version: sites with a value found in {path}"
+        for lineno, value in sites:
+            assert value == "${{ inputs.pixi-version }}", (
+                f"{path}:{lineno} pixi-version does not reference the input: '{value}'"
+            )
+
+    @pytest.mark.parametrize("path", [REUSABLE_CI, REUSABLE_SECURITY])
+    def test_pixi_version_input_is_well_formed(self, path):
+        """The pixi-version input must exist, be an optional string with a vX.Y.Z default."""
+        workflow, _ = load_workflow(path)
+        trigger = workflow.get("on", workflow.get(True, {}))
+        inputs = trigger["workflow_call"]["inputs"]
+        assert "pixi-version" in inputs, f"{path} is missing the 'pixi-version' input"
+        config = inputs["pixi-version"]
+        assert config.get("type") == "string", (
+            f"{path} pixi-version input type must be 'string', got {config.get('type')!r}"
+        )
+        assert config.get("required") is False, (
+            f"{path} pixi-version input must be optional (required: false)"
+        )
+        default = config.get("default")
+        assert default and re.match(r"^v\d+\.\d+\.\d+$", default), (
+            f"{path} pixi-version default {default!r} is not a valid vX.Y.Z version"
+        )
+
+    def test_pixi_version_default_matches_across_reusable_workflows(self):
+        """The default pixi-version must be identical in both reusable workflows."""
+        ci_workflow, _ = load_workflow(REUSABLE_CI)
+        security_workflow, _ = load_workflow(REUSABLE_SECURITY)
+        ci_trigger = ci_workflow.get("on", ci_workflow.get(True, {}))
+        security_trigger = security_workflow.get("on", security_workflow.get(True, {}))
+        ci_default = ci_trigger["workflow_call"]["inputs"]["pixi-version"]["default"]
+        security_default = security_trigger["workflow_call"]["inputs"]["pixi-version"][
+            "default"
+        ]
+        assert ci_default == security_default, (
+            f"pixi-version default mismatch: reusable-ci={ci_default!r}, "
+            f"reusable-security={security_default!r}"
+        )
 
 
 # ============================================================================
@@ -401,7 +478,3 @@ class TestCrossFileConsistency:
                 )
 
         assert not mismatches, "Action version mismatches:\n" + "\n".join(mismatches)
-
-
-# Need re import at module level for TestReusableCIStructure.test_consistent_pixi_version
-import re  # noqa: E402

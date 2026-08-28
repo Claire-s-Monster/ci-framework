@@ -19,6 +19,11 @@ inputs:
     required: false
     default: "dev"
 
+  pixi-version:
+    description: "Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7."
+    required: false
+    default: "v0.74.0"
+
 outputs:
   healed:
     description: "Whether a fix was successfully applied"
@@ -38,9 +43,9 @@ runs:
     - name: Install PIXI
       uses: prefix-dev/setup-pixi@v0.8.13
       with:
-        pixi-version: v0.74.0
+        pixi-version: ${{ inputs.pixi-version }}
         cache: false
-        
+
     - name: Install dependencies
       run: |
         pixi install -e ${{ inputs.pixi-environment }}

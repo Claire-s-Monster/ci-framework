@@ -184,11 +184,11 @@ jobs:
           # Import bot GPG private key for commit signing (passphrase-less key)
           echo "${{ secrets.CI_BOT_GPG_KEY }}" | gpg --import --batch --yes
           gpg --list-secret-keys  # Verify import worked
-          
+
           # Configure GPG for non-interactive CI environment
           mkdir -p ~/.gnupg
           chmod 700 ~/.gnupg
-          
+
           # GPG configuration for non-interactive operation
           cat > ~/.gnupg/gpg.conf << EOF
           use-agent
@@ -196,19 +196,19 @@ jobs:
           batch
           no-tty
           EOF
-          
+
           # Set proper permissions
           chmod 600 ~/.gnupg/gpg.conf
-          
+
           # Set ultimate trust for the bot key
           echo "${{ secrets.CI_BOT_GPG_KEY_ID }}:6:" | gpg --import-ownertrust
-          
+
           echo "Bot GPG key imported and configured for CI signing"
 
       - name: Commit cleanup if files were removed
         if: steps.branch-check.outputs.exists == 'true'
         run: |
-          # Use CI bot account with GPG signing capability  
+          # Use CI bot account with GPG signing capability
           git config user.name "ci-framework-bot"
           git config user.email "223036950+CIFrameworkBot@users.noreply.github.com"
           git config user.signingkey "${{ secrets.CI_BOT_GPG_KEY_ID }}"
@@ -245,7 +245,7 @@ jobs:
               Workflow: ${{ github.event_name == 'workflow_call' && inputs.workflow_name || 'CI Framework Cleanup' }}
 
               Files removed: ${removed_files}
-              
+
               🤖 Automated cleanup by ci-framework-bot with verified signature"
 
             # Push cleanup branch

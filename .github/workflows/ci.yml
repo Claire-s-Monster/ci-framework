@@ -34,13 +34,10 @@ jobs:
           pixi run -e quality lint-full
       - name: "Run Action Lint"
         run: |
-          pixi run -e dev actionlint \
-            .github/workflows/ci.yml \
-            .github/workflows/reusable-ci.yml \
-            .github/workflows/reusable-release.yml \
-            .github/workflows/reusable-security.yml \
-            .github/workflows/reusable-quality.yml \
-            .github/workflows/standalone-ci.yml
+          # Lint ALL workflows (no hand-maintained file list): a prior
+          # hardcoded subset silently drifted out of sync with the
+          # workflows directory, letting real findings go unnoticed.
+          pixi run -e dev actionlint
       - name: "Run Custom Workflow Lint"
         run: |
           pixi run -e ci python -m framework.workflow_lint \

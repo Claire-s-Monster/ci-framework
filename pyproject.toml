@@ -178,8 +178,10 @@ install-pre-commit = "pre-commit install --install-hooks"   # 🚨 ESSENTIAL: Ru
 
 # ===== LEGACY/SPECIALIZED TASKS =====
 # Keep existing specialized tasks for backward compatibility
-yaml-lint = "yamllint .github/workflows/"
-action-lint = "actionlint"
+yaml-lint = "pixi run -e dev yaml-lint-impl"
+yaml-lint-impl = "yamllint .github/workflows/"
+action-lint = "pixi run -e dev action-lint-impl"
+action-lint-impl = "actionlint"
 security-audit = "pip-audit --verbose"
 bandit-scan = "bandit -r framework/ -x framework/tests/ -s B101"
 detect-secrets = "detect-secrets scan --exclude-files '__pycache__' --exclude-files '*.pyc' --exclude-files '*.egg-info' --exclude-files '.git' --exclude-files 'pixi.lock'"

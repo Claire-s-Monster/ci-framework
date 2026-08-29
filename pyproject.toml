@@ -85,6 +85,9 @@ coverage = ">=7.0.0"
 black = "*"
 yamllint = "*"
 actionlint = "*"
+# shellcheck: required for parity with GitHub-hosted runners, which ship shellcheck
+# and thereby cause actionlint to auto-enable its shellcheck integration.
+shellcheck = "*"
 bc-detect-secrets = "*"
 twine = "*"
 cyclonedx-bom = "*"

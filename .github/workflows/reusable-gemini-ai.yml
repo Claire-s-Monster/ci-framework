@@ -90,7 +90,7 @@ jobs:
       - name: Get PR diff
         id: diff
         run: |
-          echo "files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | head -20 | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          echo "files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | head -20 | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
           git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
 
       - name: Run Gemini PR Review
@@ -234,10 +234,12 @@ jobs:
 
       - name: Post Summary
         run: |
-          echo "## 🔍 CI Impact Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "**PR**: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          cat /tmp/ci_impact.md >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🔍 CI Impact Analysis"
+            echo "**PR**: #${{ github.event.pull_request.number }}"
+            echo ""
+            cat /tmp/ci_impact.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
   issue-triage:
     if: inputs.enable-issue-triage && github.event_name == 'issues' && github.event.action == 'opened'
@@ -405,6 +407,8 @@ jobs:
 
       - name: Post Summary
         run: |
-          echo "## 🔍 AI Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          cat /tmp/analysis.md >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🔍 AI Analysis"
+            echo ""
+            cat /tmp/analysis.md
+          } >> "$GITHUB_STEP_SUMMARY"

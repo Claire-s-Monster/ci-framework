@@ -105,10 +105,10 @@ jobs:
         id: branch-check
         run: |
           if git ls-remote --heads origin ${{ matrix.branch }} | grep -q ${{ matrix.branch }}; then
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "✅ Branch ${{ matrix.branch }} exists"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "⏭️ Branch ${{ matrix.branch }} does not exist, skipping"
           fi
 
@@ -307,11 +307,11 @@ jobs:
             fi
 
             # Output summary
-            echo "## Cleanup Summary for ${{ matrix.branch }}" >> $GITHUB_STEP_SUMMARY
-            echo "Removed development artifacts and committed cleanup." >> $GITHUB_STEP_SUMMARY
+            echo "## Cleanup Summary for ${{ matrix.branch }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "Removed development artifacts and committed cleanup." >> "$GITHUB_STEP_SUMMARY"
 
           else
             echo "✅ No development artifacts found to cleanup in ${{ matrix.branch }}"
-            echo "## Cleanup Summary for ${{ matrix.branch }}" >> $GITHUB_STEP_SUMMARY
-            echo "Branch is already clean - no development artifacts found." >> $GITHUB_STEP_SUMMARY
+            echo "## Cleanup Summary for ${{ matrix.branch }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "Branch is already clean - no development artifacts found." >> "$GITHUB_STEP_SUMMARY"
           fi

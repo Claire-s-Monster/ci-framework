@@ -249,6 +249,188 @@ class TestPixiVersionInput:
 
 
 # ============================================================================
+# python-version-env-pattern / strict-python-matrix inputs (issue #251)
+# ============================================================================
+
+
+class TestPythonVersionMatrix:
+    """Validate the per-Python-version pixi environment resolution (issue #251).
+
+    reusable-ci.yml's `test` and `test-postgres` jobs resolve a per-version
+    pixi environment (e.g. `py311`) instead of always using the single
+    `pixi-environment` input, and optionally fail the leg when the resolved
+    interpreter doesn't match the matrix's declared python-version.
+    """
+
+    MATRIX_JOB_NAMES = ["test", "test-postgres"]
+
+    RESOLVE_STEP_NAME = "Resolve pixi environment for this matrix leg"
+    VERIFY_STEP_NAME = "Verify interpreter matches this matrix leg"
+    INSTALL_STEP_NAME = "Install Dependencies"
+
+    @pytest.fixture()
+    def workflow(self) -> dict:
+        wf, _ = load_workflow(REUSABLE_CI)
+        return wf
+
+    def _step_index(self, steps: list[dict], predicate) -> int:
+        for i, step in enumerate(steps):
+            if isinstance(step, dict) and predicate(step):
+                return i
+        raise AssertionError("No matching step found")
+
+    def test_python_version_env_pattern_input_is_well_formed(self, workflow):
+        """python-version-env-pattern must be optional string, default 'py{nodot}'."""
+        trigger = workflow.get("on", workflow.get(True, {}))
+        inputs = trigger["workflow_call"]["inputs"]
+        assert "python-version-env-pattern" in inputs, (
+            "reusable-ci.yml is missing the 'python-version-env-pattern' input"
+        )
+        config = inputs["python-version-env-pattern"]
+        assert config.get("type") == "string", (
+            f"python-version-env-pattern type must be 'string', got {config.get('type')!r}"
+        )
+        assert config.get("required") is False, (
+            "python-version-env-pattern input must be optional (required: false)"
+        )
+        assert config.get("default") == "py{nodot}", (
+            f"python-version-env-pattern default must be 'py{{nodot}}', "
+            f"got {config.get('default')!r}"
+        )
+
+    def test_strict_python_matrix_input_is_well_formed(self, workflow):
+        """strict-python-matrix must be optional boolean, default false."""
+        trigger = workflow.get("on", workflow.get(True, {}))
+        inputs = trigger["workflow_call"]["inputs"]
+        assert "strict-python-matrix" in inputs, (
+            "reusable-ci.yml is missing the 'strict-python-matrix' input"
+        )
+        config = inputs["strict-python-matrix"]
+        assert config.get("type") == "boolean", (
+            f"strict-python-matrix type must be 'boolean', got {config.get('type')!r}"
+        )
+        assert config.get("required") is False, (
+            "strict-python-matrix input must be optional (required: false)"
+        )
+        assert config.get("default") is False, (
+            f"strict-python-matrix default must be False, got {config.get('default')!r}"
+        )
+
+    @pytest.mark.parametrize("job_name", MATRIX_JOB_NAMES)
+    def test_resolve_and_verify_steps_exist_in_order(self, workflow, job_name):
+        """Resolve must precede install; verify must precede the test-suite step."""
+        steps = workflow["jobs"][job_name]["steps"]
+        resolve_idx = self._step_index(
+            steps, lambda s: s.get("name") == self.RESOLVE_STEP_NAME
+        )
+        verify_idx = self._step_index(
+            steps, lambda s: s.get("name") == self.VERIFY_STEP_NAME
+        )
+        install_idx = self._step_index(
+            steps, lambda s: s.get("name") == self.INSTALL_STEP_NAME
+        )
+        run_suite_idx = self._step_index(
+            steps, lambda s: str(s.get("name", "")).startswith("Run Test Suite")
+        )
+        assert resolve_idx < install_idx, (
+            f"Job '{job_name}': '{self.RESOLVE_STEP_NAME}' must come before "
+            f"'{self.INSTALL_STEP_NAME}'"
+        )
+        assert verify_idx < run_suite_idx, (
+            f"Job '{job_name}': '{self.VERIFY_STEP_NAME}' must come before "
+            "the 'Run Test Suite' step"
+        )
+
+    @pytest.mark.parametrize("job_name", MATRIX_JOB_NAMES)
+    def test_no_pixi_environment_input_in_matrix_job_run_bodies(
+        self, workflow, job_name
+    ):
+        """Install/editable-install/test steps must use $RESOLVED_PIXI_ENV, not the raw input."""
+        steps = workflow["jobs"][job_name]["steps"]
+        target_names = {
+            self.INSTALL_STEP_NAME,
+            "Editable Install (pixi-only)",
+        }
+        checked_any = False
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            name = str(step.get("name", ""))
+            is_target = name in target_names or name.startswith("Run Test Suite")
+            run_body = step.get("run")
+            if not is_target or not isinstance(run_body, str):
+                continue
+            checked_any = True
+            assert "${{ inputs.pixi-environment }}" not in run_body, (
+                f"Job '{job_name}' step '{name}' still references "
+                "${{ inputs.pixi-environment }} instead of $RESOLVED_PIXI_ENV"
+            )
+            assert "RESOLVED_PIXI_ENV" in run_body, (
+                f"Job '{job_name}' step '{name}' must reference RESOLVED_PIXI_ENV"
+            )
+        assert checked_any, f"No install/test steps found to check in job '{job_name}'"
+
+    @pytest.mark.parametrize("job_name", MATRIX_JOB_NAMES)
+    def test_resolve_step_writes_expected_env_vars(self, workflow, job_name):
+        """The resolve step must export RESOLVED_PIXI_ENV and MATRIX_PY_VERSION."""
+        steps = workflow["jobs"][job_name]["steps"]
+        resolve_step = next(
+            s
+            for s in steps
+            if isinstance(s, dict) and s.get("name") == self.RESOLVE_STEP_NAME
+        )
+        run_body = resolve_step.get("run", "")
+        assert "RESOLVED_PIXI_ENV=" in run_body and '>> "$GITHUB_ENV"' in run_body, (
+            f"Job '{job_name}' resolve step must write RESOLVED_PIXI_ENV to $GITHUB_ENV"
+        )
+        assert "MATRIX_PY_VERSION=" in run_body, (
+            f"Job '{job_name}' resolve step must write MATRIX_PY_VERSION to $GITHUB_ENV"
+        )
+
+
+# ============================================================================
+# Repo-wide invariant: run: bodies never contain raw GHA expressions
+# ============================================================================
+
+
+class TestNoExpressionInterpolationInRunBodies:
+    """Lock in the convention that `run:` shell bodies never embed ${{ }}.
+
+    Any value a step needs from inputs/matrix/etc. must be threaded in via
+    `env:` and read as a shell variable — never interpolated directly into
+    the script text, which is fragile (quoting, injection) and was the root
+    cause class behind issues #250/#251.
+    """
+
+    @pytest.mark.parametrize("path", [REUSABLE_CI, REUSABLE_SECURITY])
+    def test_no_expression_interpolation_in_run_bodies(self, path):
+        workflow, _ = load_workflow(path)
+        violations = []
+        for job_name, job_config in workflow["jobs"].items():
+            if not isinstance(job_config, dict):
+                continue
+            for step in job_config.get("steps", []):
+                if not isinstance(step, dict):
+                    continue
+                run_body = step.get("run")
+                if not isinstance(run_body, str):
+                    continue
+                idx = run_body.find("${{")
+                if idx == -1:
+                    continue
+                end = run_body.find("}}", idx)
+                snippet = (
+                    run_body[idx : end + 2] if end != -1 else run_body[idx : idx + 30]
+                )
+                step_name = step.get("name", "<unnamed>")
+                violations.append(f"{job_name}/{step_name}: {snippet}")
+        assert not violations, (
+            f"{path} has run: bodies with raw GHA expression interpolation "
+            "(should be threaded via env: instead):\n" + "\n".join(violations)
+        )
+
+
+# ============================================================================
 # Structural validation for standalone-ci.yml
 # ============================================================================
 

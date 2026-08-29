@@ -65,6 +65,28 @@ on:
         required: false
         type: string
         default: '["3.10", "3.11", "3.12"]'
+      python-version-env-pattern:
+        description: >-
+          Naming pattern for per-Python-version pixi environments, used to make
+          the python-versions matrix test the interpreter each leg claims.
+          Supports two placeholders: {version} (e.g. 3.11) and {nodot} (e.g.
+          311). When the resolved environment exists in the consumer's pixi
+          manifest it is used for that matrix leg; otherwise the job falls back
+          to `pixi-environment` and reports that the leg is not testing its
+          declared version (issue #251).
+        required: false
+        type: string
+        default: 'py{nodot}'
+      strict-python-matrix:
+        description: >-
+          Fail a matrix leg when the interpreter pixi actually resolved does not
+          match that leg's python-version. Default false, which reports the
+          mismatch as a warning instead, so adopting this framework version does
+          not turn existing pipelines red. Set true once per-version pixi
+          environments are declared (issue #251).
+        required: false
+        type: boolean
+        default: false
       os-matrix:
         description: "JSON array of OS for the test matrix"
         required: false
@@ -743,15 +765,39 @@ jobs:
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false
+      - name: "Resolve pixi environment for this matrix leg"
+        working-directory: ${{ inputs.package-path }}
+        env:
+          PY_VERSION: ${{ matrix.python-version }}
+          ENV_PATTERN: ${{ inputs.python-version-env-pattern }}
+          DEFAULT_ENV: ${{ inputs.pixi-environment }}
+        run: |
+          NODOT="${PY_VERSION//./}"
+          CANDIDATE="${ENV_PATTERN//\{version\}/$PY_VERSION}"
+          CANDIDATE="${CANDIDATE//\{nodot\}/$NODOT}"
+          RESOLVED="$DEFAULT_ENV"
+          # `pixi info` is tolerated failing here: a lockfile the pinned CLI
+          # cannot read is diagnosed by the install step's guard (issue #250),
+          # which gives a far better message than anything this step could.
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "::notice::jq unavailable; cannot probe for pixi environment '$CANDIDATE', using '$DEFAULT_ENV'"
+          elif pixi info --json 2>/dev/null | jq -e --arg e "$CANDIDATE" \
+                 '.environments_info[]? | select(.name == $e)' >/dev/null 2>&1; then
+            RESOLVED="$CANDIDATE"
+            echo "Using per-version pixi environment '$CANDIDATE' for Python $PY_VERSION"
+          else
+            echo "No pixi environment named '$CANDIDATE'; falling back to '$DEFAULT_ENV'"
+          fi
+          echo "RESOLVED_PIXI_ENV=$RESOLVED" >> "$GITHUB_ENV"
+          echo "MATRIX_PY_VERSION=$PY_VERSION" >> "$GITHUB_ENV"
       - name: "Install Dependencies"
         working-directory: ${{ inputs.package-path }}
         env:
-          PIXI_ENV: ${{ inputs.pixi-environment }}
           PIXI_VER: ${{ inputs.pixi-version }}
         run: |
           set -o pipefail
           LOG="${RUNNER_TEMP:-/tmp}/pixi-install.log"
-          if ! pixi install -e "$PIXI_ENV" 2>&1 | tee "$LOG"; then
+          if ! pixi install -e "$RESOLVED_PIXI_ENV" 2>&1 | tee "$LOG"; then
             if grep -qi 'lock file version' "$LOG"; then
               LOCK_V="$(sed -n 's/^version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' pixi.lock 2>/dev/null | head -n1)"
               echo "::error title=pixi lock schema unsupported::pixi.lock uses lock-file schema v${LOCK_V:-unknown}, which the pinned pixi CLI ($PIXI_VER) cannot read. Raise this workflow's 'pixi-version' input to a pixi release that supports schema v${LOCK_V:-?} (schema v7 requires pixi >= v0.68.0), or regenerate pixi.lock with pixi $PIXI_VER. See https://github.com/Claire-s-Monster/ci-framework/issues/250"
@@ -761,21 +807,43 @@ jobs:
       - name: "Editable Install (pixi-only)"
         if: inputs.editable-install
         working-directory: ${{ inputs.package-path }}
-        env:
-          PIXI_ENV: ${{ inputs.pixi-environment }}
         run: |
           if [ ! -f pixi.toml ] && [ ! -f pixi.lock ] && ! grep -q '\[tool\.pixi' pyproject.toml 2>/dev/null; then
             echo "::error::No pixi.toml or pixi.lock found, and no [tool.pixi] section in pyproject.toml. ci-framework requires pixi-based projects."
             exit 1
           fi
-          pixi run -e "$PIXI_ENV" pip install -e . --no-deps
+          pixi run -e "$RESOLVED_PIXI_ENV" pip install -e . --no-deps
+      - name: "Verify interpreter matches this matrix leg"
+        working-directory: ${{ inputs.package-path }}
+        env:
+          STRICT: ${{ inputs.strict-python-matrix }}
+        run: |
+          ACTUAL="$(pixi run -e "$RESOLVED_PIXI_ENV" python -c \
+            'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' \
+            2>/dev/null | tr -d '[:space:]')"
+          if [ -z "$ACTUAL" ]; then
+            echo "::warning title=Python matrix unverified::Could not determine the interpreter for pixi environment '$RESOLVED_PIXI_ENV'; this leg's Python version is unverified."
+            exit 0
+          fi
+          if [ "$ACTUAL" = "$MATRIX_PY_VERSION" ]; then
+            echo "Verified: pixi environment '$RESOLVED_PIXI_ENV' runs Python $ACTUAL"
+            exit 0
+          fi
+          MSG="this job is named for Python $MATRIX_PY_VERSION but pixi environment '$RESOLVED_PIXI_ENV' runs Python $ACTUAL, so this leg does not test its declared version. Declare a per-version pixi environment (default naming: py${MATRIX_PY_VERSION//./}) to make the matrix real. See https://github.com/Claire-s-Monster/ci-framework/issues/251"
+          {
+            echo "- Python $MATRIX_PY_VERSION leg actually ran Python $ACTUAL (env '$RESOLVED_PIXI_ENV')"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$STRICT" = "true" ]; then
+            echo "::error title=Python matrix mismatch::$MSG"
+            exit 1
+          fi
+          echo "::warning title=Python matrix mismatch::$MSG"
       - name: "Run Test Suite"
         working-directory: ${{ inputs.package-path }}
         env:
           PYTHONNOUSERSITE: "1" # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
-          PIXI_ENV: ${{ inputs.pixi-environment }}
         run: |
-          pixi run -e "$PIXI_ENV" test
+          pixi run -e "$RESOLVED_PIXI_ENV" test
 
   test-postgres:
     name: "🐘 Test+PG Python ${{ matrix.python-version }}"
@@ -816,15 +884,39 @@ jobs:
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false
+      - name: "Resolve pixi environment for this matrix leg"
+        working-directory: ${{ inputs.package-path }}
+        env:
+          PY_VERSION: ${{ matrix.python-version }}
+          ENV_PATTERN: ${{ inputs.python-version-env-pattern }}
+          DEFAULT_ENV: ${{ inputs.pixi-environment }}
+        run: |
+          NODOT="${PY_VERSION//./}"
+          CANDIDATE="${ENV_PATTERN//\{version\}/$PY_VERSION}"
+          CANDIDATE="${CANDIDATE//\{nodot\}/$NODOT}"
+          RESOLVED="$DEFAULT_ENV"
+          # `pixi info` is tolerated failing here: a lockfile the pinned CLI
+          # cannot read is diagnosed by the install step's guard (issue #250),
+          # which gives a far better message than anything this step could.
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "::notice::jq unavailable; cannot probe for pixi environment '$CANDIDATE', using '$DEFAULT_ENV'"
+          elif pixi info --json 2>/dev/null | jq -e --arg e "$CANDIDATE" \
+                 '.environments_info[]? | select(.name == $e)' >/dev/null 2>&1; then
+            RESOLVED="$CANDIDATE"
+            echo "Using per-version pixi environment '$CANDIDATE' for Python $PY_VERSION"
+          else
+            echo "No pixi environment named '$CANDIDATE'; falling back to '$DEFAULT_ENV'"
+          fi
+          echo "RESOLVED_PIXI_ENV=$RESOLVED" >> "$GITHUB_ENV"
+          echo "MATRIX_PY_VERSION=$PY_VERSION" >> "$GITHUB_ENV"
       - name: "Install Dependencies"
         working-directory: ${{ inputs.package-path }}
         env:
-          PIXI_ENV: ${{ inputs.pixi-environment }}
           PIXI_VER: ${{ inputs.pixi-version }}
         run: |
           set -o pipefail
           LOG="${RUNNER_TEMP:-/tmp}/pixi-install.log"
-          if ! pixi install -e "$PIXI_ENV" 2>&1 | tee "$LOG"; then
+          if ! pixi install -e "$RESOLVED_PIXI_ENV" 2>&1 | tee "$LOG"; then
             if grep -qi 'lock file version' "$LOG"; then
               LOCK_V="$(sed -n 's/^version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' pixi.lock 2>/dev/null | head -n1)"
               echo "::error title=pixi lock schema unsupported::pixi.lock uses lock-file schema v${LOCK_V:-unknown}, which the pinned pixi CLI ($PIXI_VER) cannot read. Raise this workflow's 'pixi-version' input to a pixi release that supports schema v${LOCK_V:-?} (schema v7 requires pixi >= v0.68.0), or regenerate pixi.lock with pixi $PIXI_VER. See https://github.com/Claire-s-Monster/ci-framework/issues/250"
@@ -834,21 +926,43 @@ jobs:
       - name: "Editable Install (pixi-only)"
         if: inputs.editable-install
         working-directory: ${{ inputs.package-path }}
-        env:
-          PIXI_ENV: ${{ inputs.pixi-environment }}
         run: |
           if [ ! -f pixi.toml ] && [ ! -f pixi.lock ] && ! grep -q '\[tool\.pixi' pyproject.toml 2>/dev/null; then
             echo "::error::No pixi.toml or pixi.lock found, and no [tool.pixi] section in pyproject.toml. ci-framework requires pixi-based projects."
             exit 1
           fi
-          pixi run -e "$PIXI_ENV" pip install -e . --no-deps
+          pixi run -e "$RESOLVED_PIXI_ENV" pip install -e . --no-deps
+      - name: "Verify interpreter matches this matrix leg"
+        working-directory: ${{ inputs.package-path }}
+        env:
+          STRICT: ${{ inputs.strict-python-matrix }}
+        run: |
+          ACTUAL="$(pixi run -e "$RESOLVED_PIXI_ENV" python -c \
+            'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' \
+            2>/dev/null | tr -d '[:space:]')"
+          if [ -z "$ACTUAL" ]; then
+            echo "::warning title=Python matrix unverified::Could not determine the interpreter for pixi environment '$RESOLVED_PIXI_ENV'; this leg's Python version is unverified."
+            exit 0
+          fi
+          if [ "$ACTUAL" = "$MATRIX_PY_VERSION" ]; then
+            echo "Verified: pixi environment '$RESOLVED_PIXI_ENV' runs Python $ACTUAL"
+            exit 0
+          fi
+          MSG="this job is named for Python $MATRIX_PY_VERSION but pixi environment '$RESOLVED_PIXI_ENV' runs Python $ACTUAL, so this leg does not test its declared version. Declare a per-version pixi environment (default naming: py${MATRIX_PY_VERSION//./}) to make the matrix real. See https://github.com/Claire-s-Monster/ci-framework/issues/251"
+          {
+            echo "- Python $MATRIX_PY_VERSION leg actually ran Python $ACTUAL (env '$RESOLVED_PIXI_ENV')"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$STRICT" = "true" ]; then
+            echo "::error title=Python matrix mismatch::$MSG"
+            exit 1
+          fi
+          echo "::warning title=Python matrix mismatch::$MSG"
       - name: "Run Test Suite (with PostgreSQL)"
         working-directory: ${{ inputs.package-path }}
         env:
           PYTHONNOUSERSITE: "1" # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
-          PIXI_ENV: ${{ inputs.pixi-environment }}
         run: |
-          pixi run -e "$PIXI_ENV" test
+          pixi run -e "$RESOLVED_PIXI_ENV" test
 
 
   performance:

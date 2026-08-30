@@ -114,15 +114,17 @@ strategy:
 ### Making the Python Version Matrix Real
 
 **The problem**: `reusable-ci.yml`'s `python-versions` matrix used to be a false
-assurance. `actions/setup-python` installs an interpreter on the runner, but
-`pixi run -e <env> test` actually executes under the environment's own
-interpreter as pinned in `pixi.lock` — not whatever `setup-python` put on
-`PATH`. If your `pyproject.toml` only defines one pixi environment, every
-matrix leg ran the exact same Python, while the job names
-(`🧪 Test Python 3.10 on ubuntu-latest`, `🧪 Test Python 3.11 on ubuntu-latest`,
-`🧪 Test Python 3.12 on ubuntu-latest`) implied otherwise. A repo declaring
-`requires-python = ">=3.11"` could show three green ticks without its 3.11
-floor ever having been exercised.
+assurance. The `test` and `test-postgres` jobs used to run `actions/setup-python`,
+which installs an interpreter on the runner, but `pixi run -e <env> test`
+actually executes under the environment's own interpreter as pinned in
+`pixi.lock` — not whatever `setup-python` put on `PATH`. If your
+`pyproject.toml` only defines one pixi environment, every matrix leg ran the
+exact same Python, while the job names (`🧪 Test Python 3.10 on ubuntu-latest`,
+`🧪 Test Python 3.11 on ubuntu-latest`, `🧪 Test Python 3.12 on ubuntu-latest`)
+implied otherwise. A repo declaring `requires-python = ">=3.11"` could show
+three green ticks without its 3.11 floor ever having been exercised. The
+`actions/setup-python` step has since been removed from those two jobs, since
+the pixi path never used the interpreter it installed (see #251).
 
 The workflow now closes this gap:
 

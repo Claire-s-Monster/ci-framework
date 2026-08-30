@@ -387,6 +387,28 @@ class TestPythonVersionMatrix:
             f"Job '{job_name}' resolve step must write MATRIX_PY_VERSION to $GITHUB_ENV"
         )
 
+    @pytest.mark.parametrize("job_name", MATRIX_JOB_NAMES)
+    def test_matrix_jobs_do_not_use_setup_python(self, workflow, job_name):
+        """The matrix jobs must not run actions/setup-python.
+
+        `pixi run` always executes with the pixi environment's own
+        interpreter, never the runner-installed one, so a setup-python step
+        in these jobs would just reintroduce the false-assurance illusion
+        from issue #251 (a job named for Python X.Y that silently tests a
+        different interpreter).
+        """
+        steps = workflow["jobs"][job_name]["steps"]
+        assert steps, f"Job '{job_name}' has no steps"
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            uses = str(step.get("uses", ""))
+            assert not uses.startswith("actions/setup-python"), (
+                f"Job '{job_name}' step '{step.get('name', '<unnamed>')}' uses "
+                f"'{uses}' — actions/setup-python must not appear in the pixi "
+                "matrix jobs (see #251)"
+            )
+
 
 # ============================================================================
 # Repo-wide invariant: run: bodies never contain raw GHA expressions

@@ -756,10 +756,8 @@ jobs:
         python-version: ${{ fromJson(inputs.python-versions) }}
     steps:
       - uses: actions/checkout@v7
-      - name: "Setup Python ${{ matrix.python-version }}"
-        uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python-version }}
+      # actions/setup-python removed here: `pixi run` uses the environment's
+      # own interpreter, so the runner-installed one was never used (#251).
       - name: "Setup PIXI Environment"
         uses: prefix-dev/setup-pixi@v0.10.1
         with:
@@ -875,10 +873,8 @@ jobs:
       POSTGRES_DSN: "postgresql://ci:ci@localhost:5432/ci_test"
     steps:
       - uses: actions/checkout@v7
-      - name: "Setup Python ${{ matrix.python-version }}"
-        uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python-version }}
+      # actions/setup-python removed here: `pixi run` uses the environment's
+      # own interpreter, so the runner-installed one was never used (#251).
       - name: "Setup PIXI Environment"
         uses: prefix-dev/setup-pixi@v0.10.1
         with:

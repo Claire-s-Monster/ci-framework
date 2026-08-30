@@ -63,12 +63,14 @@ jobs:
       - name: Build Documentation
         run: |
           mkdir -p _site
-          echo "# CI Framework v${{ needs.release-please.outputs.tag_name }}" > _site/index.md
-          echo "## Release Notes" >> _site/index.md
-          echo "This release includes:" >> _site/index.md
-          echo "- Self-Healing CI Infrastructure" >> _site/index.md
-          echo "- Automated CHANGELOG generation" >> _site/index.md
-          echo "- Enhanced documentation" >> _site/index.md
+          {
+            echo "# CI Framework v${{ needs.release-please.outputs.tag_name }}"
+            echo "## Release Notes"
+            echo "This release includes:"
+            echo "- Self-Healing CI Infrastructure"
+            echo "- Automated CHANGELOG generation"
+            echo "- Enhanced documentation"
+          } > _site/index.md
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

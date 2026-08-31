@@ -11,11 +11,19 @@ intended tool.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import tomllib
 
 PYPROJECT = Path("pyproject.toml")
+
+# Env-delegation guards accept both the short (`-e`) and long
+# (`--environment`) pixi flag forms, and tolerate extra whitespace.
+ENV_DELEGATION_RE = re.compile(r"^pixi\s+run\s+(?:-e|--environment)\s+[\w.-]+\s")
+QUALITY_ENV_DELEGATION_RE = re.compile(
+    r"^pixi\s+run\s+(?:-e|--environment)\s+quality(?:\s|$)"
+)
 
 
 def load_tasks() -> dict:
@@ -82,11 +90,12 @@ class TestQualityGateTasksAreEnvSelfContained:
     def test_quality_gate_members_are_env_self_contained(self):
         """Every task the `quality` gate depends on must be env-self-contained.
 
-        A task is self-contained if its command starts with `pixi run -e `
-        (delegating to a specific env), or if it is itself a depends-on
-        aggregate with no `cmd` of its own. A bare tool invocation like
-        `ruff format --check framework/` fails this check because it only
-        works if the caller happens to already be in the right env.
+        A task is self-contained if its command delegates to an explicit env
+        via `pixi run -e <env>` or `pixi run --environment <env>`, or if it
+        is itself a depends-on aggregate with no `cmd` of its own. A bare
+        tool invocation like `ruff format --check framework/` fails this
+        check because it only works if the caller happens to already be in
+        the right env.
         """
         tasks = load_tasks()
         depends_on = task_depends_on(tasks["quality"])
@@ -100,11 +109,12 @@ class TestQualityGateTasksAreEnvSelfContained:
             if cmd is None:
                 # Aggregate task with no cmd of its own (e.g. depends-on only).
                 continue
-            if not cmd.startswith("pixi run -e "):
+            if not ENV_DELEGATION_RE.match(cmd):
                 offenders.append(f"{name!r}: {cmd!r}")
         assert not offenders, (
             "these quality-gate members are not env-self-contained "
-            "(command must start with 'pixi run -e '): " + "; ".join(offenders)
+            "(command must delegate via 'pixi run -e <env>' or "
+            "'pixi run --environment <env>'): " + "; ".join(offenders)
         )
 
     def test_ci_format_check_delegates_to_quality_env(self):
@@ -113,6 +123,6 @@ class TestQualityGateTasksAreEnvSelfContained:
         assert "ci-format-check" in tasks, "'ci-format-check' task not found"
         cmd = task_cmd(tasks["ci-format-check"])
         assert cmd is not None, "'ci-format-check' has no command"
-        assert cmd.startswith("pixi run -e quality"), (
+        assert QUALITY_ENV_DELEGATION_RE.match(cmd), (
             f"'ci-format-check' command {cmd!r} does not delegate to the quality env"
         )

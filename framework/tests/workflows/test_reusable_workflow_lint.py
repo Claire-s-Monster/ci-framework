@@ -682,3 +682,54 @@ class TestCrossFileConsistency:
                 )
 
         assert not mismatches, "Action version mismatches:\n" + "\n".join(mismatches)
+
+
+class TestOwnCiUsesCommittedLockfile:
+    """Guards for #257: this framework must dogfood the lockfile it demands.
+
+    `.gitignore` used to ignore this repo's own `pixi.lock`. setup-pixi runs
+    `pixi install --locked` only when a lockfile is present and a plain,
+    re-solving `pixi install` otherwise, so ignoring the lock made every CI run
+    here non-reproducible — while the hygiene job in reusable-ci.yml fails any
+    consumer lacking a lock and docs/ci-workflow-guide.md recommends `--locked`.
+    """
+
+    def test_gitignore_does_not_ignore_pixi_lock(self):
+        """A committed pixi.lock is what makes setup-pixi install --locked."""
+        entries = [
+            line.strip()
+            for line in Path(".gitignore").read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        assert "pixi.lock" not in entries, (
+            "`.gitignore` ignores pixi.lock. setup-pixi only runs "
+            "`pixi install --locked` when a lockfile is present, so ignoring "
+            "the lock silently makes this repo's own CI non-reproducible (#257)"
+        )
+
+    def test_pixi_lock_is_present(self):
+        """The lockfile this framework requires of consumers must exist here."""
+        assert Path("pixi.lock").is_file(), (
+            "pixi.lock is missing from the repo root; #257 requires this "
+            "framework to ship the lockfile it demands of its consumers"
+        )
+
+    def test_own_ci_installs_are_locked(self):
+        """Every `pixi install` in ci.yml must pass --locked.
+
+        Deliberately scoped to ci.yml, which installs THIS repo's environments.
+        reusable-ci.yml, standalone-ci.yml and actions/* install the consumer's
+        environment, where --locked would be a breaking change (#257).
+        """
+        _, lines = load_workflow(CI_YML)
+        installs = [line for line in lines if "pixi install" in line]
+        assert installs, "ci.yml has no `pixi install` lines — test is vacuous"
+        offenders = [
+            f"line {n}: {line.strip()}"
+            for n, line in enumerate(lines, start=1)
+            if "pixi install" in line and "--locked" not in line
+        ]
+        assert not offenders, (
+            "these `pixi install` sites in ci.yml omit --locked: "
+            + "; ".join(offenders)
+        )

@@ -180,9 +180,18 @@ jobs:
 
       - name: Setup GPG for signing
         if: steps.branch-check.outputs.exists == 'true'
+        # Secrets arrive via env:, not interpolated into the script body, which
+        # would render the private key into the executed script text. Not yet
+        # switched to .github/actions/gpg-signing-setup because this is a
+        # reusable workflow: a ./-relative action resolves against the caller's
+        # checkout, and the pinned remote form would dangle until a release cuts
+        # (.release-please-config.json does not track this file). See #258.
+        env:
+          CI_BOT_GPG_KEY: ${{ secrets.CI_BOT_GPG_KEY }}
+          CI_BOT_GPG_KEY_ID: ${{ secrets.CI_BOT_GPG_KEY_ID }}
         run: |
           # Import bot GPG private key for commit signing (passphrase-less key)
-          echo "${{ secrets.CI_BOT_GPG_KEY }}" | gpg --import --batch --yes
+          printf '%s\n' "$CI_BOT_GPG_KEY" | gpg --import --batch --yes
           gpg --list-secret-keys  # Verify import worked
 
           # Configure GPG for non-interactive CI environment
@@ -190,7 +199,7 @@ jobs:
           chmod 700 ~/.gnupg
 
           # GPG configuration for non-interactive operation
-          cat > ~/.gnupg/gpg.conf << EOF
+          cat > ~/.gnupg/gpg.conf << 'EOF'
           use-agent
           pinentry-mode loopback
           batch
@@ -201,26 +210,29 @@ jobs:
           chmod 600 ~/.gnupg/gpg.conf
 
           # Set ultimate trust for the bot key
-          echo "${{ secrets.CI_BOT_GPG_KEY_ID }}:6:" | gpg --import-ownertrust
+          printf '%s:6:\n' "$CI_BOT_GPG_KEY_ID" | gpg --import-ownertrust
 
           echo "Bot GPG key imported and configured for CI signing"
 
       - name: Commit cleanup if files were removed
         if: steps.branch-check.outputs.exists == 'true'
+        env:
+          CI_BOT_GPG_KEY_ID: ${{ secrets.CI_BOT_GPG_KEY_ID }}
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
         run: |
           # Use CI bot account with GPG signing capability
           git config user.name "ci-framework-bot"
           git config user.email "223036950+CIFrameworkBot@users.noreply.github.com"
-          git config user.signingkey "${{ secrets.CI_BOT_GPG_KEY_ID }}"
+          git config user.signingkey "$CI_BOT_GPG_KEY_ID"
           git config commit.gpgsign true
           git config gpg.program gpg
 
           # Configure git to use the bot token for authentication
-          git_token_url="https://x-access-token:${{ secrets.CI_BOT_TOKEN }}@github.com/"
+          git_token_url="https://x-access-token:$CI_BOT_TOKEN@github.com/"
           git config --global url."${git_token_url}".insteadOf "https://github.com/"
 
           # Configure GitHub CLI token
-          export GH_TOKEN="${{ secrets.CI_BOT_TOKEN }}"
+          export GH_TOKEN="$CI_BOT_TOKEN"
 
           # Check if there are any changes
           if [[ -n $(git status --porcelain) ]]; then

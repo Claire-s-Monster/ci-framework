@@ -26,8 +26,8 @@ jobs:
           cache: false
       - name: "Install Quality Dependencies"
         run: |
-          pixi install -e quality || exit 1
-          pixi install -e dev || exit 1
+          pixi install --locked -e quality || exit 1
+          pixi install --locked -e dev || exit 1
       - name: "Run Full Lint Check"
         run: |
           echo "Running comprehensive lint checks..."
@@ -72,7 +72,7 @@ jobs:
           cache: false
       - name: "Install Security Dependencies"
         run: |
-          pixi install -e quality-extended || exit 1
+          pixi install --locked -e quality-extended || exit 1
           ls -la .pixi
       - name: "Run pip-audit (dependency vulnerabilities)"
         run: |
@@ -84,7 +84,7 @@ jobs:
         continue-on-error: true
       - name: "Install Dev Dependencies for detect-secrets"
         run: |
-          pixi install -e dev || exit 1
+          pixi install --locked -e dev || exit 1
       - name: "Run detect-secrets"
         run: |
           pixi run -e dev detect-secrets
@@ -109,7 +109,7 @@ jobs:
           cache: false
       - name: "Install CI Dependencies"
         run: |
-          pixi install -e ci || exit 1
+          pixi install --locked -e ci || exit 1
           ls -la .pixi
       - name: "Debug CI environment"
         run: |
@@ -133,7 +133,7 @@ jobs:
           cache: false
       - name: "Install CI Dependencies"
         run: |
-          pixi install -e ci || exit 1
+          pixi install --locked -e ci || exit 1
       - name: "Run Workflow Structural Tests"
         run: |
           pixi run -e ci pytest framework/tests/workflows/test_reusable_workflow_lint.py -v --no-cov

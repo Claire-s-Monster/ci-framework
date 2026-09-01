@@ -44,7 +44,7 @@ def _is_reusable(doc: dict) -> bool:
     trigger = _get_on(doc)
     if isinstance(trigger, dict):
         return "workflow_call" in trigger
-    if isinstance(trigger, (list, str)):
+    if isinstance(trigger, list | str):
         return "workflow_call" in trigger
     return False
 

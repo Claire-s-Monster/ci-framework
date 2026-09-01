@@ -32,13 +32,6 @@ DELEGATION_TARGET_RE = re.compile(
 )
 
 
-def directly_invokes_tool(cmd: str) -> bool:
-    """True if `cmd` bare-invokes ruff or mypy without delegating via `pixi run`."""
-    if cmd.strip().startswith("pixi run"):
-        return False
-    return bool(re.search(r"(?:^|&&|\||;)\s*(ruff|mypy)\b", cmd))
-
-
 def load_tasks() -> dict:
     """Load the [tool.pixi.tasks] table from pyproject.toml."""
     data = tomllib.loads(PYPROJECT.read_text())
@@ -125,6 +118,22 @@ def find_direct_tool_invocation(cmd: str, tool_to_feature: dict) -> str | None:
     )
     match = pattern.search(cmd)
     return match.group(1) if match else None
+
+
+@pytest.fixture(scope="module")
+def template_manifest() -> dict:
+    """Parse the template manifest once per module, not once per parametrized case."""
+    return load_template_manifest()
+
+
+@pytest.fixture(scope="module")
+def template_tool_to_feature(template_manifest: dict) -> dict:
+    return build_tool_to_feature_map(template_manifest)
+
+
+@pytest.fixture(scope="module")
+def template_feature_to_envs(template_manifest: dict) -> dict:
+    return build_feature_to_environments_map(template_manifest)
 
 
 class TestQualityGateTasksAreEnvSelfContained:
@@ -279,11 +288,12 @@ class TestTemplateToolInvokingTasksFollowDelegationConvention:
             "Parsed template pixi tasks table is empty — parse likely failed silently"
         )
 
-    def test_template_tool_and_environment_maps_were_actually_found(self):
+    def test_template_tool_and_environment_maps_were_actually_found(
+        self, template_tool_to_feature, template_feature_to_envs
+    ):
         """Vacuity guard: empty derived maps would make the other tests trivially pass."""
-        manifest = load_template_manifest()
-        tool_to_feature = build_tool_to_feature_map(manifest)
-        feature_to_envs = build_feature_to_environments_map(manifest)
+        tool_to_feature = template_tool_to_feature
+        feature_to_envs = template_feature_to_envs
         assert tool_to_feature, (
             "Parsed template tool→feature map is empty — parse likely failed silently"
         )
@@ -298,11 +308,16 @@ class TestTemplateToolInvokingTasksFollowDelegationConvention:
         )
 
     @pytest.mark.parametrize("name", sorted(load_template_tasks()))
-    def test_template_task_tool_delegation_convention(self, name):
-        manifest = load_template_manifest()
-        tasks = manifest["tool"]["pixi"]["tasks"]
-        tool_to_feature = build_tool_to_feature_map(manifest)
-        feature_to_envs = build_feature_to_environments_map(manifest)
+    def test_template_task_tool_delegation_convention(
+        self,
+        name,
+        template_manifest,
+        template_tool_to_feature,
+        template_feature_to_envs,
+    ):
+        tasks = template_manifest["tool"]["pixi"]["tasks"]
+        tool_to_feature = template_tool_to_feature
+        feature_to_envs = template_feature_to_envs
 
         cmd = task_cmd(tasks[name])
         if cmd is None:

@@ -48,7 +48,7 @@ jobs:
 
       - name: "Run Self-Healing Engine"
         id: healing
-        uses: ./actions/self-healing
+        uses: Claire-s-Monster/ci-framework/actions/self-healing@v2.9.9 # x-release-please-version
         with:
           timeout-minutes: ${{ inputs.timeout-minutes }}
           pixi-environment: ${{ inputs.pixi-environment }}

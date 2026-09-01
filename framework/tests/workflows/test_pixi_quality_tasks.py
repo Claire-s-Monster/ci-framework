@@ -14,15 +14,21 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import tomllib
 
 PYPROJECT = Path("pyproject.toml")
+TEMPLATE_PYPROJECT = Path("templates/pyproject-tiered-template.toml")
 
 # Env-delegation guards accept both the short (`-e`) and long
 # (`--environment`) pixi flag forms, and tolerate extra whitespace.
 ENV_DELEGATION_RE = re.compile(r"^pixi\s+run\s+(?:-e|--environment)\s+[\w.-]+\s")
 QUALITY_ENV_DELEGATION_RE = re.compile(
     r"^pixi\s+run\s+(?:-e|--environment)\s+quality(?:\s|$)"
+)
+# Captures (env, target-task) from a `pixi run -e/--environment <env> <task> ...` command.
+DELEGATION_TARGET_RE = re.compile(
+    r"^pixi\s+run\s+(?:-e|--environment)\s+([\w.-]+)\s+([\w.-]+)"
 )
 
 
@@ -48,6 +54,86 @@ def task_cmd(task: dict | str) -> str | None:
         cmd = task.get("cmd")
         return cmd if isinstance(cmd, str) else None
     return None
+
+
+def load_template_tasks() -> dict:
+    """Load the [tool.pixi.tasks] table from the tiered pyproject template."""
+    data = tomllib.loads(TEMPLATE_PYPROJECT.read_text())
+    return data["tool"]["pixi"]["tasks"]
+
+
+def load_template_manifest() -> dict:
+    """Load the full parsed template manifest (for feature/environment tables)."""
+    return tomllib.loads(TEMPLATE_PYPROJECT.read_text())
+
+
+def build_tool_to_feature_map(manifest: dict) -> dict[str, str]:
+    """Map each tool/binary name to the pixi feature that declares it.
+
+    Parses every `[tool.pixi.feature.<name>.dependencies]` table directly
+    from the manifest, so the tracked tool universe reflects whatever the
+    template actually declares instead of a hand-maintained literal list —
+    the exact staleness failure mode this guard exists to prevent (#255,
+    #261). There is no exclusion list: every tool declared under a feature
+    is tracked, and any task that bare-invokes one must earn its exemption
+    structurally by being an `-impl` leaf.
+    """
+    features = manifest.get("tool", {}).get("pixi", {}).get("feature", {})
+    tool_to_feature: dict[str, str] = {}
+    for feature_name, feature_table in features.items():
+        deps = (
+            feature_table.get("dependencies", {})
+            if isinstance(feature_table, dict)
+            else {}
+        )
+        for dep_name in deps:
+            tool_to_feature.setdefault(dep_name, feature_name)
+    return tool_to_feature
+
+
+def build_feature_to_environments_map(manifest: dict) -> dict[str, set]:
+    """Map each pixi feature to the set of environments that include it."""
+    environments = manifest.get("tool", {}).get("pixi", {}).get("environments", {})
+    feature_to_envs: dict[str, set] = {}
+    for env_name, env_table in environments.items():
+        if not isinstance(env_table, dict):
+            continue
+        for feature_name in env_table.get("features", []):
+            feature_to_envs.setdefault(feature_name, set()).add(env_name)
+    return feature_to_envs
+
+
+def find_direct_tool_invocation(cmd: str, tool_to_feature: dict) -> str | None:
+    """Return the tracked tool name `cmd` directly invokes, or None.
+
+    Matches a tool name only when it is the command being run — at the very
+    start of `cmd`, or immediately after a shell separator (&&, |, ;) — never
+    when it merely appears as an argument. A `pixi run ...` delegation is
+    never a direct invocation, since it only references a task name.
+    """
+    if not tool_to_feature or cmd.strip().startswith("pixi run"):
+        return None
+    pattern = re.compile(
+        r"(?:^|&&|\||;)\s*(" + "|".join(re.escape(t) for t in tool_to_feature) + r")\b"
+    )
+    match = pattern.search(cmd)
+    return match.group(1) if match else None
+
+
+@pytest.fixture(scope="module")
+def template_manifest() -> dict:
+    """Parse the template manifest once per module, not once per parametrized case."""
+    return load_template_manifest()
+
+
+@pytest.fixture(scope="module")
+def template_tool_to_feature(template_manifest: dict) -> dict:
+    return build_tool_to_feature_map(template_manifest)
+
+
+@pytest.fixture(scope="module")
+def template_feature_to_envs(template_manifest: dict) -> dict:
+    return build_feature_to_environments_map(template_manifest)
 
 
 class TestQualityGateTasksAreEnvSelfContained:
@@ -125,4 +211,146 @@ class TestQualityGateTasksAreEnvSelfContained:
         assert cmd is not None, "'ci-format-check' has no command"
         assert QUALITY_ENV_DELEGATION_RE.match(cmd), (
             f"'ci-format-check' command {cmd!r} does not delegate to the quality env"
+        )
+
+
+class TestTemplateFormatCheckTasksAreEnvSelfContained:
+    """Guard the tiered pyproject template against the same #267 regression.
+
+    `templates/pyproject-tiered-template.toml` is copied into every project
+    scaffolded from it, so a bare `ruff format --check {{ source_path }}`
+    there reproduces the exit-127 "command not found" bug for every
+    generated project, not just this repo.
+    """
+
+    def test_template_tasks_were_actually_found(self):
+        """Vacuity guard: a silently-empty parse would make the other tests trivially pass."""
+        tasks = load_template_tasks()
+        assert tasks, (
+            "Parsed template pixi tasks table is empty — parse likely failed silently"
+        )
+        assert "format-check" in tasks, "'format-check' task not found in template"
+        assert "ci-format-check" in tasks, (
+            "'ci-format-check' task not found in template"
+        )
+
+    def test_template_format_check_delegates_to_quality_env(self):
+        """`format-check` in the template must delegate, not run bare."""
+        tasks = load_template_tasks()
+        cmd = task_cmd(tasks["format-check"])
+        assert cmd is not None, "'format-check' has no command"
+        assert QUALITY_ENV_DELEGATION_RE.match(cmd), (
+            f"'format-check' command {cmd!r} does not delegate to the quality env"
+        )
+
+    def test_template_ci_format_check_delegates_to_quality_env(self):
+        """`ci-format-check` in the template must delegate, not run bare."""
+        tasks = load_template_tasks()
+        cmd = task_cmd(tasks["ci-format-check"])
+        assert cmd is not None, "'ci-format-check' has no command"
+        assert QUALITY_ENV_DELEGATION_RE.match(cmd), (
+            f"'ci-format-check' command {cmd!r} does not delegate to the quality env"
+        )
+
+    def test_template_quality_aggregate_includes_format_check(self):
+        """`format-check` must be a member of the template's mandatory quality gate."""
+        tasks = load_template_tasks()
+        depends_on = task_depends_on(tasks["quality"])
+        assert "format-check" in depends_on, (
+            f"template 'quality' depends-on {depends_on!r} is missing 'format-check'"
+        )
+
+
+class TestTemplateToolInvokingTasksFollowDelegationConvention:
+    """Data-driven guard for the #267/#268 defect class across ALL template tasks.
+
+    Hand-listing "the tasks this applies to" (as the class above does for
+    `format-check`/`ci-format-check`) goes stale whenever a new bare
+    tool-invoking task is added — see #255, #261. This derives the tracked
+    tool universe from the manifest itself (every dependency declared under
+    `[tool.pixi.feature.*.dependencies]`, mapped to the smallest
+    `[tool.pixi.environments]` entries that provide each feature) and walks
+    every task in the template's `[tool.pixi.tasks]`:
+
+    - if a task's command directly bare-invokes a tracked tool, its name
+      must end in `-impl` (bare tool invocations only belong in `-impl`
+      leaf tasks, run inside an env that provides the tool);
+    - if a task delegates (`pixi run -e/--environment <env> <target>`) to a
+      target task that itself directly bare-invokes a tracked tool, the
+      delegation's env must actually provide the feature that declares that
+      tool — not just any env.
+    """
+
+    def test_template_task_table_was_actually_found(self):
+        """Vacuity guard: a silently-empty parse would make the other tests trivially pass."""
+        tasks = load_template_tasks()
+        assert tasks, (
+            "Parsed template pixi tasks table is empty — parse likely failed silently"
+        )
+
+    def test_template_tool_and_environment_maps_were_actually_found(
+        self, template_tool_to_feature, template_feature_to_envs
+    ):
+        """Vacuity guard: empty derived maps would make the other tests trivially pass."""
+        tool_to_feature = template_tool_to_feature
+        feature_to_envs = template_feature_to_envs
+        assert tool_to_feature, (
+            "Parsed template tool→feature map is empty — parse likely failed silently"
+        )
+        assert "bandit" in tool_to_feature, (
+            "'bandit' not found in template's tool→feature map"
+        )
+        assert feature_to_envs, (
+            "Parsed template feature→environments map is empty — parse likely failed silently"
+        )
+        assert "quality" in feature_to_envs, (
+            "'quality' feature not found in template's feature→environments map"
+        )
+
+    @pytest.mark.parametrize("name", sorted(load_template_tasks()))
+    def test_template_task_tool_delegation_convention(
+        self,
+        name,
+        template_manifest,
+        template_tool_to_feature,
+        template_feature_to_envs,
+    ):
+        tasks = template_manifest["tool"]["pixi"]["tasks"]
+        tool_to_feature = template_tool_to_feature
+        feature_to_envs = template_feature_to_envs
+
+        cmd = task_cmd(tasks[name])
+        if cmd is None:
+            pytest.skip(f"{name!r} has no cmd (depends-on aggregate)")
+
+        tool = find_direct_tool_invocation(cmd, tool_to_feature)
+        if tool is not None:
+            assert name.endswith("-impl"), (
+                f"{name!r} directly invokes {tool!r} ({cmd!r}), a tool declared "
+                f"in the {tool_to_feature[tool]!r} feature, but its name does "
+                "not end in '-impl' — bare tool invocations must live in an "
+                "'-impl' leaf task"
+            )
+            return
+
+        match = DELEGATION_TARGET_RE.match(cmd.strip())
+        if match is None:
+            return
+        env, target = match.group(1), match.group(2)
+        target_task = tasks.get(target)
+        if target_task is None:
+            return
+        target_cmd = task_cmd(target_task)
+        if target_cmd is None:
+            return
+        target_tool = find_direct_tool_invocation(target_cmd, tool_to_feature)
+        if target_tool is None:
+            return
+        required_feature = tool_to_feature[target_tool]
+        providing_envs = feature_to_envs.get(required_feature, set())
+        assert env in providing_envs, (
+            f"{name!r} delegates to {target!r} (which directly invokes "
+            f"{target_tool!r}, declared in the {required_feature!r} feature) "
+            f"via env {env!r}, but {env!r} does not provide the "
+            f"{required_feature!r} feature — provided by: {sorted(providing_envs)!r}"
         )

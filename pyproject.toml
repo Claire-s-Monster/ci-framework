@@ -148,7 +148,12 @@ typecheck = "pixi run -e quality typecheck-impl"
 typecheck-impl = "mypy framework/"
 
 # Combined Quality Check - 🚨 MANDATORY BEFORE COMMIT
-quality = { depends-on = ["test", "lint", "format-check", "typecheck"] }   # NEVER commit without this passing
+# Depends on `lint-full`, not `lint`: CI runs the full configured ruff ruleset
+# (ci.yml -> `pixi run -e quality lint-full`), so a gate built on `lint`
+# (`--select=F,E9`) is strictly weaker than CI and lets UP/I/B/SIM/RUF
+# violations through to cost a full push cycle (#271). `lint` stays defined as
+# the fast inner-loop check; it is just no longer the mandatory gate.
+quality = { depends-on = ["test", "lint-full", "format-check", "typecheck"] }   # NEVER commit without this passing
 
 # Emergency Quality Fix - USE FOR "Found X errors" CI FAILURES
 emergency-fix = "pixi run lint-fix && pixi run format && pixi run test"

@@ -209,7 +209,9 @@ runs:
         TIMEOUT="${{ inputs.timeout }}"
         PARALLEL="${{ inputs.parallel }}"
         PROJECT_DIR="${{ inputs.project-dir }}"
+        # shellcheck disable=SC2034  # inert input, tracked in #273
         CONFIG_FILE="${{ inputs.config-file }}"
+        # shellcheck disable=SC2034  # inert input, tracked in #273
         FAIL_FAST="${{ inputs.fail-fast }}"
         REPORTS_DIR="${{ inputs.reports-dir }}"
         PIXI_ENVIRONMENT="${{ inputs.pixi-environment }}"

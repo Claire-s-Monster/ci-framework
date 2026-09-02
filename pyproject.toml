@@ -182,8 +182,19 @@ install-pre-commit = "pre-commit install --install-hooks"   # 🚨 ESSENTIAL: Ru
 
 # ===== LEGACY/SPECIALIZED TASKS =====
 # Keep existing specialized tasks for backward compatibility
+# NOTE: this covers only .github/workflows/, so the action trees are unlinted
+# by yamllint, and nothing in CI invokes this task at all. Widening the scope
+# and wiring it into CI is #274 - deliberately not bundled here, because the
+# 247 findings it surfaces are almost all whitespace and would bury this
+# branch's substantive shell fixes.
 yaml-lint = "pixi run -e dev yaml-lint-impl"
 yaml-lint-impl = "yamllint .github/workflows/"
+
+# Shellcheck the bash embedded in composite action `runs.steps[].run` bodies.
+# actionlint has no composite-action support, so this is the only thing that
+# checks them (#261).
+action-shellcheck = "pixi run -e dev action-shellcheck-impl"
+action-shellcheck-impl = "python -m framework.action_shellcheck"
 action-lint = "pixi run -e dev action-lint-impl"
 action-lint-impl = "actionlint"
 security-audit = "pip-audit --verbose"
@@ -242,6 +253,11 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["framework/tests"]
+# The project is intentionally never pip-installed (see `install-editable`),
+# and pytest puts the test file's directory on sys.path rather than the repo
+# root - so `import framework` fails from a test even though
+# `python -m framework.x` works. Put the root on the path explicitly.
+pythonpath = ["."]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

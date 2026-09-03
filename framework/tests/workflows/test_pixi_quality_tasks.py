@@ -12,10 +12,12 @@ intended tool.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 import tomllib
+import yaml
 
 PYPROJECT = Path("pyproject.toml")
 TEMPLATE_PYPROJECT = Path("templates/pyproject-tiered-template.toml")
@@ -110,38 +112,45 @@ def describe_ruleset(ruleset: frozenset[str] | None) -> str:
     return "--select=" + ",".join(sorted(ruleset))
 
 
-# Leading YAML scaffolding before a shell command: an optional list dash and an
-# optional `run:` key, including block-scalar forms (`run: |`, `run: >-`).
-YAML_RUN_PREFIX_RE = re.compile(r"^\s*(?:-\s*)?(?:run:\s*[|>]?-?\s*)?")
+def iter_workflow_run_bodies(doc: object) -> Iterator[str]:
+    """Yield every `run:` body in a parsed workflow or action document.
 
-
-def strip_yaml_run_prefix(line: str) -> str:
-    """Strip YAML list/`run:` scaffolding so a shell command starts at index 0.
-
-    Without this, `run: ruff check .` (reusable-quality.yml) never matches
-    RUFF_CHECK_RE, because `ruff` is neither at the start of the line nor
-    after a shell separator — so the guard silently skipped the very
-    invocation its docstring claimed to cover.
+    Covers workflow jobs and composite-action steps alike, so a `run:` body
+    is found wherever it lives rather than wherever a regex happened to look.
     """
-    return YAML_RUN_PREFIX_RE.sub("", line, count=1).strip()
+    if not isinstance(doc, dict):
+        return
+    for job in (doc.get("jobs") or {}).values():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if isinstance(step, dict) and isinstance(step.get("run"), str):
+                yield step["run"]
+    runs = doc.get("runs")
+    if isinstance(runs, dict):
+        for step in runs.get("steps") or []:
+            if isinstance(step, dict) and isinstance(step.get("run"), str):
+                yield step["run"]
 
 
 def workflow_ruff_check_commands(path: Path, tasks: dict) -> list[str]:
     """Every `ruff check` command a workflow file causes to run.
 
-    Covers both forms seen in this repo: a `pixi run <task>` invocation
-    (resolved through the task graph, e.g. ci.yml's `lint-full`) and a bare
-    `ruff check` written directly in a `run:` block (e.g. reusable-quality.yml).
+    Parses the YAML structurally rather than scanning lines: the body of a
+    `run:` block is a plain shell script once the document is parsed, so a
+    bare `ruff check .` written as a single-line `run:` value is found the
+    same way as one inside a block scalar. Line scanning missed the former.
     """
     commands: list[str] = []
-    for raw_line in path.read_text().splitlines():
-        line = strip_yaml_run_prefix(raw_line)
-        if "pixi run" in line:
-            for match in PIXI_RUN_TASK_RE.finditer(line):
-                if match.group(1) in tasks:
-                    commands.extend(resolve_task_commands(tasks, match.group(1)))
-        elif RUFF_CHECK_RE.search(line):
-            commands.append(line)
+    for body in iter_workflow_run_bodies(yaml.safe_load(path.read_text())):
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if "pixi run" in line:
+                for match in PIXI_RUN_TASK_RE.finditer(line):
+                    if match.group(1) in tasks:
+                        commands.extend(resolve_task_commands(tasks, match.group(1)))
+            elif RUFF_CHECK_RE.search(line):
+                commands.append(line)
     return commands
 
 

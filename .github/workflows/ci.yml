@@ -38,6 +38,14 @@ jobs:
           # hardcoded subset silently drifted out of sync with the
           # workflows directory, letting real findings go unnoticed.
           pixi run -e dev actionlint
+      - name: "Run Composite Action Shellcheck"
+        run: |
+          # actionlint has no composite-action support and yaml-lint is scoped
+          # to .github/workflows/, so the bash embedded in every action.yml is
+          # checked by nothing else (#261). Discovery walks the action trees
+          # rather than reading a file list, so a new action is covered the
+          # moment it is added.
+          pixi run action-shellcheck
       - name: "Run Custom Workflow Lint"
         run: |
           pixi run -e ci python -m framework.workflow_lint \

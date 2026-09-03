@@ -175,6 +175,7 @@ runs:
         PROJECT_DIR="${{ inputs.project-dir }}"
         BASE_REF="${{ inputs.base-ref }}"
         HEAD_REF="${{ inputs.head-ref }}"
+        # shellcheck disable=SC2034  # inert input, tracked in #273
         PATTERN_CONFIG="${{ inputs.pattern-config }}"
         ENABLE_TEST_OPT="${{ inputs.enable-test-optimization }}"
         ENABLE_JOB_SKIP="${{ inputs.enable-job-skipping }}"

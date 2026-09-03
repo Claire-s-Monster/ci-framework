@@ -121,13 +121,13 @@ runs:
         esac
         
         # Create reports directory
-        mkdir -p ${{ inputs.reports-dir }}
+        mkdir -p "${{ inputs.reports-dir }}"
         
         # Detect current platform configuration
         if [[ -f "pyproject.toml" ]]; then
           CURRENT_PLATFORM=$(grep -E 'platforms\s*=' pyproject.toml | head -1 || echo "")
           echo "Current platform config: $CURRENT_PLATFORM"
-          echo "ORIGINAL_PLATFORM_CONFIG=$CURRENT_PLATFORM" >> $GITHUB_ENV
+          echo "ORIGINAL_PLATFORM_CONFIG=$CURRENT_PLATFORM" >> "$GITHUB_ENV"
         fi
         
         echo "✅ Setup complete"
@@ -329,11 +329,13 @@ runs:
         done
         
         # Output results
-        echo "platforms-tested=$PLATFORMS_TESTED" >> $GITHUB_OUTPUT
-        echo "test-results=$TEST_RESULTS" >> $GITHUB_OUTPUT
-        echo "dependency-resolution-results=$DEPENDENCY_RESULTS" >> $GITHUB_OUTPUT
-        echo "total-duration=$TOTAL_DURATION" >> $GITHUB_OUTPUT
-        echo "artifacts-path=$ARTIFACTS_PATH" >> $GITHUB_OUTPUT
+        {
+          echo "platforms-tested=$PLATFORMS_TESTED"
+          echo "test-results=$TEST_RESULTS"
+          echo "dependency-resolution-results=$DEPENDENCY_RESULTS"
+          echo "total-duration=$TOTAL_DURATION"
+          echo "artifacts-path=$ARTIFACTS_PATH"
+        } >> "$GITHUB_OUTPUT"
         
         echo "🎉 Native cross-platform testing complete!"
         echo "📊 Platforms tested: $PLATFORMS_TESTED"
@@ -349,10 +351,12 @@ runs:
         echo "Docker mode is planned for future container-specific testing needs"
         
         # Placeholder outputs for compatibility
-        echo "environments-tested=0" >> $GITHUB_OUTPUT
-        echo "test-results={}" >> $GITHUB_OUTPUT
-        echo "total-duration=0" >> $GITHUB_OUTPUT
-        echo "artifacts-path=${{ inputs.reports-dir }}" >> $GITHUB_OUTPUT
+        {
+          echo "environments-tested=0"
+          echo "test-results={}"
+          echo "total-duration=0"
+          echo "artifacts-path=${{ inputs.reports-dir }}"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Upload test artifacts
       if: always()
@@ -366,17 +370,19 @@ runs:
       if: always()
       shell: bash
       run: |
-        echo "## 🌍 Cross-Platform Validation Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Mode:** ${{ inputs.mode }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Platforms tested:** ${{ steps.native-testing.outputs.platforms-tested || '0' }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Total duration:** ${{ steps.native-testing.outputs.total-duration || '0' }}s" >> $GITHUB_STEP_SUMMARY
-        echo "**Pixi environments:** ${{ inputs.pixi-environments }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+        {
+          echo "## 🌍 Cross-Platform Validation Results"
+          echo ""
+          echo "**Mode:** ${{ inputs.mode }}"
+          echo "**Platforms tested:** ${{ steps.native-testing.outputs.platforms-tested || '0' }}"
+          echo "**Total duration:** ${{ steps.native-testing.outputs.total-duration || '0' }}s"
+          echo "**Pixi environments:** ${{ inputs.pixi-environments }}"
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
         
         # Native results
         if [[ "${{ inputs.mode }}" == "native" || "${{ inputs.mode }}" == "both" ]]; then
-          echo "### 🚀 Native Platform Testing Results" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Native Platform Testing Results" >> "$GITHUB_STEP_SUMMARY"
           
           # Test results
           if [[ -n "${{ steps.native-testing.outputs.test-results }}" ]] && [[ "${{ steps.native-testing.outputs.test-results }}" != "{}" ]]; then
@@ -384,21 +390,25 @@ runs:
               to_entries[] | 
               "- **\(.value.platform)/\(.value.environment)**: \(.value.status) (\(.value.duration)s)" +
               (if .value.status == "failed" then " ❌" else " ✅" end)
-            ' >> $GITHUB_STEP_SUMMARY
+            ' >> "$GITHUB_STEP_SUMMARY"
           fi
-          
+
           # Dependency resolution results
           if [[ -n "${{ steps.native-testing.outputs.dependency-resolution-results }}" ]] && [[ "${{ steps.native-testing.outputs.dependency-resolution-results }}" != "{}" ]]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 📦 Dependency Resolution Results" >> $GITHUB_STEP_SUMMARY
+            {
+              echo ""
+              echo "### 📦 Dependency Resolution Results"
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "${{ steps.native-testing.outputs.dependency-resolution-results }}" | jq -r '
               to_entries[] | 
               "- **\(.value.platform)/\(.value.environment)**: \(.value.status) (\(.value.duration)s)" +
               (if .value.status == "failed" then " ❌" else " ✅" end)
-            ' >> $GITHUB_STEP_SUMMARY
+            ' >> "$GITHUB_STEP_SUMMARY"
           fi
         fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "---" >> $GITHUB_STEP_SUMMARY
-        echo "*This validation tests both dependency resolution and actual functionality across platforms with unlocked pixi environments.*" >> $GITHUB_STEP_SUMMARY
+
+        {
+          echo ""
+          echo "---"
+          echo "*This validation tests both dependency resolution and actual functionality across platforms with unlocked pixi environments.*"
+        } >> "$GITHUB_STEP_SUMMARY"

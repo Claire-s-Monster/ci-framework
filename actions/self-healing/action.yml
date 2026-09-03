@@ -48,12 +48,12 @@ runs:
 
     - name: Install dependencies
       run: |
-        pixi install -e ${{ inputs.pixi-environment }}
+        pixi install -e "${{ inputs.pixi-environment }}"
       shell: bash
 
     - name: Run Self-Healing Engine
       run: |
-        pixi run -e ${{ inputs.pixi-environment }} python -m framework.self_healing.engine \
+        pixi run -e "${{ inputs.pixi-environment }}" python -m framework.self_healing.engine \
           --config "${{ inputs.config }}" \
           --project-dir "${{ inputs.project-dir }}" \
           --timeout-minutes "${{ inputs.timeout-minutes }}"
@@ -62,8 +62,10 @@ runs:
     - name: Set outputs
       id: set-outputs
       run: |
-        echo "healed=$(cat .self_healing_status | grep healed | cut -d'=' -f2)" >> $GITHUB_OUTPUT
-        echo "rollback=$(cat .self_healing_status | grep rollback | cut -d'=' -f2)" >> $GITHUB_OUTPUT
-        echo "error=$(cat .self_healing_status | grep error | cut -d'=' -f2-)" >> $GITHUB_OUTPUT
+        {
+          echo "healed=$(grep healed .self_healing_status | cut -d'=' -f2)"
+          echo "rollback=$(grep rollback .self_healing_status | cut -d'=' -f2)"
+          echo "error=$(grep error .self_healing_status | cut -d'=' -f2-)"
+        } >> "$GITHUB_OUTPUT"
       shell: bash
       if: always()

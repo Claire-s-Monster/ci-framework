@@ -315,6 +315,18 @@ def shellcheck_step(step: RunStep, severity: str = "style") -> list[Finding]:
     finally:
         temp_path.unlink(missing_ok=True)
 
+    # shellcheck exits 0 with no findings and 1 with findings. Anything else
+    # means the invocation itself failed - an unsupported flag, a build that
+    # could not process the file - and stdout will be empty. Parsing that as
+    # "no findings" would report the gate clean precisely when it is blind,
+    # so fail loudly instead.
+    if completed.returncode not in (0, 1):
+        raise RuntimeError(
+            f"shellcheck exited {completed.returncode} for {step.path} "
+            f"(step: {step.step_name}); it did not run. "
+            f"stderr: {completed.stderr.strip() or '<empty>'}"
+        )
+
     findings: list[Finding] = []
     for line in completed.stdout.splitlines():
         match = GCC_FINDING_RE.match(line.strip())
@@ -401,9 +413,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    findings = [
-        finding for step in steps for finding in shellcheck_step(step, args.severity)
-    ]
+    try:
+        findings = [
+            finding
+            for step in steps
+            for finding in shellcheck_step(step, args.severity)
+        ]
+    except RuntimeError as error:
+        print(error, file=sys.stderr)
+        return 2
     for finding in sorted(findings, key=lambda f: (str(f.path), f.line, f.column)):
         print(finding)
     for note in skipped:

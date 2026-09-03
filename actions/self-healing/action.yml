@@ -63,9 +63,9 @@ runs:
       id: set-outputs
       run: |
         {
-          echo "healed=$(cat .self_healing_status | grep healed | cut -d'=' -f2)"
-          echo "rollback=$(cat .self_healing_status | grep rollback | cut -d'=' -f2)"
-          echo "error=$(cat .self_healing_status | grep error | cut -d'=' -f2-)"
+          echo "healed=$(grep healed .self_healing_status | cut -d'=' -f2)"
+          echo "rollback=$(grep rollback .self_healing_status | cut -d'=' -f2)"
+          echo "error=$(grep error .self_healing_status | cut -d'=' -f2-)"
         } >> "$GITHUB_OUTPUT"
       shell: bash
       if: always()

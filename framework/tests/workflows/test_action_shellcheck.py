@@ -30,9 +30,16 @@ from framework.action_shellcheck import (
     shellcheck_step,
 )
 
+# NOTE: this does NOT mean "dev env only". GitHub-hosted runners ship
+# shellcheck on PATH (see the shellcheck dependency comment in pyproject.toml),
+# so these tests DO run in CI's ci/quality envs - against whatever shellcheck
+# is on PATH, which is a different build from the one pixi pins in `dev`. That
+# difference is real: the runner's build reported SC2002 findings the pinned
+# build did not. Enforcement therefore lives in ci.yml's `action-shellcheck`
+# step, which runs in `dev`; these tests are a second opinion, not the gate.
 requires_shellcheck = pytest.mark.skipif(
     shutil.which("shellcheck") is None,
-    reason="shellcheck ships in the dev env, not the quality env",
+    reason="no shellcheck on PATH",
 )
 
 
@@ -164,3 +171,33 @@ def test_repo_composite_actions_are_clean():
         for finding in shellcheck_step(step)
     ]
     assert not findings, "\n".join(str(finding) for finding in findings)
+
+
+class TestBrokenShellcheckIsNotSilentSuccess:
+    """A shellcheck that fails to run must not read as a clean result."""
+
+    def test_nonzero_exit_raises_instead_of_reporting_clean(
+        self, tmp_path, monkeypatch
+    ):
+        """Exit codes other than 0/1 mean the tool did not run.
+
+        Observed in CI: shellcheck produced no output in one environment, so
+        every body parsed as clean. Silence from a broken tool is
+        indistinguishable from a passing gate unless the exit code is checked.
+        """
+        import subprocess
+
+        from framework import action_shellcheck
+
+        def _fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0] if args else [],
+                returncode=2,
+                stdout="",
+                stderr="shellcheck: unrecognized option",
+            )
+
+        monkeypatch.setattr(action_shellcheck.subprocess, "run", _fake_run)
+        step = _step(tmp_path, "echo hi\n")
+        with pytest.raises(RuntimeError, match="did not run"):
+            action_shellcheck.shellcheck_step(step)

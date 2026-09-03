@@ -12,10 +12,12 @@ intended tool.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 import tomllib
+import yaml
 
 PYPROJECT = Path("pyproject.toml")
 TEMPLATE_PYPROJECT = Path("templates/pyproject-tiered-template.toml")
@@ -30,6 +32,126 @@ QUALITY_ENV_DELEGATION_RE = re.compile(
 DELEGATION_TARGET_RE = re.compile(
     r"^pixi\s+run\s+(?:-e|--environment)\s+([\w.-]+)\s+([\w.-]+)"
 )
+
+
+CI_WORKFLOWS_DIR = Path(".github/workflows")
+
+# `ruff check` invoked as a command — at the start of a command or right after
+# a shell separator. Never matches `ruff format`, nor `ruff` as an argument.
+RUFF_CHECK_RE = re.compile(r"(?:^|&&|\|\||\||;)\s*ruff\s+check\b")
+# Value of `--select=X,Y` or `--select X,Y`.
+RUFF_SELECT_RE = re.compile(r"--select[=\s]+([A-Za-z0-9,]+)")
+# Task name from `pixi run [-e <env>] <task>`.
+PIXI_RUN_TASK_RE = re.compile(
+    r"pixi\s+run\s+(?:(?:-e|--environment)\s+[\w.-]+\s+)?([\w.-]+)"
+)
+
+# Sentinel for `ruff check` with no `--select`: the full configured ruleset,
+# which by definition covers every narrower selection.
+FULL_RULESET = None
+
+
+def resolve_task_commands(
+    tasks: dict, name: str, _seen: frozenset[str] = frozenset()
+) -> list[str]:
+    """Expand a pixi task into every concrete command it actually runs.
+
+    Follows `depends-on` edges and `pixi run -e <env> <target>` delegations
+    transitively, so callers see the commands at the leaves rather than the
+    one-line indirection at the top. Cycles terminate via `_seen`.
+    """
+    if name in _seen or name not in tasks:
+        return []
+    _seen = _seen | {name}
+    task = tasks[name]
+    commands: list[str] = []
+    for dep in task_depends_on(task):
+        commands.extend(resolve_task_commands(tasks, dep, _seen))
+    cmd = task_cmd(task)
+    if cmd is None:
+        return commands
+    match = PIXI_RUN_TASK_RE.match(cmd.strip())
+    if match is not None and match.group(1) in tasks:
+        commands.extend(resolve_task_commands(tasks, match.group(1), _seen))
+    else:
+        commands.append(cmd)
+    return commands
+
+
+def ruff_check_rulesets(commands: list[str]) -> list[frozenset[str] | None]:
+    """Return one ruleset per `ruff check` command in `commands`.
+
+    A ruleset is the frozenset of `--select` rule prefixes, or FULL_RULESET
+    when nothing narrows the invocation.
+    """
+    rulesets: list[frozenset[str] | None] = []
+    for cmd in commands:
+        if not RUFF_CHECK_RE.search(cmd):
+            continue
+        select = RUFF_SELECT_RE.search(cmd)
+        if select is None:
+            rulesets.append(FULL_RULESET)
+        else:
+            rulesets.append(frozenset(p for p in select.group(1).split(",") if p))
+    return rulesets
+
+
+def ruleset_covers(local: frozenset[str] | None, ci: frozenset[str] | None) -> bool:
+    """True when `local` checks at least everything `ci` checks."""
+    if local is FULL_RULESET:
+        return True
+    if ci is FULL_RULESET:
+        return False
+    return ci <= local
+
+
+def describe_ruleset(ruleset: frozenset[str] | None) -> str:
+    """Render a ruleset for assertion messages."""
+    if ruleset is FULL_RULESET:
+        return "full configured ruleset"
+    return "--select=" + ",".join(sorted(ruleset))
+
+
+def iter_workflow_run_bodies(doc: object) -> Iterator[str]:
+    """Yield every `run:` body in a parsed workflow or action document.
+
+    Covers workflow jobs and composite-action steps alike, so a `run:` body
+    is found wherever it lives rather than wherever a regex happened to look.
+    """
+    if not isinstance(doc, dict):
+        return
+    for job in (doc.get("jobs") or {}).values():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if isinstance(step, dict) and isinstance(step.get("run"), str):
+                yield step["run"]
+    runs = doc.get("runs")
+    if isinstance(runs, dict):
+        for step in runs.get("steps") or []:
+            if isinstance(step, dict) and isinstance(step.get("run"), str):
+                yield step["run"]
+
+
+def workflow_ruff_check_commands(path: Path, tasks: dict) -> list[str]:
+    """Every `ruff check` command a workflow file causes to run.
+
+    Parses the YAML structurally rather than scanning lines: the body of a
+    `run:` block is a plain shell script once the document is parsed, so a
+    bare `ruff check .` written as a single-line `run:` value is found the
+    same way as one inside a block scalar. Line scanning missed the former.
+    """
+    commands: list[str] = []
+    for body in iter_workflow_run_bodies(yaml.safe_load(path.read_text())):
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if "pixi run" in line:
+                for match in PIXI_RUN_TASK_RE.finditer(line):
+                    if match.group(1) in tasks:
+                        commands.extend(resolve_task_commands(tasks, match.group(1)))
+            elif RUFF_CHECK_RE.search(line):
+                commands.append(line)
+    return commands
 
 
 def load_tasks() -> dict:
@@ -353,4 +475,127 @@ class TestTemplateToolInvokingTasksFollowDelegationConvention:
             f"{target_tool!r}, declared in the {required_feature!r} feature) "
             f"via env {env!r}, but {env!r} does not provide the "
             f"{required_feature!r} feature — provided by: {sorted(providing_envs)!r}"
+        )
+
+
+class TestLocalQualityGateCoversCiLintRuleset:
+    """Guard #271: the mandatory local gate must not be weaker than CI.
+
+    `quality` used to depend on `lint` (`ruff check --select=F,E9`) while CI
+    ran `lint-full` (the full configured ruleset). Every rule outside `F` and
+    `E9` — the whole `UP`/`I`/`B`/`C4`/`W` surface — was therefore unchecked
+    locally and enforced in CI, so a clean `pixi run quality` was not evidence
+    a PR would pass. It cost a full push cycle per violation, twice (#266,
+    #270) before being named.
+
+    This compares *rulesets only*, not the paths each invocation targets:
+    CI's `ruff check .` and the local `ruff check framework/` legitimately
+    differ in scope, and widening local scope is a separate question from
+    ruleset drift.
+    """
+
+    def test_ci_workflows_were_actually_found(self):
+        """Vacuity guard: no workflow files would make the comparison trivial."""
+        assert CI_WORKFLOWS_DIR.is_dir(), (
+            f"{CI_WORKFLOWS_DIR} not found — run tests from the repo root"
+        )
+        workflows = sorted(CI_WORKFLOWS_DIR.glob("*.yml"))
+        assert workflows, f"no workflow files found in {CI_WORKFLOWS_DIR}"
+
+    def test_ci_runs_at_least_one_ruff_check(self):
+        """Vacuity guard: finding zero CI ruff checks would pass the gate test for free."""
+        tasks = load_tasks()
+        found = [
+            (path.name, cmd)
+            for path in sorted(CI_WORKFLOWS_DIR.glob("*.yml"))
+            for cmd in workflow_ruff_check_commands(path, tasks)
+        ]
+        assert found, (
+            "no `ruff check` invocation discovered in any workflow — the "
+            "ruleset-drift guard would pass vacuously"
+        )
+
+    def test_bare_ruff_check_in_run_block_is_discovered(self):
+        """A bare `ruff check` in a `run:` block must be found, not only `pixi run` tasks.
+
+        reusable-quality.yml runs `ruff check .` directly rather than through a
+        pixi task. An earlier version of `workflow_ruff_check_commands` missed
+        it because `ruff` sat after the `run:` key, so the guard covered less
+        than its docstring claimed — the exact defect class this file exists
+        to prevent.
+        """
+        tasks = load_tasks()
+        bare = [
+            cmd
+            for path in sorted(CI_WORKFLOWS_DIR.glob("*.yml"))
+            for cmd in workflow_ruff_check_commands(path, tasks)
+            if cmd.startswith("ruff check")
+        ]
+        assert bare, (
+            "no bare `ruff check` command discovered in any workflow `run:` "
+            "block — YAML `run:` prefix stripping has regressed"
+        )
+
+    def test_quality_gate_runs_at_least_one_ruff_check(self):
+        """Vacuity guard: the gate must actually lint, or coverage is meaningless."""
+        tasks = load_tasks()
+        rulesets = ruff_check_rulesets(resolve_task_commands(tasks, "quality"))
+        assert rulesets, (
+            "the `quality` gate resolves to no `ruff check` command at all — "
+            "it cannot cover CI's lint job"
+        )
+
+    def test_quality_gate_ruleset_covers_every_ci_ruff_check(self):
+        """Every ruleset CI enforces must be a subset of one the local gate runs.
+
+        This is the assertion that stops #271 recurring: narrowing the gate,
+        or widening CI, fails here instead of on a push.
+        """
+        tasks = load_tasks()
+        local_rulesets = ruff_check_rulesets(resolve_task_commands(tasks, "quality"))
+        offenders = []
+        for path in sorted(CI_WORKFLOWS_DIR.glob("*.yml")):
+            for cmd in workflow_ruff_check_commands(path, tasks):
+                for ci_ruleset in ruff_check_rulesets([cmd]):
+                    if any(
+                        ruleset_covers(local, ci_ruleset) for local in local_rulesets
+                    ):
+                        continue
+                    offenders.append(
+                        f"{path.name}: CI runs {describe_ruleset(ci_ruleset)}, "
+                        f"local `quality` gate only runs "
+                        f"{[describe_ruleset(r) for r in local_rulesets]}"
+                    )
+        assert not offenders, (
+            "the mandatory local `quality` gate is weaker than CI, so a clean "
+            "local run does not predict CI: " + "; ".join(offenders)
+        )
+
+
+class TestTemplateQualityGateCoversTemplateCiLintRuleset:
+    """Same #271 guard for the tiered template every scaffolded project inherits."""
+
+    def test_template_quality_gate_runs_at_least_one_ruff_check(self):
+        """Vacuity guard: an empty resolution would make the coverage test trivial."""
+        tasks = load_template_tasks()
+        rulesets = ruff_check_rulesets(resolve_task_commands(tasks, "quality"))
+        assert rulesets, (
+            "the template's `quality` gate resolves to no `ruff check` command"
+        )
+
+    def test_template_quality_gate_covers_template_ci_lint(self):
+        """The template's gate must not be weaker than the `ci-lint` it ships."""
+        tasks = load_template_tasks()
+        local_rulesets = ruff_check_rulesets(resolve_task_commands(tasks, "quality"))
+        ci_rulesets = ruff_check_rulesets(resolve_task_commands(tasks, "ci-lint"))
+        assert ci_rulesets, "the template's `ci-lint` resolves to no `ruff check`"
+        offenders = [
+            describe_ruleset(ci)
+            for ci in ci_rulesets
+            if not any(ruleset_covers(local, ci) for local in local_rulesets)
+        ]
+        assert not offenders, (
+            "the template's `quality` gate is weaker than its own `ci-lint`: "
+            f"ci-lint runs {offenders}, gate runs "
+            f"{[describe_ruleset(r) for r in local_rulesets]}"
         )

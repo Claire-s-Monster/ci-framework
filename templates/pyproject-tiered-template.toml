@@ -124,7 +124,11 @@ typecheck = "pixi run -e quality typecheck-impl"
 typecheck-impl = "mypy {{ source_path }}"
 
 # Combined Quality Check - 🚨 MANDATORY BEFORE COMMIT
-quality = { depends-on = ["test", "lint", "format-check", "typecheck"] }
+# Depends on `lint-full`, not `lint`: every project scaffolded from this
+# template inherits this gate, and `lint` (`--select=F,E9`) is strictly weaker
+# than the full configured ruff ruleset their CI runs (#271). `lint` stays
+# defined as the fast inner-loop check.
+quality = { depends-on = ["test", "lint-full", "format-check", "typecheck"] }
 
 # Emergency Quality Fix - USE FOR "Found X errors" CI FAILURES
 emergency-fix = "pixi run lint-fix && pixi run format && pixi run test"

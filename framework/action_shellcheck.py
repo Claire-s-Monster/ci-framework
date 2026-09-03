@@ -315,12 +315,12 @@ def shellcheck_step(step: RunStep, severity: str = "style") -> list[Finding]:
     finally:
         temp_path.unlink(missing_ok=True)
 
-    # shellcheck exits 0 with no findings and 1 with findings. Anything else
-    # means the invocation itself failed - an unsupported flag, a build that
-    # could not process the file - and stdout will be empty. Parsing that as
-    # "no findings" would report the gate clean precisely when it is blind,
-    # so fail loudly instead.
-    if completed.returncode not in (0, 1):
+    # shellcheck exits 0 with no findings and 1 with findings, and writes
+    # nothing to stderr in normal operation. Any other exit code, or any
+    # stderr output, means the invocation itself failed - and stdout will be
+    # empty. Parsing that as "no findings" would report the gate clean
+    # precisely when it is blind.
+    if completed.returncode not in (0, 1) or completed.stderr.strip():
         raise RuntimeError(
             f"shellcheck exited {completed.returncode} for {step.path} "
             f"(step: {step.step_name}); it did not run. "
@@ -328,10 +328,12 @@ def shellcheck_step(step: RunStep, severity: str = "style") -> list[Finding]:
         )
 
     findings: list[Finding] = []
+    parsed = 0
     for line in completed.stdout.splitlines():
         match = GCC_FINDING_RE.match(line.strip())
         if match is None:
             continue
+        parsed += 1
         # A finding on the synthetic preamble describes the scaffolding, not
         # the action. Mapping it back would point at a line before the body.
         script_line = int(match.group("line"))
@@ -358,6 +360,18 @@ def shellcheck_step(step: RunStep, severity: str = "style") -> list[Finding]:
                 message=match.group("message"),
                 step_name=step.step_name,
             )
+        )
+
+    # Exit 1 means shellcheck reported something. Reaching here having parsed
+    # NOTHING means it wrote in a form this code cannot read - a silent blind
+    # spot rather than a clean file. Note the test is on lines parsed, not on
+    # findings kept: an invocation whose every finding is filtered out as an
+    # expression artifact is a working invocation with an empty result.
+    if completed.returncode == 1 and parsed == 0:
+        raise RuntimeError(
+            f"shellcheck exited 1 for {step.path} (step: {step.step_name}) "
+            "but no line of its output could be parsed; the gate cannot trust "
+            f"this result. stdout: {completed.stdout.strip()[:400]!r}"
         )
     return findings
 

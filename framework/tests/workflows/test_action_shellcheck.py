@@ -16,6 +16,7 @@ finding names the placeholder rather than anything in the source.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -30,16 +31,33 @@ from framework.action_shellcheck import (
     shellcheck_step,
 )
 
-# NOTE: this does NOT mean "dev env only". GitHub-hosted runners ship
-# shellcheck on PATH (see the shellcheck dependency comment in pyproject.toml),
-# so these tests DO run in CI's ci/quality envs - against whatever shellcheck
-# is on PATH, which is a different build from the one pixi pins in `dev`. That
-# difference is real: the runner's build reported SC2002 findings the pinned
-# build did not. Enforcement therefore lives in ci.yml's `action-shellcheck`
-# step, which runs in `dev`; these tests are a second opinion, not the gate.
+
+# These tests shell out to shellcheck, so they are only meaningful against the
+# binary pixi pins. GitHub-hosted runners ship their own shellcheck on PATH
+# (see the shellcheck dependency comment in pyproject.toml), and that build
+# behaves differently: in CI it emitted no output at all for every input, so
+# every "must not find" assertion passed vacuously while the two that require
+# a finding failed. Running against whatever happens to be on PATH therefore
+# produces both false failures and, worse, false passes.
+#
+# Enforcement is not weakened by skipping here: ci.yml's `action-shellcheck`
+# step runs the gate over every action in the `dev` env, with this pinned
+# binary. These tests are a second opinion on that same code.
+def _pinned_shellcheck() -> str | None:
+    """The shellcheck inside the active pixi environment, if there is one."""
+    found = shutil.which("shellcheck")
+    if found is None:
+        return None
+    prefix = os.environ.get("CONDA_PREFIX")
+    if prefix and Path(found).is_relative_to(Path(prefix)):
+        return found
+    return None
+
+
 requires_shellcheck = pytest.mark.skipif(
-    shutil.which("shellcheck") is None,
-    reason="no shellcheck on PATH",
+    _pinned_shellcheck() is None,
+    reason="no pixi-pinned shellcheck in this environment (a PATH binary from "
+    "the runner is a different build and is deliberately not used)",
 )
 
 

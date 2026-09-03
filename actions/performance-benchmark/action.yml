@@ -1,3 +1,4 @@
+---
 name: 'Performance Benchmark Action'
 description: 'Standardized performance monitoring with pytest-benchmark integration and statistical regression detection'
 author: 'CI Framework'
@@ -202,9 +203,9 @@ runs:
               import subprocess
               import json
               import time
-              
+
               start_time = time.time()
-              
+
               # Run pytest-benchmark
               cmd = ["python", "-m", "pytest", "--benchmark-only", "--benchmark-json=benchmark-results.json"]
               if "$SUITE" == "quick":
@@ -213,11 +214,11 @@ runs:
                 cmd.extend(["--benchmark-max-time=300"])
               elif "$SUITE" == "load":
                 cmd.extend(["--benchmark-max-time=600"])
-              
+
               try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=int("$TIMEOUT"))
                 execution_time = time.time() - start_time
-                
+
                 # Basic result processing
                 if result.returncode == 0:
                   # Try to read benchmark results
@@ -225,9 +226,9 @@ runs:
                   if Path("benchmark-results.json").exists():
                     with open("benchmark-results.json") as f:
                       benchmark_data = json.load(f)
-                  
+
                   benchmark_count = len(benchmark_data.get("benchmarks", []))
-                  
+
                   return {
                     "success": True,
                     "suite": "$SUITE",
@@ -378,7 +379,7 @@ runs:
           comment += `### 📊 Performance Analysis\n`;
           comment += `**Baseline Comparison:** ${baselineComparison}\n`;
           comment += `**Report:** ${performanceReport}\n`;
-          
+
           if (trendAnalysis !== 'Baseline needed for trend analysis') {
             comment += `**Trend Analysis:** ${trendAnalysis}\n`;
           }

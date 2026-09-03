@@ -1,3 +1,4 @@
+---
 name: "Self-Healing CI Action"
 description: "Analyzes CI failures, applies automated fixes, and safely rolls back if needed."
 

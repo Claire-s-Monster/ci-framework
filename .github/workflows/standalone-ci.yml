@@ -250,7 +250,7 @@ jobs:
       - name: "Run Test Suite"
         working-directory: ${{ env.PACKAGE_PATH }}
         env:
-          PYTHONNOUSERSITE: "1" # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
+          PYTHONNOUSERSITE: "1"  # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
         run: |
           pixi run -e ${{ env.PIXI_ENVIRONMENT }} test
 

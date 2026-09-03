@@ -315,7 +315,7 @@ jobs:
       # pinned to an older workflow tag (issue #230); release-please keeps
       # this ref in lockstep via the x-release-please-version marker.
       - id: codeql-matrix
-        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v2.9.9 # x-release-please-version
+        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v2.9.9  # x-release-please-version
         with:
           codeql-languages: ${{ inputs.codeql-languages }}
           python: ${{ steps.detect.outputs.python }}
@@ -839,7 +839,7 @@ jobs:
       - name: "Run Test Suite"
         working-directory: ${{ inputs.package-path }}
         env:
-          PYTHONNOUSERSITE: "1" # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
+          PYTHONNOUSERSITE: "1"  # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
         run: |
           pixi run -e "$RESOLVED_PIXI_ENV" test
 
@@ -956,7 +956,7 @@ jobs:
       - name: "Run Test Suite (with PostgreSQL)"
         working-directory: ${{ inputs.package-path }}
         env:
-          PYTHONNOUSERSITE: "1" # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
+          PYTHONNOUSERSITE: "1"  # ignore runner ~/.local so it cannot shadow pixi-pinned deps (issue #235)
         run: |
           pixi run -e "$RESOLVED_PIXI_ENV" test
 

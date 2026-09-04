@@ -27,7 +27,10 @@ PYPROJECT = Path("pyproject.toml")
 CI_WORKFLOW = Path(".github/workflows/ci.yml")
 WORKFLOWS_DIR = Path(".github/workflows")
 
-# Task name from `pixi run [-e/--environment <env>] <task>`.
+# Task name from `pixi run [-e/--environment <env>] <task>`. Matched against a
+# single logical line: YAML block/folded scalars are already resolved by the
+# parser before these regexes see anything, and `logical_run_lines` rejoins
+# shell `\` continuations, so the only text reaching this is plain shell.
 PIXI_RUN_TASK_RE = re.compile(
     r"pixi\s+run\s+(?:(?:-e|--environment)\s+[\w.-]+\s+)?([\w.-]+)"
 )
@@ -87,6 +90,16 @@ def iter_workflow_run_bodies(doc: object):
         for step in job.get("steps") or []:
             if isinstance(step, dict) and isinstance(step.get("run"), str):
                 yield step["run"]
+
+
+def logical_run_lines(body: str) -> list[str]:
+    """Split a `run:` body into logical lines, rejoining shell continuations.
+
+    A trailing `\\` splits one logical command across two physical lines,
+    which would otherwise hide `pixi run workflow-lint` from a line-oriented
+    regex - the very formatting the six-file invocation this replaced used.
+    """
+    return body.replace("\\\n", " ").splitlines()
 
 
 def shipped_workflow_files() -> list[Path]:
@@ -153,7 +166,7 @@ def test_workflow_lint_is_invoked_by_ci():
     doc = yaml.safe_load(CI_WORKFLOW.read_text())
     invoked = False
     for body in iter_workflow_run_bodies(doc):
-        for raw_line in body.splitlines():
+        for raw_line in logical_run_lines(body):
             line = raw_line.strip()
             if "pixi run" not in line:
                 continue
@@ -174,7 +187,9 @@ def test_ci_does_not_pass_a_hand_maintained_file_list():
     """
     doc = yaml.safe_load(CI_WORKFLOW.read_text())
     body_text = "\n".join(
-        body.replace("\\\n", " ") for body in iter_workflow_run_bodies(doc)
+        line
+        for body in iter_workflow_run_bodies(doc)
+        for line in logical_run_lines(body)
     )
     offenders = [
         match.group("args").strip()

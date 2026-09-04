@@ -206,6 +206,19 @@ action-shellcheck = "pixi run -e dev action-shellcheck-impl"
 action-shellcheck-impl = "python -m framework.action_shellcheck"
 action-lint = "pixi run -e dev action-lint-impl"
 action-lint-impl = "actionlint"
+
+# Custom workflow linter for the anti-patterns actionlint cannot see
+# (double ${{ }} wrapping in job-level if:, undeclared workflow_call
+# inputs, unguarded dependency-review-action, inconsistent pixi pins).
+# Discovery walks .github/workflows/ rather than reading a file list: the
+# prior hand-maintained six-file list in ci.yml covered 6 of 18 workflows
+# and omitted branch-policy.yml, the exact file #255 found a script
+# injection in (#279). Runs in `dev` because ci.yml's lint job already
+# installs that env. Scope is guarded by
+# framework/tests/workflows/test_workflow_lint_scope.py so it cannot
+# silently narrow again.
+workflow-lint = "pixi run -e dev workflow-lint-impl"
+workflow-lint-impl = "python -m framework.workflow_lint"
 security-audit = "pip-audit --verbose"
 bandit-scan = "bandit -r framework/ -x framework/tests/ -s B101"
 detect-secrets = "detect-secrets scan --exclude-files '__pycache__' --exclude-files '*.pyc' --exclude-files '*.egg-info' --exclude-files '.git' --exclude-files 'pixi.lock'"

@@ -56,13 +56,12 @@ jobs:
           pixi run yaml-lint
       - name: "Run Custom Workflow Lint"
         run: |
-          pixi run -e ci python -m framework.workflow_lint \
-            .github/workflows/ci.yml \
-            .github/workflows/reusable-ci.yml \
-            .github/workflows/reusable-release.yml \
-            .github/workflows/reusable-security.yml \
-            .github/workflows/reusable-quality.yml \
-            .github/workflows/standalone-ci.yml
+          # Lint ALL workflows (no hand-maintained file list): the prior
+          # six-file list covered 6 of the 18 workflows and silently omitted
+          # branch-policy.yml, the exact file #255 found a script injection in
+          # (#279). Discovery walks .github/workflows/, so a new workflow is
+          # covered the moment it is added.
+          pixi run workflow-lint
       - name: "Run Format Check"
         run: |
           echo "Running format check..."

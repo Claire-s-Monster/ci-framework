@@ -191,20 +191,36 @@ def check_undeclared_inputs(
     if not isinstance(trigger, dict):
         return errors
 
-    workflow_call = trigger.get("workflow_call", {})
-    if not workflow_call:
-        return errors
+    # `workflow_dispatch` inputs are addressed through the same `inputs.`
+    # context (and through `github.event.inputs.`), so a workflow declaring
+    # them only under `workflow_dispatch:` is not referencing anything
+    # undeclared. Consulting `workflow_call` alone reported
+    # cleanup-dev-files.yml's legitimate `github.event.inputs.target_branch`
+    # as an error the moment #279 widened this linter's scope.
+    declared_inputs: set[str] = set()
+    declares_any = False
+    for trigger_name in ("workflow_call", "workflow_dispatch"):
+        trigger_config = trigger.get(trigger_name)
+        if not isinstance(trigger_config, dict):
+            continue
+        inputs_config = trigger_config.get("inputs")
+        if isinstance(inputs_config, dict):
+            declared_inputs |= set(inputs_config.keys())
+            declares_any = True
 
-    declared_inputs = set()
-    inputs_config = workflow_call.get("inputs", {})
-    if isinstance(inputs_config, dict):
-        declared_inputs = set(inputs_config.keys())
+    if not declares_any:
+        return errors
 
     # Find all inputs.* references in the raw text
     input_refs = re.findall(r"inputs\.([a-zA-Z0-9_-]+)", "\n".join(raw_lines))
     for ref in set(input_refs):
         if ref not in declared_inputs:
-            line = _find_line_number(raw_lines, f"inputs.{ref}")
+            # Anchored on a non-name character so a report for
+            # `inputs.target_branch` does not point at the line holding
+            # `inputs.target_branches`.
+            line = _find_line_number_re(
+                raw_lines, rf"inputs\.{re.escape(ref)}(?![\w-])"
+            )
             errors.append(
                 LintError(
                     file=filepath,
@@ -331,13 +347,26 @@ def lint_workflow(filepath: str | Path) -> LintResult:
     return result
 
 
+def discover_workflow_files(
+    workflow_dir: str | Path = ".github/workflows",
+) -> list[Path]:
+    """Every workflow file in `workflow_dir`, discovered rather than listed.
+
+    Both suffixes: GitHub accepts `.yml` and `.yaml`. Exposed separately from
+    `lint_all_workflows` so a test can assert the discovered set covers the
+    whole directory (#279) — the hand-maintained six-file list this replaced
+    covered 6 of 18 files and nothing noticed.
+    """
+    workflow_dir = Path(workflow_dir)
+    return sorted(set(workflow_dir.glob("*.yml")) | set(workflow_dir.glob("*.yaml")))
+
+
 def lint_all_workflows(workflow_dir: str | Path = ".github/workflows") -> LintResult:
     """Run all lint checks on all workflow files in a directory."""
-    workflow_dir = Path(workflow_dir)
     combined = LintResult()
 
-    for yml_file in sorted(workflow_dir.glob("*.yml")):
-        file_result = lint_workflow(yml_file)
+    for workflow_file in discover_workflow_files(workflow_dir):
+        file_result = lint_workflow(workflow_file)
         combined.errors.extend(file_result.errors)
 
     return combined

@@ -11,6 +11,14 @@ These are the #255-shaped guards: derive both the linted set and the shipped
 set from the filesystem and the manifest rather than hand-listing them, so a
 future narrowing of scope (or a dropped CI invocation) fails a test instead
 of silently shipping unlinted workflows.
+
+Note for future maintainers: these are meta-tests about the build system, so
+they parse `[tool.pixi.tasks]` and `pixi run` command strings directly. If
+this project ever moves off pixi as its task runner, `load_tasks`,
+`resolve_task_commands` and `PIXI_RUN_TASK_RE` here - and their twins in
+`test_yaml_lint_scope.py` - must move with it. They will fail loudly rather
+than pass vacuously, which is the intended direction, but the failure will
+point here rather than at the real change.
 """
 
 from __future__ import annotations
@@ -109,6 +117,12 @@ def shipped_workflow_files() -> list[Path]:
     than hand-listed. `python-ci-template.yml.template` is deliberately out of
     scope: it is scaffolding copied into consumer projects, not a workflow
     this repo runs, and it is not a standalone parseable workflow.
+
+    The scan is deliberately flat rather than recursive. GitHub's workflow
+    loader reads only files sitting directly in `.github/workflows/` and
+    ignores subdirectories, so an `rglob` here would assert coverage of files
+    that never run - and would then disagree with `discover_workflow_files`,
+    which is flat for the same reason.
     """
     return sorted(
         path

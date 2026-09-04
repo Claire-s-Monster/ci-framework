@@ -12,13 +12,8 @@ set from the filesystem and the manifest rather than hand-listing them, so a
 future narrowing of scope (or a dropped CI invocation) fails a test instead
 of silently shipping unlinted workflows.
 
-Note for future maintainers: these are meta-tests about the build system, so
-they parse `[tool.pixi.tasks]` and `pixi run` command strings directly. If
-this project ever moves off pixi as its task runner, `load_tasks`,
-`resolve_task_commands` and `PIXI_RUN_TASK_RE` here - and their twins in
-`test_yaml_lint_scope.py` - must move with it. They will fail loudly rather
-than pass vacuously, which is the intended direction, but the failure will
-point here rather than at the real change.
+The pixi-manifest and ci.yml parsing primitives these tests need live in
+`framework/tests/utils/pixi_meta.py`, shared with `test_yaml_lint_scope.py`.
 """
 
 from __future__ import annotations
@@ -26,88 +21,24 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import tomllib
 import yaml
 
-from framework.workflow_lint import discover_workflow_files
-
-PYPROJECT = Path("pyproject.toml")
-CI_WORKFLOW = Path(".github/workflows/ci.yml")
-WORKFLOWS_DIR = Path(".github/workflows")
-
-# Task name from `pixi run [-e/--environment <env>] <task>`. Matched against a
-# single logical line: YAML block/folded scalars are already resolved by the
-# parser before these regexes see anything, and `logical_run_lines` rejoins
-# shell `\` continuations, so the only text reaching this is plain shell.
-PIXI_RUN_TASK_RE = re.compile(
-    r"pixi\s+run\s+(?:(?:-e|--environment)\s+[\w.-]+\s+)?([\w.-]+)"
+from framework.tests.utils.pixi_meta import (
+    CI_WORKFLOW,
+    WORKFLOWS_DIR,
+    ci_invokes_task,
+    iter_workflow_run_bodies,
+    load_tasks,
+    logical_run_lines,
+    resolve_task_commands,
 )
+from framework.workflow_lint import discover_workflow_files
 
 # A direct `python -m framework.workflow_lint` invocation, capturing whatever
 # arguments follow it on the same logical line.
 WORKFLOW_LINT_MODULE_RE = re.compile(
     r"python\s+-m\s+framework\.workflow_lint(?P<args>[^\n]*)"
 )
-
-
-def load_tasks() -> dict:
-    """Load the [tool.pixi.tasks] table from pyproject.toml."""
-    data = tomllib.loads(PYPROJECT.read_text())
-    return data["tool"]["pixi"]["tasks"]
-
-
-def task_cmd(task: dict | str) -> str | None:
-    """Return the command string for a task, or None if it has no cmd."""
-    if isinstance(task, str):
-        return task
-    if isinstance(task, dict):
-        cmd = task.get("cmd")
-        return cmd if isinstance(cmd, str) else None
-    return None
-
-
-def resolve_task_commands(
-    tasks: dict, name: str, _seen: frozenset[str] = frozenset()
-) -> list[str]:
-    """Expand a pixi task into every concrete command it actually runs.
-
-    Follows a single `pixi run -e <env> <target>` delegation transitively (the
-    convention used by `workflow-lint` -> `workflow-lint-impl`), so callers see
-    the leaf command rather than the one-line indirection. Cycles terminate
-    via `_seen`.
-    """
-    if name in _seen or name not in tasks:
-        return []
-    _seen = _seen | {name}
-    cmd = task_cmd(tasks[name])
-    if cmd is None:
-        return []
-    match = PIXI_RUN_TASK_RE.match(cmd.strip())
-    if match is not None and match.group(1) in tasks:
-        return resolve_task_commands(tasks, match.group(1), _seen)
-    return [cmd]
-
-
-def iter_workflow_run_bodies(doc: object):
-    """Yield every job step's `run:` body in a parsed workflow document."""
-    if not isinstance(doc, dict):
-        return
-    for job in (doc.get("jobs") or {}).values():
-        if not isinstance(job, dict):
-            continue
-        for step in job.get("steps") or []:
-            if isinstance(step, dict) and isinstance(step.get("run"), str):
-                yield step["run"]
-
-
-def logical_run_lines(body: str) -> list[str]:
-    """Split a `run:` body into logical lines, rejoining shell continuations.
-
-    A trailing `\\` splits one logical command across two physical lines,
-    which would otherwise hide `pixi run workflow-lint` from a line-oriented
-    regex - the very formatting the six-file invocation this replaced used.
-    """
-    return body.replace("\\\n", " ").splitlines()
 
 
 def shipped_workflow_files() -> list[Path]:
@@ -176,18 +107,7 @@ def test_workflow_lint_is_invoked_by_ci():
     """`workflow-lint` must actually be invoked by some job in ci.yml."""
     tasks = load_tasks()
     assert "workflow-lint" in tasks, "'workflow-lint' task missing from pyproject.toml"
-
-    doc = yaml.safe_load(CI_WORKFLOW.read_text())
-    invoked = False
-    for body in iter_workflow_run_bodies(doc):
-        for raw_line in logical_run_lines(body):
-            line = raw_line.strip()
-            if "pixi run" not in line:
-                continue
-            match = PIXI_RUN_TASK_RE.search(line)
-            if match is not None and match.group(1) == "workflow-lint":
-                invoked = True
-    assert invoked, (
+    assert ci_invokes_task("workflow-lint"), (
         "'workflow-lint' exists in pyproject.toml but no `run:` step in "
         f"{CI_WORKFLOW} invokes it via `pixi run [-e <env>] workflow-lint`"
     )

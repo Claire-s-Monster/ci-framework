@@ -10,6 +10,10 @@ actually-shipped YAML universe from the manifest/filesystem themselves,
 rather than hand-listing "the files this covers", so a future narrowing of
 scope (or a dropped CI invocation) fails a test instead of silently
 shipping unlinted YAML.
+
+The pixi-manifest and ci.yml parsing primitives these tests need live in
+`framework/tests/utils/pixi_meta.py`, shared with
+`test_workflow_lint_scope.py`.
 """
 
 from __future__ import annotations
@@ -17,12 +21,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import tomllib
-import yaml
+from framework.tests.utils.pixi_meta import (
+    CI_WORKFLOW,
+    WORKFLOWS_DIR,
+    ci_invokes_task,
+    load_tasks,
+    resolve_task_commands,
+)
 
-PYPROJECT = Path("pyproject.toml")
-CI_WORKFLOW = Path(".github/workflows/ci.yml")
-WORKFLOWS_DIR = Path(".github/workflows")
 REPO_ROOT = Path(".")
 
 # Directories that never contain shipped YAML worth linting: VCS internals,
@@ -32,54 +38,11 @@ REPO_ROOT = Path(".")
 # stray duplicate `action.yml` copies that were never actually shipped.
 EXCLUDED_DIR_NAMES = {".git", ".pixi", "node_modules", "templates", ".claude"}
 
-# Task name from `pixi run [-e/--environment <env>] <task>`.
-PIXI_RUN_TASK_RE = re.compile(
-    r"pixi\s+run\s+(?:(?:-e|--environment)\s+[\w.-]+\s+)?([\w.-]+)"
-)
-
 # A single `-f`/`-d`/`--strict`-style flag, optionally with an attached
 # `=value`, or a flag followed by a separate value token. Anything left over
 # after stripping the leading `yamllint` and these flags is a path argument.
 YAMLLINT_FLAG_WITH_VALUE_RE = re.compile(r"^-[a-zA-Z]$|^--[\w-]+$")
 YAMLLINT_FLAGS_TAKING_VALUE = {"-f", "-d", "-c"}
-
-
-def load_tasks() -> dict:
-    """Load the [tool.pixi.tasks] table from pyproject.toml."""
-    data = tomllib.loads(PYPROJECT.read_text())
-    return data["tool"]["pixi"]["tasks"]
-
-
-def task_cmd(task: dict | str) -> str | None:
-    """Return the command string for a task, or None if it has no cmd."""
-    if isinstance(task, str):
-        return task
-    if isinstance(task, dict):
-        cmd = task.get("cmd")
-        return cmd if isinstance(cmd, str) else None
-    return None
-
-
-def resolve_task_commands(
-    tasks: dict, name: str, _seen: frozenset[str] = frozenset()
-) -> list[str]:
-    """Expand a pixi task into every concrete command it actually runs.
-
-    Follows a single `pixi run -e <env> <target>` delegation transitively
-    (the convention used by `yaml-lint` -> `yaml-lint-impl`), so callers see
-    the leaf command rather than the one-line indirection at the top. Cycles
-    terminate via `_seen`.
-    """
-    if name in _seen or name not in tasks:
-        return []
-    _seen = _seen | {name}
-    cmd = task_cmd(tasks[name])
-    if cmd is None:
-        return []
-    match = PIXI_RUN_TASK_RE.match(cmd.strip())
-    if match is not None and match.group(1) in tasks:
-        return resolve_task_commands(tasks, match.group(1), _seen)
-    return [cmd]
 
 
 def yamllint_linted_paths(cmd: str) -> list[str]:
@@ -140,18 +103,6 @@ def path_is_covered(path: Path, linted_paths: list[str]) -> bool:
     return False
 
 
-def iter_workflow_run_bodies(doc: object):
-    """Yield every job step's `run:` body in a parsed workflow document."""
-    if not isinstance(doc, dict):
-        return
-    for job in (doc.get("jobs") or {}).values():
-        if not isinstance(job, dict):
-            continue
-        for step in job.get("steps") or []:
-            if isinstance(step, dict) and isinstance(step.get("run"), str):
-                yield step["run"]
-
-
 def test_yaml_lint_scope_is_not_empty():
     """Vacuity guard: a silently-empty discovery would pass the coverage test for free."""
     tasks = load_tasks()
@@ -193,18 +144,7 @@ def test_yaml_lint_is_invoked_by_ci():
     """
     tasks = load_tasks()
     assert "yaml-lint" in tasks, "'yaml-lint' task not found in pyproject.toml"
-
-    doc = yaml.safe_load(CI_WORKFLOW.read_text())
-    invoked = False
-    for body in iter_workflow_run_bodies(doc):
-        for raw_line in body.splitlines():
-            line = raw_line.strip()
-            if "pixi run" not in line:
-                continue
-            match = PIXI_RUN_TASK_RE.search(line)
-            if match is not None and match.group(1) == "yaml-lint":
-                invoked = True
-    assert invoked, (
+    assert ci_invokes_task("yaml-lint"), (
         "'yaml-lint' task exists in pyproject.toml but no `run:` step in "
         f"{CI_WORKFLOW} invokes it via `pixi run [-e <env>] yaml-lint`"
     )

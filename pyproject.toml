@@ -6,6 +6,10 @@ build-backend = "hatchling.build"
 name = "ci-framework-tools"
 version = "2.9.9"
 description = "Internal tools and scripts for the CI Framework."
+# 3.11 is the floor because `tomllib` is stdlib only from 3.11, and this repo
+# imports it bare — including in composite actions that run on the consumer's
+# runner. See #281.
+requires-python = ">=3.11"
 authors = [
     { name = "MementoRC", email = "your-email@example.com" }
 ]

@@ -150,8 +150,28 @@ def test_guard_detects_a_swallow_across_a_line_continuation(tmp_path):
     assert len(_findings(workflow)) == 1
 
 
-@pytest.mark.parametrize("swallow", ['|| echo "x"', "|| true", "|| :"])
+@pytest.mark.parametrize(
+    "swallow",
+    [
+        '|| echo "x"',
+        "|| true",
+        "|| :",
+        # Spacing is not part of the idiom: `\s*` has to accept none or many.
+        '||echo "x"',
+        "||true",
+        "||   true",
+        "||\t\ttrue",
+        # A trailing `;` must not hide the swallow. `|| true;` and `|| echo;`
+        # were already caught by `\b`; `||:;` needed the `:` alternative to
+        # end on a negative lookahead rather than on whitespace-or-end.
+        "|| true;",
+        '|| echo "x";',
+        "||:;",
+        "|| : ;",
+    ],
+)
 def test_guard_detects_every_swallow_form(tmp_path, swallow):
+    """Spacing and trailing separators are incidental - the swallow is the point."""
     workflow = _write_repo(tmp_path, f"pixi run -e quality typecheck {swallow}")
     assert len(_findings(workflow)) == 1
 

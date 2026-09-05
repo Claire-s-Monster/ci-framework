@@ -30,8 +30,12 @@ _PIXI_RUN_TASK_RE = re.compile(
 )
 
 # `|| echo ...`, `|| true`, `|| :` - the three ways a shell line discards a
-# non-zero exit without saying so anywhere a reviewer can see it.
-_SWALLOW_RE = re.compile(r"\|\|\s*(?:echo\b|true\b|:(?:\s|$))")
+# non-zero exit without saying so anywhere a reviewer can see it. `\s*`
+# accepts `||true` and `||   true` alike. Each alternative ends on a
+# word-boundary-ish assertion rather than requiring whitespace, so a
+# trailing `;` does not hide the swallow: `||:;` is caught, as `|| true;`
+# and `|| echo;` already were via `\b`.
+_SWALLOW_RE = re.compile(r"\|\|\s*(?:echo\b|true\b|:(?![\w.-]))")
 
 
 @dataclass

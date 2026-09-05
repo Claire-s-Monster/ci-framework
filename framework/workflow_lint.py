@@ -6,16 +6,32 @@ Catches issues that actionlint misses:
 - Undeclared workflow_call inputs referenced in jobs
 - Hardcoded versions that should be parameterized
 - dependency-review-action without event guard
+- Gate tasks whose exit code is swallowed by `|| echo` / `|| true`
 """
 
 from __future__ import annotations
 
+import functools
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import tomllib
 import yaml
+
+GATE_ROOT_TASK = "quality"
+
+# `pixi run [-e/--environment <env>] <task>` - same shape as the regex in
+# framework/tests/utils/pixi_meta.py, kept separate because the linter must
+# not import from the test tree.
+_PIXI_RUN_TASK_RE = re.compile(
+    r"pixi\s+run\s+(?:(?:-e|--environment)\s+[\w.-]+\s+)?([\w.-]+)"
+)
+
+# `|| echo ...`, `|| true`, `|| :` - the three ways a shell line discards a
+# non-zero exit without saying so anywhere a reviewer can see it.
+_SWALLOW_RE = re.compile(r"\|\|\s*(?:echo\b|true\b|:(?:\s|$))")
 
 
 @dataclass
@@ -62,6 +78,83 @@ def _find_line_number_re(raw_lines: list[str], regex: str, start: int = 0) -> in
         if compiled.search(line):
             return i + 1
     return 0
+
+
+def _logical_run_lines(body: str) -> list[str]:
+    """Split a `run:` body into logical (shell-continuation-joined) lines.
+
+    reusable-ci.yml puts the `||` swallow on a different physical line from
+    the `pixi run` invocation whose exit code it discards, so a physical-line
+    scan would miss exactly the case this rule exists to catch (#278).
+    """
+    return body.replace("\\\n", " ").splitlines()
+
+
+def _find_pyproject(start: Path) -> Path | None:
+    """Walk `start.resolve()` and its parents looking for a pyproject.toml."""
+    current = start.resolve()
+    for directory in (current, *current.parents):
+        candidate = directory / "pyproject.toml"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+@functools.lru_cache
+def gate_tasks(pyproject: Path) -> frozenset[str]:
+    """Transitive closure of pixi tasks that `pixi run quality` depends on.
+
+    Returns `frozenset()` on any failure to read/parse the file, or if
+    `GATE_ROOT_TASK` is not declared, so a consumer repo without this task
+    layout gets no findings from `check_swallowed_gate_exit` rather than
+    spurious ones. Follows both a task's `depends-on` list and a single
+    `pixi run [-e <env>] <target>` delegation (the `typecheck ->
+    typecheck-impl` convention used throughout pyproject.toml).
+    """
+    try:
+        with pyproject.open("rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return frozenset()
+
+    tasks = data.get("tool", {}).get("pixi", {}).get("tasks", {})
+    if not isinstance(tasks, dict) or GATE_ROOT_TASK not in tasks:
+        return frozenset()
+
+    seen: set[str] = set()
+    stack = [GATE_ROOT_TASK]
+    while stack:
+        name = stack.pop()
+        if name in seen:
+            continue
+        entry = tasks.get(name)
+        if entry is None:
+            continue
+        seen.add(name)
+
+        cmd: str | None
+        if isinstance(entry, str):
+            cmd = entry
+            depends_on = []
+        elif isinstance(entry, dict):
+            cmd = entry.get("cmd")
+            depends_on = entry.get("depends-on", [])
+        else:
+            continue
+
+        if isinstance(depends_on, list):
+            for dep in depends_on:
+                if isinstance(dep, str):
+                    stack.append(dep)
+                elif isinstance(dep, dict) and isinstance(dep.get("task"), str):
+                    stack.append(dep["task"])
+
+        if isinstance(cmd, str):
+            delegate = _PIXI_RUN_TASK_RE.match(cmd.strip())
+            if delegate and delegate.group(1) in tasks:
+                stack.append(delegate.group(1))
+
+    return frozenset(seen)
 
 
 def check_double_expression_wrap(
@@ -307,6 +400,83 @@ def check_summary_needs_completeness(
     return errors
 
 
+def check_swallowed_gate_exit(
+    filepath: str, raw_lines: list[str], workflow: dict
+) -> list[LintError]:
+    """Detect a quality-gate task whose exit code is swallowed by `|| echo`/`|| true`.
+
+    `pixi run -e quality typecheck || echo "..."` always exits 0, so a mypy
+    failure could not fail this CI step even though `pixi run quality` --
+    which hard-depends on `typecheck` -- fails locally (#278). CI ends up
+    strictly weaker than the local gate it is supposed to mirror.
+
+    `continue-on-error: true` is the sanctioned way to make a step advisory:
+    it is visible in the workflow file and flagged in the job summary. A
+    shell-level `|| echo`/`|| true`/`|| :` swallow is invisible unless a
+    reviewer reads the embedded shell script.
+    """
+    errors: list[LintError] = []
+    pyproject = _find_pyproject(Path(filepath))
+    if pyproject is None:
+        return errors
+    tasks = gate_tasks(pyproject)
+    if not tasks:
+        return errors
+
+    jobs = workflow.get("jobs", {})
+    for job_name, job_config in jobs.items():
+        if not isinstance(job_config, dict):
+            continue
+        steps = job_config.get("steps", [])
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            run_body = step.get("run")
+            if not isinstance(run_body, str):
+                continue
+            step_name = step.get("name", "<unnamed>")
+            reported: set[str] = set()
+
+            for logical_line in _logical_run_lines(run_body):
+                swallow_matches = list(_SWALLOW_RE.finditer(logical_line))
+                for pixi_match in _PIXI_RUN_TASK_RE.finditer(logical_line):
+                    task = pixi_match.group(1)
+                    if task not in tasks or task in reported:
+                        continue
+                    swallow_match = next(
+                        (m for m in swallow_matches if m.start() > pixi_match.end()),
+                        None,
+                    )
+                    if swallow_match is None:
+                        continue
+                    reported.add(task)
+                    swallowed_text = swallow_match.group(0).strip()
+                    line = _find_line_number_re(
+                        raw_lines,
+                        rf"pixi\s+run\s+(?:(?:-e|--environment)\s+[\w.-]+\s+)?"
+                        rf"{re.escape(task)}(?![\w.-])",
+                    )
+                    errors.append(
+                        LintError(
+                            file=filepath,
+                            line=line,
+                            rule="swallowed-gate-exit",
+                            message=(
+                                f"Job '{job_name}' step '{step_name}' runs gate task "
+                                f"'{task}' but discards its "
+                                f"exit code with '{swallowed_text}'. The step can "
+                                "never fail, so this gate cannot "
+                                f"fail CI while 'pixi run {GATE_ROOT_TASK}' fails "
+                                "locally. Delete the swallow, or "
+                                "set 'continue-on-error: true' on the step if it is "
+                                "genuinely advisory."
+                            ),
+                        )
+                    )
+
+    return errors
+
+
 ALL_CHECKS = [
     check_double_expression_wrap,
     check_cross_repo_checkout,
@@ -314,6 +484,7 @@ ALL_CHECKS = [
     check_undeclared_inputs,
     check_hardcoded_versions,
     check_summary_needs_completeness,
+    check_swallowed_gate_exit,
 ]
 
 

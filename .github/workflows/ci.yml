@@ -68,8 +68,14 @@ jobs:
           pixi run -e quality format-check
       - name: "Run Type Check"
         run: |
+          # No `|| echo`: the swallow made this step always succeed, so a mypy
+          # error could not fail CI while `pixi run quality` — which hard-
+          # depends on typecheck — failed locally (#278). If type checking is
+          # ever meant to be advisory, use an explicit `continue-on-error: true`
+          # here rather than an exit-code swallow, which is invisible in the
+          # job summary.
           echo "Running type check..."
-          pixi run -e quality typecheck || echo "Type check completed with issues"
+          pixi run -e quality typecheck
 
   security-scan:
     name: "Security Scan"

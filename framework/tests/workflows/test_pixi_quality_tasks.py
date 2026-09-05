@@ -718,9 +718,7 @@ def build_env_to_features(manifest: dict) -> dict[str, list[str]]:
     environments = manifest.get("tool", {}).get("pixi", {}).get("environments", {})
     env_to_features: dict[str, list[str]] = {}
     for env_name, env_table in environments.items():
-        features = (
-            env_table.get("features", []) if isinstance(env_table, dict) else []
-        )
+        features = env_table.get("features", []) if isinstance(env_table, dict) else []
         env_to_features[env_name] = list(features)
     return env_to_features
 
@@ -806,8 +804,7 @@ class TestEnvPackageResolution:
             "either the manifest changed or build_env_to_packages is wrong"
         )
         assert "ruff" in env_to_packages["quality"], (
-            "'ruff' expected in the quality env's package set via the "
-            "quality feature"
+            "'ruff' expected in the quality env's package set via the quality feature"
         )
 
 

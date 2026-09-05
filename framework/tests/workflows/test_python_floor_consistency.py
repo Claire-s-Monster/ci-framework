@@ -250,13 +250,24 @@ def tomli_in_manifest() -> bool:
     return any("tomli" in table for table in tables)
 
 
-def _parse_requires_python_floor(spec: str) -> tuple[int, int] | None:
-    """Parse the `>=X.Y` floor out of a `requires-python` string.
+# All three `_parse_*` helpers below take `value: object` rather than `str`.
+# TOML can hand back a non-string for these keys - `python_version = 3.11`
+# written *without* quotes parses as a float, not a string - so each parser
+# is a total function over whatever TOML yields, and a non-string fails
+# loudly via the wrapper's `is not None` assertion rather than raising
+# TypeError deep inside a regex match.
+
+
+def _parse_requires_python_floor(value: object) -> tuple[int, int] | None:
+    """Parse the `>=X.Y` floor out of a `requires-python` value.
 
     Mirrors the regex `floor_admits_below` uses. Only the `>=X.Y` form is
-    understood; anything else yields None rather than guessing.
+    understood; anything else (including a non-string value) yields None
+    rather than guessing.
     """
-    match = re.match(r"^>=\s*(\d+)\.(\d+)", spec.strip())
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"^>=\s*(\d+)\.(\d+)", value.strip())
     if match is None:
         return None
     return (int(match.group(1)), int(match.group(2)))
@@ -270,13 +281,15 @@ def requires_python_floor() -> tuple[int, int] | None:
     return _parse_requires_python_floor(spec)
 
 
-def _parse_ruff_target_version(value: str) -> tuple[int, int] | None:
-    """Parse a ruff `target-version` string like "py311" into (3, 11).
+def _parse_ruff_target_version(value: object) -> tuple[int, int] | None:
+    """Parse a ruff `target-version` value like "py311" into (3, 11).
 
     Accepts the `py<major><minor>` form where minor may be 1 or 2 digits
     (py39, py310, py311). Returns None when the value doesn't match that
-    shape.
+    shape, or isn't a string at all.
     """
+    if not isinstance(value, str):
+        return None
     match = re.match(r"^py(\d)(\d{1,2})$", value.strip())
     if match is None:
         return None
@@ -287,8 +300,6 @@ def ruff_target_version() -> tuple[int, int] | None:
     """The `[tool.ruff] target-version` floor as a (major, minor) tuple."""
     data = _pyproject_data()
     value = data.get("tool", {}).get("ruff", {}).get("target-version")
-    if not isinstance(value, str):
-        return None
     return _parse_ruff_target_version(value)
 
 
@@ -393,15 +404,28 @@ def test_floor_parsers_are_not_vacuous():
     assert _parse_requires_python_floor(">=3.11") == (3, 11)
     assert _parse_requires_python_floor(">=3.9") == (3, 9)
     assert _parse_requires_python_floor("not-a-spec") is None
+    # No `$` anchor in the regex: it matches the `>=X.Y` prefix and ignores
+    # whatever follows, so comma-separated upper bounds are understood too.
+    assert _parse_requires_python_floor(">=3.11,<4.0") == (3, 11)
+    assert _parse_requires_python_floor(">=3.11, <4.0") == (3, 11)
+    # Deliberate: an exact pin is not the `>=X.Y` form the guard reasons
+    # about, so it fails loudly via the "could not parse" assertion instead
+    # of being silently guessed at - mirrors `floor_admits_below`'s contract.
+    assert _parse_requires_python_floor("==3.11") is None
+    assert _parse_requires_python_floor(None) is None
+    assert _parse_requires_python_floor(3.11) is None
 
     assert _parse_ruff_target_version("py311") == (3, 11)
     assert _parse_ruff_target_version("py39") == (3, 9)
     assert _parse_ruff_target_version("not-a-version") is None
+    assert _parse_ruff_target_version(None) is None
+    assert _parse_ruff_target_version(3.11) is None
 
     assert _parse_mypy_python_version("3.11") == (3, 11)
     assert _parse_mypy_python_version("3.9") == (3, 9)
     assert _parse_mypy_python_version(None) is None
     assert _parse_mypy_python_version("not-a-version") is None
+    assert _parse_mypy_python_version(3.11) is None
 
 
 def test_tomllib_sites_are_not_mixed():

@@ -3,11 +3,11 @@ Project analysis engine for CI migration detection and planning.
 """
 
 import re
+import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import tomllib
 import yaml
 
 from .models import (

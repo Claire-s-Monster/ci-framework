@@ -12,11 +12,11 @@ intended tool.
 from __future__ import annotations
 
 import re
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-import tomllib
 import yaml
 
 PYPROJECT = Path("pyproject.toml")

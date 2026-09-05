@@ -201,10 +201,26 @@ def test_guard_does_not_fire_on_the_fixed_shape(tmp_path):
         '  || echo "No benchmark tests found or benchmarks failed"',
         # The swallow precedes the gate, so it discards nothing of the gate's.
         'echo "warming up" || true\npixi run -e quality typecheck',
+        # A same-line comment that mentions the anti-pattern is not the
+        # anti-pattern. This repo's run: bodies are full of such comments.
+        "pixi run -e quality typecheck  # never use || true here",
+        # Same, for a quoted argument that merely talks about it.
+        'pixi run -e quality typecheck && echo "pass || true to skip"',
+        # A commented-out swallow is not a live one.
+        '# pixi run -e quality typecheck || echo "disabled"',
     ],
 )
 def test_guard_does_not_fire_on_non_gate_commands(tmp_path, run_body):
     assert _findings(_write_repo(tmp_path, run_body)) == []
+
+
+def test_stripping_comments_does_not_blind_the_guard(tmp_path):
+    """`#` mid-word is not a comment, so a swallow after it is still caught."""
+    workflow = _write_repo(
+        tmp_path,
+        'pixi run -e quality typecheck --tag=v1#rc || echo "ignored"',
+    )
+    assert len(_findings(workflow)) == 1
 
 
 def test_continue_on_error_is_the_sanctioned_advisory_form(tmp_path):

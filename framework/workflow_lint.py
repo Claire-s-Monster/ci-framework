@@ -37,6 +37,11 @@ _PIXI_RUN_TASK_RE = re.compile(
 # and `|| echo;` already were via `\b`.
 _SWALLOW_RE = re.compile(r"\|\|\s*(?:echo\b|true\b|:(?![\w.-]))")
 
+# A single- or double-quoted shell argument, and a `#` comment introduced at
+# a word boundary.
+_QUOTED_SPAN_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+_TRAILING_COMMENT_RE = re.compile(r"(?:^|\s)#")
+
 
 @dataclass
 class LintError:
@@ -92,6 +97,30 @@ def _logical_run_lines(body: str) -> list[str]:
     scan would miss exactly the case this rule exists to catch (#278).
     """
     return body.replace("\\\n", " ").splitlines()
+
+
+def _strip_shell_noise(line: str) -> str:
+    """Blank quoted arguments and any trailing `#` comment before matching.
+
+    Without this, a step that merely *mentions* the anti-pattern would be
+    reported as committing it - `echo "pass || true to skip"`, or one of the
+    explanatory comments this repo's house style puts inside `run:` bodies.
+    ci.yml's own "Run Type Check" step now carries a comment quoting
+    `|| echo`, and is safe today only because that comment happens to sit on
+    a different line from the invocation.
+
+    A real `|| echo "..."` still matches: only the quoted argument is
+    blanked, not the `echo` token that precedes it.
+
+    `#` opens a comment only at a word boundary, so `foo#bar` - not a shell
+    comment - survives. A swallow hidden after a literal `#` in an unquoted
+    URL would be missed, but that is a false negative in a shape that does
+    not occur, and it is the safer direction to err for a rule whose job is
+    to fail CI.
+    """
+    line = _QUOTED_SPAN_RE.sub(" ", line)
+    comment = _TRAILING_COMMENT_RE.search(line)
+    return line[: comment.start()] if comment else line
 
 
 def _find_pyproject(start: Path) -> Path | None:
@@ -441,7 +470,8 @@ def check_swallowed_gate_exit(
             step_name = step.get("name", "<unnamed>")
             reported: set[str] = set()
 
-            for logical_line in _logical_run_lines(run_body):
+            for raw_logical_line in _logical_run_lines(run_body):
+                logical_line = _strip_shell_noise(raw_logical_line)
                 swallow_matches = list(_SWALLOW_RE.finditer(logical_line))
                 for pixi_match in _PIXI_RUN_TASK_RE.finditer(logical_line):
                     task = pixi_match.group(1)

@@ -103,18 +103,7 @@ class PackageDetector:
     
     def _analyze_pyproject_toml(self, pkg_type: str, config_path: Path) -> Optional[Dict]:
         """Analyze pyproject.toml for pixi or poetry configuration."""
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib
-            except ImportError:
-                # Fallback: simple text parsing for detection
-                with open(config_path, 'r') as f:
-                    content = f.read()
-                    if f'[tool.{pkg_type}' in content:
-                        return self._create_package_info(pkg_type, config_path, 'unknown')
-                return None
+        import tomllib
         
         try:
             with open(config_path, 'rb') as f:

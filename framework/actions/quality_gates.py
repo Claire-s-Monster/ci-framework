@@ -135,20 +135,11 @@ class QualityGatesAction:
             return {}
 
         try:
-            # For Python 3.11+, use tomllib
-            try:
-                import tomllib
+            import tomllib
 
-                with open(pyproject_path, "rb") as f:
-                    data = tomllib.load(f)
-                return data
-            except ImportError:
-                # Fallback for older Python versions
-                import tomli
-
-                with open(pyproject_path, "rb") as f:
-                    data = tomli.load(f)
-                return data
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+            return data
         except Exception:
             return {}
 

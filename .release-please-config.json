@@ -23,5 +23,10 @@
         {"type": "revert", "section": "⏪ Reverts", "hidden": false}
       ]
     }
-  }
+  },
+  "extra-files": [
+    { "type": "generic", "path": ".github/workflows/reusable-ci.yml" },
+    { "type": "generic", "path": ".github/workflows/reusable-security.yml" },
+    { "type": "generic", "path": ".github/workflows/self-healing.yml" }
+  ]
 }

@@ -4,11 +4,11 @@ Core migration engine for automated CI framework transitions.
 
 import shutil
 import subprocess
+import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import tomllib
 import yaml
 
 from .models import (

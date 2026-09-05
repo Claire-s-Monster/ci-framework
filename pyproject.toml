@@ -6,6 +6,10 @@ build-backend = "hatchling.build"
 name = "ci-framework-tools"
 version = "2.9.9"
 description = "Internal tools and scripts for the CI Framework."
+# 3.11 is the floor because `tomllib` is stdlib only from 3.11, and this repo
+# imports it bare — including in composite actions that run on the consumer's
+# runner. See #281.
+requires-python = ">=3.11"
 authors = [
     { name = "MementoRC", email = "your-email@example.com" }
 ]
@@ -85,6 +89,9 @@ coverage = ">=7.0.0"
 black = "*"
 yamllint = "*"
 actionlint = "*"
+# shellcheck: required for parity with GitHub-hosted runners, which ship shellcheck
+# and thereby cause actionlint to auto-enable its shellcheck integration.
+shellcheck = "*"
 bc-detect-secrets = "*"
 twine = "*"
 cyclonedx-bom = "*"
@@ -139,12 +146,18 @@ lint-full = "pixi run -e quality lint-full-impl"
 lint-full-impl = "ruff check framework/"
 lint-fix = "ruff check --fix framework/"
 format = "ruff format framework/"
-format-check = "ruff format --check framework/"
+format-check = "pixi run -e quality format-check-impl"
+format-check-impl = "ruff format --check framework/"
 typecheck = "pixi run -e quality typecheck-impl"
 typecheck-impl = "mypy framework/"
 
 # Combined Quality Check - 🚨 MANDATORY BEFORE COMMIT
-quality = { depends-on = ["test", "lint", "typecheck"] }   # NEVER commit without this passing
+# Depends on `lint-full`, not `lint`: CI runs the full configured ruff ruleset
+# (ci.yml -> `pixi run -e quality lint-full`), so a gate built on `lint`
+# (`--select=F,E9`) is strictly weaker than CI and lets UP/I/B/SIM/RUF
+# violations through to cost a full push cycle (#271). `lint` stays defined as
+# the fast inner-loop check; it is just no longer the mandatory gate.
+quality = { depends-on = ["test", "lint-full", "format-check", "typecheck"] }   # NEVER commit without this passing
 
 # Emergency Quality Fix - USE FOR "Found X errors" CI FAILURES
 emergency-fix = "pixi run lint-fix && pixi run format && pixi run test"
@@ -166,7 +179,7 @@ check-all = { depends-on = ["quality", "static-analysis"] }
 # CI-specific variants
 ci-test = { cmd = "pytest framework/tests/ --cov=framework --cov-report=xml", env = { ENVIRONMENT = "ci" } }
 ci-lint = "ruff check framework/ --output-format=github"
-ci-format-check = "ruff format --check framework/"
+ci-format-check = "pixi run -e quality format-check-impl"
 
 # Build & Deploy
 build = "python -m build"
@@ -178,8 +191,38 @@ install-pre-commit = "pre-commit install --install-hooks"   # 🚨 ESSENTIAL: Ru
 
 # ===== LEGACY/SPECIALIZED TASKS =====
 # Keep existing specialized tasks for backward compatibility
-yaml-lint = "yamllint .github/workflows/"
-action-lint = "actionlint"
+# Scope covers the workflow tree and both action trees: composite actions
+# are shipped product surface (#261) and were previously linted by nothing.
+# Runs WITHOUT --strict deliberately: .yamllint.yml sets line-length and
+# truthy to level: warning on purpose, because ::error:: annotation messages
+# must stay on one physical line. --strict would promote those accepted
+# warnings to blocking failures - the error-level findings (trailing-spaces,
+# new-line-at-end-of-file) are what gate the job. Scope is guarded by
+# framework/tests/workflows/test_yaml_lint_scope.py so it cannot silently
+# narrow again (#255 lesson).
+yaml-lint = "pixi run -e dev yaml-lint-impl"
+yaml-lint-impl = "yamllint .github/workflows/ .github/actions/ actions/"
+
+# Shellcheck the bash embedded in composite action `runs.steps[].run` bodies.
+# actionlint has no composite-action support, so this is the only thing that
+# checks them (#261).
+action-shellcheck = "pixi run -e dev action-shellcheck-impl"
+action-shellcheck-impl = "python -m framework.action_shellcheck"
+action-lint = "pixi run -e dev action-lint-impl"
+action-lint-impl = "actionlint"
+
+# Custom workflow linter for the anti-patterns actionlint cannot see
+# (double ${{ }} wrapping in job-level if:, undeclared workflow_call
+# inputs, unguarded dependency-review-action, inconsistent pixi pins).
+# Discovery walks .github/workflows/ rather than reading a file list: the
+# prior hand-maintained six-file list in ci.yml covered 6 of 18 workflows
+# and omitted branch-policy.yml, the exact file #255 found a script
+# injection in (#279). Runs in `dev` because ci.yml's lint job already
+# installs that env. Scope is guarded by
+# framework/tests/workflows/test_workflow_lint_scope.py so it cannot
+# silently narrow again.
+workflow-lint = "pixi run -e dev workflow-lint-impl"
+workflow-lint-impl = "python -m framework.workflow_lint"
 security-audit = "pip-audit --verbose"
 bandit-scan = "bandit -r framework/ -x framework/tests/ -s B101"
 detect-secrets = "detect-secrets scan --exclude-files '__pycache__' --exclude-files '*.pyc' --exclude-files '*.egg-info' --exclude-files '.git' --exclude-files 'pixi.lock'"
@@ -200,7 +243,9 @@ test-coverage-json-impl = "pytest framework/tests/ --cov=framework --cov-branch 
 sbom-generate = "cyclonedx-py -o ci-framework-sbom.json"
 
 [tool.ruff]
-target-version = "py310"
+# Must track `[project] requires-python` (#284). At py310, ruff classified
+# `tomllib` as third-party and would never propose a 3.11+ idiom.
+target-version = "py311"
 line-length = 88
 
 [tool.ruff.lint]
@@ -223,7 +268,10 @@ ignore = [
 "framework/tests/**/*" = ["F401", "F811", "F403"]
 
 [tool.mypy]
-python_version = "3.10"
+# Must track `[project] requires-python` (#284). At 3.10, typeshed marks
+# `tomllib` as unavailable, so mypy was reasoning about a tree whose
+# central assumption (#281) is false under the version it was handed.
+python_version = "3.11"
 check_untyped_defs = false
 disallow_any_generics = false
 disallow_incomplete_defs = false
@@ -236,6 +284,11 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["framework/tests"]
+# The project is intentionally never pip-installed (see `install-editable`),
+# and pytest puts the test file's directory on sys.path rather than the repo
+# root - so `import framework` fails from a test even though
+# `python -m framework.x` works. Put the root on the path explicitly.
+pythonpath = ["."]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

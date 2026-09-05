@@ -14,10 +14,10 @@ from __future__ import annotations
 import functools
 import re
 import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import tomllib
 import yaml
 
 GATE_ROOT_TASK = "quality"

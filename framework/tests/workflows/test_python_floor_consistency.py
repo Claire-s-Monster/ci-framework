@@ -26,15 +26,22 @@ failure here, not a tolerated middle ground.
 Sites are discovered by walking the tree (the #255/#261-shaped guard) rather
 than from a hand-written file list, so a new import in a new file is caught
 rather than silently shipped.
+
+Issue #284 widened this guard: `test_python_floor_is_declared` checked only
+that `[project] requires-python` existed, but `[tool.ruff] target-version`
+and `[tool.mypy] python_version` were both pinned to 3.10 regardless - one
+third of "the python floor" was covered while the test's name claimed
+authority over the whole thing. `test_tool_configs_track_the_declared_floor`
+below now compares all three declarations against each other.
 """
 
 from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(".")
 PYPROJECT = Path("pyproject.toml")
@@ -203,9 +210,14 @@ def discover_tomllib_sites() -> tuple[list[str], list[str]]:
     return bare, guarded
 
 
+def _pyproject_data() -> dict[str, Any]:
+    """Parse pyproject.toml once; every other TOML-reading helper builds on this."""
+    return tomllib.loads(PYPROJECT.read_text())
+
+
 def declared_floor() -> str | None:
     """The `[project] requires-python` string, or None when undeclared."""
-    data = tomllib.loads(PYPROJECT.read_text())
+    data = _pyproject_data()
     value = data.get("project", {}).get("requires-python")
     return value if isinstance(value, str) else None
 
@@ -229,13 +241,87 @@ def tomli_in_manifest() -> bool:
     `tomli-w` is a writer and does not provide the `tomli` read module, so it
     deliberately does not satisfy this.
     """
-    data = tomllib.loads(PYPROJECT.read_text())
+    data = _pyproject_data()
     pixi = data.get("tool", {}).get("pixi", {})
     tables = [pixi.get("dependencies", {}) or {}]
     for feature in (pixi.get("feature", {}) or {}).values():
         if isinstance(feature, dict):
             tables.append(feature.get("dependencies", {}) or {})
     return any("tomli" in table for table in tables)
+
+
+# All three `_parse_*` helpers below take `value: object` rather than `str`.
+# TOML can hand back a non-string for these keys - `python_version = 3.11`
+# written *without* quotes parses as a float, not a string - so each parser
+# is a total function over whatever TOML yields, and a non-string fails
+# loudly via the wrapper's `is not None` assertion rather than raising
+# TypeError deep inside a regex match.
+
+
+def _parse_requires_python_floor(value: object) -> tuple[int, int] | None:
+    """Parse the `>=X.Y` floor out of a `requires-python` value.
+
+    Mirrors the regex `floor_admits_below` uses. Only the `>=X.Y` form is
+    understood; anything else (including a non-string value) yields None
+    rather than guessing.
+    """
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"^>=\s*(\d+)\.(\d+)", value.strip())
+    if match is None:
+        return None
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def requires_python_floor() -> tuple[int, int] | None:
+    """The `[project] requires-python` floor as a (major, minor) tuple."""
+    spec = declared_floor()
+    if spec is None:
+        return None
+    return _parse_requires_python_floor(spec)
+
+
+def _parse_ruff_target_version(value: object) -> tuple[int, int] | None:
+    """Parse a ruff `target-version` value like "py311" into (3, 11).
+
+    Accepts the `py<major><minor>` form where minor may be 1 or 2 digits
+    (py39, py310, py311). Returns None when the value doesn't match that
+    shape, or isn't a string at all.
+    """
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"^py(\d)(\d{1,2})$", value.strip())
+    if match is None:
+        return None
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def ruff_target_version() -> tuple[int, int] | None:
+    """The `[tool.ruff] target-version` floor as a (major, minor) tuple."""
+    data = _pyproject_data()
+    value = data.get("tool", {}).get("ruff", {}).get("target-version")
+    return _parse_ruff_target_version(value)
+
+
+def _parse_mypy_python_version(value: object) -> tuple[int, int] | None:
+    """Parse a mypy `python_version` value like "3.11" into (3, 11).
+
+    TOML may hand this back as a string; only that form is handled here, so
+    a non-string value (or an unparseable string) yields None.
+    """
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"^(\d+)\.(\d+)$", value.strip())
+    if match is None:
+        return None
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def mypy_python_version() -> tuple[int, int] | None:
+    """The `[tool.mypy] python_version` floor as a (major, minor) tuple."""
+    data = _pyproject_data()
+    value = data.get("tool", {}).get("mypy", {}).get("python_version")
+    return _parse_mypy_python_version(value)
 
 
 def test_classifier_detects_the_fallback_idiom():
@@ -277,6 +363,69 @@ def test_python_floor_is_declared():
         "nothing states the interpreter range this framework supports - "
         "while `import tomllib` already requires 3.11+ (#281)"
     )
+
+
+def test_tool_configs_track_the_declared_floor():
+    """`[tool.ruff]`, `[tool.mypy]`, and `[project] requires-python` must agree.
+
+    #284: ruff's `target-version` and mypy's `python_version` were both
+    pinned to 3.10 while `requires-python` declared 3.11+, so both tools
+    checked the code against an interpreter the repo does not support -
+    and 3.10 is exactly where `import tomllib` (#281) fails. The three
+    values are discovered independently from the parsed TOML and compared
+    against *each other*, not against a hardcoded (3, 11), so this also
+    fails if the floor is raised in the future and the tool configs are
+    left behind.
+    """
+    requires_python = requires_python_floor()
+    ruff = ruff_target_version()
+    mypy = mypy_python_version()
+    assert requires_python is not None, "could not parse [project] requires-python"
+    assert ruff is not None, "could not parse [tool.ruff] target-version"
+    assert mypy is not None, "could not parse [tool.mypy] python_version"
+    assert requires_python == ruff == mypy, (
+        "tool configs have drifted from the declared Python floor (#284): "
+        f"requires-python={requires_python}, ruff target-version={ruff}, "
+        f"mypy python_version={mypy} - a tool configured below the floor "
+        "checks the code against a Python version the repo does not "
+        "support"
+    )
+
+
+def test_floor_parsers_are_not_vacuous():
+    """Meta-guard: the three parsers must return the *correct* tuple, not just *a* tuple.
+
+    A parser that returned a constant `(3, 11)` for every input would make
+    `test_tool_configs_track_the_declared_floor` pass for free, the same way
+    an always-'bare' classifier would make the tomllib consistency tests
+    above pass for free. Each parser is fed a known-good literal (must yield
+    the expected tuple) and a malformed one (must yield None).
+    """
+    assert _parse_requires_python_floor(">=3.11") == (3, 11)
+    assert _parse_requires_python_floor(">=3.9") == (3, 9)
+    assert _parse_requires_python_floor("not-a-spec") is None
+    # No `$` anchor in the regex: it matches the `>=X.Y` prefix and ignores
+    # whatever follows, so comma-separated upper bounds are understood too.
+    assert _parse_requires_python_floor(">=3.11,<4.0") == (3, 11)
+    assert _parse_requires_python_floor(">=3.11, <4.0") == (3, 11)
+    # Deliberate: an exact pin is not the `>=X.Y` form the guard reasons
+    # about, so it fails loudly via the "could not parse" assertion instead
+    # of being silently guessed at - mirrors `floor_admits_below`'s contract.
+    assert _parse_requires_python_floor("==3.11") is None
+    assert _parse_requires_python_floor(None) is None
+    assert _parse_requires_python_floor(3.11) is None
+
+    assert _parse_ruff_target_version("py311") == (3, 11)
+    assert _parse_ruff_target_version("py39") == (3, 9)
+    assert _parse_ruff_target_version("not-a-version") is None
+    assert _parse_ruff_target_version(None) is None
+    assert _parse_ruff_target_version(3.11) is None
+
+    assert _parse_mypy_python_version("3.11") == (3, 11)
+    assert _parse_mypy_python_version("3.9") == (3, 9)
+    assert _parse_mypy_python_version(None) is None
+    assert _parse_mypy_python_version("not-a-version") is None
+    assert _parse_mypy_python_version(3.11) is None
 
 
 def test_tomllib_sites_are_not_mixed():

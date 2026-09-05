@@ -243,7 +243,9 @@ test-coverage-json-impl = "pytest framework/tests/ --cov=framework --cov-branch 
 sbom-generate = "cyclonedx-py -o ci-framework-sbom.json"
 
 [tool.ruff]
-target-version = "py310"
+# Must track `[project] requires-python` (#284). At py310, ruff classified
+# `tomllib` as third-party and would never propose a 3.11+ idiom.
+target-version = "py311"
 line-length = 88
 
 [tool.ruff.lint]
@@ -266,7 +268,10 @@ ignore = [
 "framework/tests/**/*" = ["F401", "F811", "F403"]
 
 [tool.mypy]
-python_version = "3.10"
+# Must track `[project] requires-python` (#284). At 3.10, typeshed marks
+# `tomllib` as unavailable, so mypy was reasoning about a tree whose
+# central assumption (#281) is false under the version it was handed.
+python_version = "3.11"
 check_untyped_defs = false
 disallow_any_generics = false
 disallow_incomplete_defs = false

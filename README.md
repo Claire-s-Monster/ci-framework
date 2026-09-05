@@ -21,6 +21,14 @@ A **comprehensive enterprise-grade CI automation framework** providing intellige
 - 🔍 **AI-Development Ready** - Handles Claude, TaskMaster, Cursor, and Aider artifacts
 - ⚡ **Zero CI Failures** - Self-healing prevents broken builds with automatic fixes
 
+## 📋 Requirements
+
+**Python 3.11 or newer** — on your runners as well as ours.
+
+The composite actions in this repo (notably `quality-gates` and `performance-benchmark`) execute Python in *your* environment, and they use `tomllib`, which is stdlib only from 3.11. On 3.10 or older they fail with `ModuleNotFoundError: No module named 'tomllib'` regardless of what this framework pins internally.
+
+The floor is declared in `pyproject.toml` (`requires-python = ">=3.11"`) and kept honest by `framework/tests/workflows/test_python_floor_consistency.py`, which fails if any `import tomllib` site stops matching the declared range.
+
 ## 🚨 Quality Gates - Zero CI Failures
 
 **Before committing, ALWAYS run:**

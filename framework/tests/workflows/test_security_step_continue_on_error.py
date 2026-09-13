@@ -155,12 +155,23 @@ ANCHOR_WORKFLOWS = (
 )
 
 # Identifier -> reason, for security steps carrying `continue-on-error: true`
-# with no downstream step re-raising the failure. Empty: #304 fixed all three
-# that existed (both scanners in standalone-ci.yml's `security` job, and
-# reusable-security.yml's CodeQL `analyze`, split so the analysis gates and only
-# the SARIF upload stays tolerant). Kept as the documented mechanism - every
-# entry needs its own tracked issue.
-_KNOWN_UNGATED: dict[str, str] = {}
+# with no downstream step re-raising the failure. Every entry needs its own
+# tracked issue; `test_documented_exemptions_are_not_stale` forces deletion
+# once an entry's subject stops matching.
+_KNOWN_UNGATED: dict[str, str] = {
+    "reusable-security.yml::sast-codeql::github/codeql-action/analyze@v4": (
+        "Cannot be gated until #306 is resolved. #222 established that this "
+        "step must keep `upload: true`: the native code-scanning path is the "
+        "only thing that sets the aggregate `CodeQL` check's conclusion, and "
+        "splitting it into `upload: false` plus a decoupled upload-sarif step "
+        "is exactly what left that check stuck at `neutral` on every consumer "
+        "PR. But `upload: true` under this job's `permissions: contents: "
+        "read` can reach the code-scanning API only via CI_BOT_TOKEN, so "
+        "un-exempting it would hard-fail every consumer not supplying that "
+        "PAT. Blocked on #306 confirming the permissions behaviour against a "
+        "real run."
+    ),
+}
 
 # Identifier -> reason, for security steps whose downstream gate exists but
 # hangs off a `workflow_call` input defaulting to `false`, making the scanner
@@ -596,3 +607,72 @@ def test_gate_detection_separates_a_gated_step_from_an_ungated_one():
     }
     assert results["gated"], "a gated step was reported as ungated"
     assert not results["ungated"], "an ungated step was reported as gated"
+
+
+def test_gate_detection_requires_the_exact_step_id():
+    """Self-test: a gate naming a *different* step is not this step's gate.
+
+    `downstream_failure_gates` builds its pattern from the step's own `id`. A
+    job where one scanner is exempted and a later step gates on a *sibling*
+    scanner's outcome must still report the first as ungated - otherwise a
+    single `Fail on ...` step anywhere in the job would launder every exemption
+    in it, which is the same "green means nothing" failure #304 was about.
+    """
+    doc = yaml.safe_load(
+        """
+        jobs:
+          mismatched:
+            steps:
+              - name: TruffleHog scan
+                id: trufflehog
+                uses: trufflesecurity/trufflehog@v3.97.4
+                continue-on-error: true
+              - name: Run Semgrep
+                id: semgrep
+                run: semgrep ci --sarif --output=semgrep.sarif
+              - name: Fail on SAST findings
+                if: inputs.fail-on-sast && steps.semgrep.outcome == 'failure'
+                run: exit 1
+        """
+    )
+    gates = {
+        identifier.split("::")[2]: downstream_failure_gates(
+            steps, index, step.get("id")
+        )
+        for identifier, step, steps, index in discover_security_steps(
+            Path("synthetic.yml"), doc, load_tasks()
+        )
+    }
+    assert not gates["TruffleHog scan"], (
+        "a gate naming another step's outcome was accepted as TruffleHog's - "
+        "one `Fail on ...` step would then launder every exemption in the job"
+    )
+    assert gates["Run Semgrep"], "the gate matching its own step id was not found"
+
+
+def test_reusable_security_codeql_keeps_the_native_upload_path():
+    """`analyze` must keep `upload: true` in reusable-security.yml (#222).
+
+    #222 traced the aggregate `CodeQL` check reading `neutral` on every
+    consumer PR to this job running `analyze` with `upload: false` plus a
+    decoupled `upload-sarif` step: only `analyze` with `upload: true` sets the
+    native check conclusion. reusable-ci.yml's `sast-codeql` legitimately uses
+    the split shape because its CodeQL is gated off by default (#215), so the
+    two jobs are NOT interchangeable - copying one into the other reintroduces
+    #222, which is how it was reintroduced once already while fixing #304.
+    """
+    doc = yaml.safe_load((WORKFLOWS_DIR / "reusable-security.yml").read_text())
+    analyze = [
+        step
+        for step in doc["jobs"]["sast-codeql"]["steps"]
+        if isinstance(step.get("uses"), str) and "codeql-action/analyze" in step["uses"]
+    ]
+    assert len(analyze) == 1, (
+        f"expected exactly one codeql-action/analyze step, found {len(analyze)}"
+    )
+    assert analyze[0].get("with", {}).get("upload") is True, (
+        "reusable-security.yml's CodeQL `analyze` must keep `upload: true`: "
+        "the native code-scanning path is what sets the aggregate `CodeQL` "
+        "check conclusion, and `upload: false` plus a decoupled upload-sarif "
+        "step leaves it `neutral` on every consumer PR (#222)"
+    )

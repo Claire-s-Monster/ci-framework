@@ -234,6 +234,7 @@ jobs:
         with:
           sarif_file: cpp-linter.sarif
           category: cpp-linter
+          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true
       - name: Fail on lint
         if: inputs.fail-on-lint && steps.linter.outputs.checks-failed > 0

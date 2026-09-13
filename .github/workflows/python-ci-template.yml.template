@@ -92,6 +92,9 @@ jobs:
     timeout-minutes: 10
     needs: change-detection
     if: needs.change-detection.outputs.run-security == 'true'
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 

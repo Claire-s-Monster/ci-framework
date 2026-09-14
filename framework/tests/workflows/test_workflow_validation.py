@@ -228,35 +228,63 @@ class TestSecurityAuditConfiguration:
         for tool in required_tools:
             assert tool in security_commands
 
-    def test_security_sarif_upload_configured(self):
-        """Test that the template's SARIF upload step declares `with.sarif_file`.
+    def test_template_has_no_phantom_sarif_upload(self):
+        """Guard against re-introducing a SARIF upload with no producer or no auth.
 
-        Narrowed (#306): this only checks the `sarif_file` shape of the one
-        upload-sarif step in this one template file. It does NOT check that
-        the step - or any other upload-sarif site in the repo - can actually
-        authenticate to the code-scanning API; a step can pass this assertion
-        and still fail at upload time with neither a `with.token` nor a
-        `security-events: write` permission. That real, repo-wide invariant
-        is `test_sarif_upload_auth.py::test_every_upload_sarif_step_can_authenticate`.
+        The predecessor test (`test_security_sarif_upload_configured`) only
+        checked that an upload-sarif step declared `with.sarif_file` - it never
+        checked that anything in the job actually generated that file. It
+        therefore passed vacuously for the entire time the template uploaded a
+        `security-results.sarif` that no step produced (#306). Producer and
+        consumer must be checked together, not the shape of the consumer alone.
+
+        This test checks both directions:
+          1. If an upload-sarif step exists, the file it references under
+             `with.sarif_file` must appear in some `run:` block in the same
+             job (a producer must exist).
+          2. Upload step and `security-events: write` permission are a single
+             unit: either both present or both absent. This stays correct if
+             the template later regains a real SARIF-emitting scanner, instead
+             of needing another edit.
+
+        Repo-wide upload/auth invariant across all workflow files (not just
+        this template) is `test_sarif_upload_auth.py::test_every_upload_sarif_step_can_authenticate`.
         """
         workflow_path = Path(".github/workflows/python-ci-template.yml.template")
         with open(workflow_path) as f:
             workflow = yaml.safe_load(f)
 
-        # Should FAIL initially
         security_job = workflow["jobs"]["security-audit"]
         steps = security_job["steps"]
 
-        # Find SARIF upload step
-        sarif_step = None
-        for step in steps:
-            if "uses" in step and "github/codeql-action/upload-sarif" in step["uses"]:
-                sarif_step = step
-                break
+        sarif_upload_steps = [
+            step
+            for step in steps
+            if "uses" in step and "github/codeql-action/upload-sarif" in step["uses"]
+        ]
+        run_blocks = " ".join(step["run"] for step in steps if "run" in step)
 
-        assert sarif_step is not None, "SARIF upload step must be present"
-        assert "with" in sarif_step
-        assert "sarif_file" in sarif_step["with"]
+        for step in sarif_upload_steps:
+            assert "with" in step and "sarif_file" in step["with"], (
+                "upload-sarif step must declare with.sarif_file"
+            )
+            sarif_file = step["with"]["sarif_file"]
+            assert sarif_file in run_blocks, (
+                f"upload-sarif step references '{sarif_file}' but nothing in "
+                "the security-audit job's run steps produces that file"
+            )
+
+        permissions = security_job.get("permissions", {}) or {}
+        has_write_permission = permissions.get("security-events") == "write"
+        has_upload_step = len(sarif_upload_steps) > 0
+
+        assert has_upload_step == has_write_permission, (
+            "an upload-sarif step and the `security-events: write` permission "
+            "must either BOTH be present or BOTH be absent on security-audit; "
+            "if you re-add a SARIF upload you must ALSO re-add "
+            "`security-events: write` (or a `with.token`) and a step that "
+            "generates the file it uploads"
+        )
 
 
 class TestPerformanceConfiguration:

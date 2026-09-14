@@ -49,6 +49,7 @@ import yaml
 # whole walk depend on where the runner happens to start.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+ACTIONS_DIR = REPO_ROOT / "actions"
 
 # `uses:` references that are a SARIF upload, matched by substring so a
 # version pin (`@v3`, `@v4`) never breaks the match.
@@ -58,11 +59,13 @@ SARIF_UPLOAD_MARKER = "upload-sarif"
 # only when `with.upload` is not `false` - see `analyze_step_uploads` below.
 CODEQL_ANALYZE_MARKER = "codeql-action/analyze"
 
-# The 11 auth-requiring SARIF sites in this repo today, enumerated for #306:
+# The 11 auth-requiring SARIF sites in this repo today, re-enumerated for
+# #306's follow-up (widening the corpus to `actions/**/action.yml`):
 #   8 upload-sarif sites:
-#     python-ci-template.yml.template:113   reusable-quality.yml:233
+#     reusable-quality.yml:233
 #     reusable-security.yml:274, :357
 #     reusable-ci.yml:485, :652, :694, :739
+#     actions/security-scan/action.yml:803
 #   3 codeql-action/analyze sites that upload implicitly (no `upload: false`):
 #     standalone-ci.yml:297      job=security       (security-events: write)
 #     ci.yml:140                 job=security-scan  (security-events: write)
@@ -72,6 +75,14 @@ CODEQL_ANALYZE_MARKER = "codeql-action/analyze"
 # `with.upload: false` - it writes SARIF to disk only, a separate
 # upload-sarif step does the actual upload, so requiring auth on the analyze
 # step itself would be a false positive.
+#
+# `python-ci-template.yml.template`'s former upload-sarif site (line 113) was
+# deleted outright (#306): the audit tools it ran emit no SARIF, so the step
+# was uploading a file nothing produced. `actions/security-scan/action.yml`
+# is a NEW site in this inventory - it was invisible to this guard before the
+# corpus widened to cover `actions/**/action.yml`, which is exactly the gap
+# that let it ship unauthenticated (now fixed with `token:`). The count is
+# unchanged at 11 only because one removal offset one addition.
 #
 # This floor EQUALS the current count, so removing a site fails this test on
 # purpose: consolidating one is a deliberate act that should update this
@@ -176,6 +187,30 @@ def sarif_upload_is_authorized(
     )
 
 
+def sarif_relevant_action_files(directory: Path = ACTIONS_DIR) -> list[Path]:
+    """Every `action.yml`/`action.yaml` under `directory`, RECURSIVELY.
+
+    Composite actions live one level down (`actions/security-scan/action.yml`),
+    unlike the flat workflow layout, so this walk must recurse.
+
+    A composite action cannot declare a top-level `permissions:` block - that
+    is only valid in a workflow or a job - so it always inherits whatever the
+    CALLING job granted its `GITHUB_TOKEN`. That makes an unauthenticated
+    `upload-sarif` step inside a composite action strictly more dangerous
+    than the same step in a workflow: there is no local `permissions:` fix,
+    only a `with.token` input threaded through from every caller, and the bug
+    ships to every workflow that references the action, not just one. This is
+    precisely the shape that let `actions/security-scan/action.yml` carry a
+    broken, unauthenticated `upload-sarif` step past the original #306 guard,
+    which only ever walked `.github/workflows/`.
+    """
+    return sorted(
+        path
+        for path in directory.rglob("*")
+        if path.is_file() and path.name in ("action.yml", "action.yaml")
+    )
+
+
 def discover_sarif_upload_steps(
     path: Path, doc: object
 ) -> list[tuple[str, dict, dict, dict]]:
@@ -202,12 +237,56 @@ def discover_sarif_upload_steps(
     return found
 
 
-def all_sarif_upload_steps() -> list[tuple[str, dict, dict, dict]]:
-    """Every `upload-sarif` step across every workflow file and template."""
+def discover_composite_action_sarif_steps(
+    path: Path, doc: object
+) -> list[tuple[str, dict, dict, dict]]:
+    """Every `upload-sarif` step in one parsed composite action.
+
+    A composite action's steps live at `runs.steps`, not `jobs.<name>.steps`,
+    and it has no `permissions:` block at all (see `sarif_relevant_action_files`
+    for why), so both permission dicts are always `{}` - only `with.token`
+    can authorize a site found here.
+    """
+    if not isinstance(doc, dict):
+        return []
+    runs = doc.get("runs")
+    if not isinstance(runs, dict):
+        return []
+    steps = runs.get("steps")
+    if not isinstance(steps, list):
+        return []
+    found: list[tuple[str, dict, dict, dict]] = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        if not is_sarif_upload_step(step):
+            continue
+        identifier = f"{path.name}::<composite>::{step_label(step, index)}"
+        found.append((identifier, step, {}, {}))
+    return found
+
+
+def sarif_relevant_files() -> list[Path]:
+    """Every workflow, template, AND composite action this guard must cover.
+
+    #306's original walk covered `.github/workflows/` only, which is why two
+    real unauthenticated `upload-sarif` sites inside `actions/**/action.yml`
+    survived undetected - a composite action ships to every workflow that
+    references it, and (see `sarif_relevant_action_files`) can never fix the
+    gap with a `permissions:` block of its own. This is the combined corpus;
+    `sarif_relevant_workflow_files` is kept separate and unchanged for any
+    existing caller that only wants the flat workflow walk.
+    """
+    return sarif_relevant_workflow_files() + sarif_relevant_action_files()
+
+
+def all_sarif_relevant_steps() -> list[tuple[str, dict, dict, dict]]:
+    """Every `upload-sarif` step across the combined `sarif_relevant_files` corpus."""
     discovered: list[tuple[str, dict, dict, dict]] = []
-    for path in sarif_relevant_workflow_files():
+    for path in sarif_relevant_files():
         doc = yaml.safe_load(path.read_text())
         discovered.extend(discover_sarif_upload_steps(path, doc))
+        discovered.extend(discover_composite_action_sarif_steps(path, doc))
     return discovered
 
 
@@ -242,12 +321,13 @@ def test_walk_includes_template_files():
 def test_walk_finds_a_non_trivial_number_of_upload_sarif_sites():
     """Anti-vacuity: the walk must actually find upload-sarif steps.
 
-    There are 11 such sites in this repo as of #306's audit, and the floor is
+    There are 11 such sites in this repo as of #306's follow-up audit
+    (workflows, templates, AND composite actions combined), and the floor is
     set to exactly that. Its job is to fail loudly if the glob or the `uses:`
     matcher silently breaks and the walk finds near zero - the same vacuity
     that let the guard this module replaces pass while two sites were broken.
     """
-    count = len(all_sarif_upload_steps())
+    count = len(all_sarif_relevant_steps())
     assert count >= MINIMUM_EXPECTED_SITES, (
         f"only found {count} upload-sarif steps across the whole repo; "
         f"expected at least {MINIMUM_EXPECTED_SITES} - the glob or the "
@@ -259,11 +339,14 @@ def test_every_upload_sarif_step_can_authenticate():
     """The real #306 invariant: every upload-sarif site satisfies (a) or (b).
 
     Collects every violation before asserting once, so a failure names all of
-    them in a single run.
+    them in a single run. Walks `sarif_relevant_files` (workflows, templates,
+    AND composite actions), not just workflows - a composite action step has
+    no `permissions:` block of its own to grant option (b), so it can only
+    ever be authorized via option (a), `with.token`.
     """
     unauthorized = [
         identifier
-        for identifier, step, perms, workflow_perms in all_sarif_upload_steps()
+        for identifier, step, perms, workflow_perms in all_sarif_relevant_steps()
         if not sarif_upload_is_authorized(step, perms, workflow_perms)
     ]
     assert not unauthorized, (
@@ -330,3 +413,66 @@ def test_classifier_exempts_analyze_with_upload_false():
         "with": {"upload": "false"},
     }
     assert not is_sarif_upload_step(string_step)
+
+
+def test_widened_corpus_includes_composite_actions():
+    """Non-vacuity: `sarif_relevant_files` must actually contain a composite
+    action, not just workflows - proving #306's corpus-widening is real and
+    not a no-op that still only walks `.github/workflows/`.
+    """
+    relative_paths = {
+        str(path.relative_to(REPO_ROOT)) for path in sarif_relevant_files()
+    }
+    assert "actions/security-scan/action.yml" in relative_paths, (
+        "actions/security-scan/action.yml is missing from the corpus - the "
+        "widening to actions/**/action.yml regressed and this guard is back "
+        "to only covering .github/workflows/ (#306)"
+    )
+
+
+def test_synthetic_composite_action_violation_is_detected():
+    """Proves the widened corpus would catch the class of bug that escaped
+    #306's original guard: an unauthenticated `upload-sarif` step inside a
+    SYNTHETIC composite action must be classified as a violation, not
+    silently ignored because it lives under `actions/` instead of
+    `.github/workflows/`.
+    """
+    doc = {
+        "name": "synthetic-composite-action",
+        "runs": {
+            "using": "composite",
+            "steps": [
+                {
+                    "uses": "github/codeql-action/upload-sarif@v4",
+                    "with": {"sarif_file": "results.sarif"},
+                }
+            ],
+        },
+    }
+    path = ACTIONS_DIR / "synthetic-fixture" / "action.yml"
+    found = discover_composite_action_sarif_steps(path, doc)
+    assert found, "the composite-action step walk found nothing for a synthetic doc"
+    _, step, job_perms, workflow_perms = found[0]
+    assert not sarif_upload_is_authorized(step, job_perms, workflow_perms), (
+        "a composite-action upload-sarif step with no with.token must be "
+        "flagged as a violation - this is exactly the shape that escaped "
+        "the guard before the corpus widened to cover actions/ (#306)"
+    )
+
+
+def test_widened_corpus_still_exempts_analyze_with_upload_false():
+    """Integration self-test: widening the corpus to include `actions/` must
+    not resurrect reusable-ci.yml's exempted `analyze` + `upload: false` site
+    (line 688, job `sast-codeql`) - only its separate upload-sarif step
+    (line 694) should be found for that job.
+    """
+    sast_codeql_sites = [
+        identifier
+        for identifier, _, _, _ in all_sarif_relevant_steps()
+        if "reusable-ci.yml" in identifier and "sast-codeql" in identifier
+    ]
+    assert len(sast_codeql_sites) == 1, (
+        "expected exactly one SARIF site for reusable-ci.yml's sast-codeql "
+        f"job (its upload-sarif step) but found {sast_codeql_sites} - the "
+        "`upload: false` analyze exemption regressed when the corpus widened"
+    )

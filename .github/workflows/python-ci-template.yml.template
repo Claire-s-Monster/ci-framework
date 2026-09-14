@@ -94,7 +94,6 @@ jobs:
     if: needs.change-detection.outputs.run-security == 'true'
     permissions:
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -106,14 +105,14 @@ jobs:
       - name: Run Security Audit
         run: |
           pixi exec safety check
-          pixi exec bandit -r framework/
+          pixi exec bandit -r . -x ./.pixi,./tests
           pixi exec pip-audit
 
-      - name: Upload SARIF results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: security-results.sarif
+      # No SARIF upload: the audit tools above do not emit SARIF (bandit needs
+      # the bandit-sarif-formatter plugin). Uploading a file nothing generates
+      # made every consumer run a no-op or a failure. If you add a SARIF-
+      # emitting scanner, re-add an upload-sarif@v4 step WITH a `token:` input
+      # and restore `security-events: write` below (#306).
 
       - name: Upload Security Results
         uses: actions/upload-artifact@v4
@@ -121,7 +120,6 @@ jobs:
         with:
           name: security-audit-results
           path: |
-            security-results.sarif
             artifacts/reports/
 
   performance-check:

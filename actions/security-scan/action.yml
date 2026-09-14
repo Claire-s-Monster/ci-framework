@@ -83,6 +83,11 @@ inputs:
     required: false
     default: 'false'
 
+  github-token:
+    description: 'Token used to authenticate SARIF uploads to the code-scanning API. Defaults to the workflow token; pass a PAT if the caller job cannot grant security-events: write.'
+    required: false
+    default: ${{ github.token }}
+
   pixi-version:
     description: 'Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7.'
     required: false
@@ -352,7 +357,20 @@ runs:
                     if CONFIG_FILE:
                         sarif_cmd += ["-c", CONFIG_FILE]
 
-                    subprocess.run(sarif_cmd, timeout=60, capture_output=True)
+                    sarif_result = subprocess.run(
+                        sarif_cmd, timeout=60, capture_output=True, text=True
+                    )
+                    if sarif_result.returncode != 0 or not sarif_file.exists():
+                        # bandit only emits SARIF when bandit-sarif-formatter is
+                        # installed; without it this exits 2 and writes nothing.
+                        # Report it rather than leaving an empty gap in the
+                        # unified SARIF that looks like "no findings" (#306).
+                        print(
+                            "::warning::bandit SARIF output unavailable - install "
+                            "bandit-sarif-formatter to include bandit findings in "
+                            "code scanning. Details: "
+                            f"{sarif_result.stderr.strip()}"
+                        )
 
                     # Parse results
                     if output_file.exists():
@@ -592,8 +610,11 @@ runs:
                     "runs": []
                 }
 
-                # Collect all SARIF files
-                sarif_files = list(self.reports_dir.glob("*.sarif"))
+                # Collect all SARIF files (excluding any prior unified output)
+                sarif_files = [
+                    f for f in self.reports_dir.glob("*.sarif")
+                    if f.name != "security-unified.sarif"
+                ]
 
                 for sarif_file in sarif_files:
                     try:
@@ -603,6 +624,10 @@ runs:
                                 unified_sarif["runs"].extend(sarif_data["runs"])
                     except Exception as e:
                         print(f"Warning: Failed to parse {sarif_file}: {e}")
+
+                if not unified_sarif["runs"]:
+                    print("⚠️  No tool produced SARIF - skipping unified SARIF")
+                    return ""
 
                 # Write unified SARIF
                 unified_file = self.reports_dir / "security-unified.sarif"
@@ -775,11 +800,12 @@ runs:
         retention-days: 30
 
     - name: Upload SARIF Results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v4
       if: always() && inputs.sarif-upload == 'true' && steps.security-scan.outputs.sarif-file != ''
       with:
         sarif_file: ${{ steps.security-scan.outputs.sarif-file }}
         category: security-scan-${{ inputs.security-level }}
+        token: ${{ inputs.github-token }}
 
     - name: Upload SBOM Artifact
       uses: actions/upload-artifact@v3

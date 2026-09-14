@@ -1,8 +1,14 @@
-"""Guard: every `upload-sarif` step in a shipped workflow can authenticate.
+"""Guard: every SARIF-uploading step in a shipped workflow can authenticate.
 
 Issue #306. `github/codeql-action/upload-sarif` needs authorization to reach
-the code-scanning API. This repo satisfies that in one of two legitimate
-ways, documented at `.github/workflows/reusable-security.yml:88-92`:
+the code-scanning API - and so does `github/codeql-action/analyze`, which
+uploads SARIF *implicitly* unless the step sets `with.upload: false`. When
+`upload: false` is set, `analyze` only writes SARIF to disk and a separate
+`upload-sarif` step (already covered by this guard) does the actual upload,
+so that shape is deliberately EXEMPT from this check - flagging it would be
+a false positive, not a real auth gap. This repo satisfies the auth
+requirement in one of two legitimate ways, documented at
+`.github/workflows/reusable-security.yml:88-92`:
 
   (a) the step passes `token: ${{ secrets.CI_BOT_TOKEN || github.token }}`
       under `with:` - the idiom used by reusable workflows, because a
@@ -48,21 +54,30 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # version pin (`@v3`, `@v4`) never breaks the match.
 SARIF_UPLOAD_MARKER = "upload-sarif"
 
-# The 8 upload-sarif sites in this repo today, enumerated for #306:
-#   python-ci-template.yml.template:113   reusable-quality.yml:233
-#   reusable-security.yml:274, :357
-#   reusable-ci.yml:485, :652, :694, :739
+# `github/codeql-action/analyze` also uploads SARIF, but only implicitly and
+# only when `with.upload` is not `false` - see `analyze_step_uploads` below.
+CODEQL_ANALYZE_MARKER = "codeql-action/analyze"
+
+# The 11 auth-requiring SARIF sites in this repo today, enumerated for #306:
+#   8 upload-sarif sites:
+#     python-ci-template.yml.template:113   reusable-quality.yml:233
+#     reusable-security.yml:274, :357
+#     reusable-ci.yml:485, :652, :694, :739
+#   3 codeql-action/analyze sites that upload implicitly (no `upload: false`):
+#     standalone-ci.yml:297      job=security       (security-events: write)
+#     ci.yml:140                 job=security-scan  (security-events: write)
+#     reusable-security.yml:312  job=sast-codeql     (token present)
+#
+# Deliberately EXCLUDED: reusable-ci.yml:688, job=sast-codeql, sets
+# `with.upload: false` - it writes SARIF to disk only, a separate
+# upload-sarif step does the actual upload, so requiring auth on the analyze
+# step itself would be a false positive.
 #
 # This floor EQUALS the current count, so removing a site fails this test on
 # purpose: consolidating one is a deliberate act that should update this
 # constant in the same commit. The floor's real job is to fail loudly if the
 # glob or the `uses:` matcher breaks and the walk silently finds near zero.
-#
-# Not matched here: `github/codeql-action/analyze` also uploads SARIF and
-# needs the same authorization. Every CodeQL site currently passes a token,
-# so nothing is broken today, but this guard would not catch it if that
-# changed. Tracked as a #306 follow-up.
-MINIMUM_EXPECTED_SITES = 8
+MINIMUM_EXPECTED_SITES = 11
 
 
 def sarif_relevant_workflow_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
@@ -91,10 +106,35 @@ def step_label(step: dict, index: int) -> str:
     return f"<step {index}>"
 
 
+def analyze_step_uploads(step: dict) -> bool:
+    """True unless `step` sets `with.upload: false` (upload defaults to true).
+
+    `yaml.safe_load` turns a bare `false` into the Python bool `False`, but a
+    quoted `"false"` or a `${{ }}` expression arrives as a string, so both
+    the bool and the string forms are treated as opting out of the upload.
+    """
+    with_block = step.get("with")
+    if not isinstance(with_block, dict):
+        return True
+    upload = with_block.get("upload")
+    return upload is not False and upload not in ("false", "False")
+
+
 def is_sarif_upload_step(step: dict) -> bool:
-    """True when `step`'s `uses:` names a SARIF upload action."""
+    """True when `step`'s `uses:` names a SARIF upload action.
+
+    Matches `upload-sarif` unconditionally, and `codeql-action/analyze` only
+    when it actually uploads (see `analyze_step_uploads`) - an `analyze` step
+    with `upload: false` writes SARIF to disk for a later upload-sarif step
+    to send, so flagging it here would be a false positive.
+    """
     uses = step.get("uses")
-    return isinstance(uses, str) and SARIF_UPLOAD_MARKER in uses.lower()
+    if not isinstance(uses, str):
+        return False
+    uses_lower = uses.lower()
+    if SARIF_UPLOAD_MARKER in uses_lower:
+        return True
+    return CODEQL_ANALYZE_MARKER in uses_lower and analyze_step_uploads(step)
 
 
 def top_level_permissions(doc: object) -> dict:
@@ -202,7 +242,7 @@ def test_walk_includes_template_files():
 def test_walk_finds_a_non_trivial_number_of_upload_sarif_sites():
     """Anti-vacuity: the walk must actually find upload-sarif steps.
 
-    There are 8 such sites in this repo as of #306's audit, and the floor is
+    There are 11 such sites in this repo as of #306's audit, and the floor is
     set to exactly that. Its job is to fail loudly if the glob or the `uses:`
     matcher silently breaks and the walk finds near zero - the same vacuity
     that let the guard this module replaces pass while two sites were broken.
@@ -267,3 +307,26 @@ def test_classifier_ignores_a_non_sarif_upload_step():
     """Self-test: `actions/upload-artifact` is not `upload-sarif`."""
     step = {"uses": "actions/upload-artifact@v4", "with": {"name": "results"}}
     assert not is_sarif_upload_step(step)
+
+
+def test_classifier_treats_analyze_without_upload_false_as_an_upload_site():
+    """Self-test: `analyze` uploads by default, so it must be classified as a
+    SARIF upload site when nothing opts it out."""
+    step = {"uses": "github/codeql-action/analyze@v4", "with": {"category": "x"}}
+    assert is_sarif_upload_step(step)
+
+
+def test_classifier_exempts_analyze_with_upload_false():
+    """Self-test: `analyze` with `upload: false` writes SARIF to disk only -
+    a separate upload-sarif step does the real upload, so this must NOT be
+    classified as an upload site regardless of whether YAML parsed `false`
+    as a bool or it arrived as a string.
+    """
+    bool_step = {"uses": "github/codeql-action/analyze@v4", "with": {"upload": False}}
+    assert not is_sarif_upload_step(bool_step)
+
+    string_step = {
+        "uses": "github/codeql-action/analyze@v4",
+        "with": {"upload": "false"},
+    }
+    assert not is_sarif_upload_step(string_step)

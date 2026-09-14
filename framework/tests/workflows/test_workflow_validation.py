@@ -229,7 +229,16 @@ class TestSecurityAuditConfiguration:
             assert tool in security_commands
 
     def test_security_sarif_upload_configured(self):
-        """Test that SARIF upload is properly configured"""
+        """Test that the template's SARIF upload step declares `with.sarif_file`.
+
+        Narrowed (#306): this only checks the `sarif_file` shape of the one
+        upload-sarif step in this one template file. It does NOT check that
+        the step - or any other upload-sarif site in the repo - can actually
+        authenticate to the code-scanning API; a step can pass this assertion
+        and still fail at upload time with neither a `with.token` nor a
+        `security-events: write` permission. That real, repo-wide invariant
+        is `test_sarif_upload_auth.py::test_every_upload_sarif_step_can_authenticate`.
+        """
         workflow_path = Path(".github/workflows/python-ci-template.yml.template")
         with open(workflow_path) as f:
             workflow = yaml.safe_load(f)

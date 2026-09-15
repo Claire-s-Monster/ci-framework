@@ -69,6 +69,24 @@ This action provides unified security scanning by integrating multiple security 
 | `sbom-generation` | Generate SBOM | No | `false` |
 | `pixi-version` | Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7. | No | `v0.74.0` |
 
+## Required Caller Permissions
+
+This action is a **composite** action, so it cannot declare its own `permissions:` block — it always runs with whatever permissions the calling job was granted. For the SARIF upload to reach the code-scanning API, the calling job must grant:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+```
+
+`contents: read` is needed for checkout; `security-events: write` is needed for the SARIF upload step.
+
+If the calling job doesn't grant `security-events: write`, the SARIF upload fails with a 403 while the rest of the scan still completes normally — the missing permission is easy to miss.
+
+The `github-token` input defaults to `${{ github.token }}` (the calling job's own token). If the calling workflow can't grant `security-events: write` directly — for example, some fork-based or cross-repository scenarios — pass a PAT with `security_events` scope via `github-token` instead.
+
+Setting `sarif-upload: 'false'` disables the upload entirely, in which case no elevated permission is required.
+
 ## Outputs
 
 | Output | Description |
@@ -125,6 +143,9 @@ on: [push, pull_request]
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -153,6 +174,9 @@ on:
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -175,6 +199,9 @@ on: [push, pull_request]
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       matrix:
         security-level: [low, medium, high]

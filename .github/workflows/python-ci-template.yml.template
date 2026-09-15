@@ -105,7 +105,7 @@ jobs:
       - name: Run Security Audit
         run: |
           pixi exec safety check
-          pixi exec bandit -r . -x ./.pixi,./tests
+          pixi exec bandit -r . -x ./.pixi,./.venv,./build,./dist,./tests
           pixi exec pip-audit
 
       # No SARIF upload: the audit tools above do not emit SARIF (bandit needs

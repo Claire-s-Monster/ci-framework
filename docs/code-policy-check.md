@@ -217,4 +217,4 @@ Verify:
 
 **Workflow Version**: 1.0
 **Last Updated**: April 2026
-**Compatibility**: GitHub Actions, Python 3.10+
+**Compatibility**: GitHub Actions, Python 3.11+

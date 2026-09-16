@@ -260,4 +260,4 @@ If the workflow skips all security checks:
 
 **Workflow Version**: 1.0
 **Last Updated**: April 2026
-**Compatibility**: GitHub Actions, Python 3.10+, Rust 1.70+, Node.js 18+, C++17
+**Compatibility**: GitHub Actions, Python 3.11+, Rust 1.70+, Node.js 18+, C++17

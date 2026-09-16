@@ -151,19 +151,19 @@ jobs:
 
 All findings appear as workflow annotations only; none block merge.
 
-### Custom Python version: Python 3.10
+### Custom Python version: Python 3.11
 
 ```yaml
 jobs:
   quality:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-quality.yml@main
     with:
-      python-version: '3.10'
+      python-version: '3.11'
     permissions:
       contents: read
 ```
 
-Uses Python 3.10 for ruff and mypy instead of default 3.12.
+Uses Python 3.11 for ruff and mypy instead of default 3.12.
 
 ## How Annotations Appear
 
@@ -261,10 +261,10 @@ Ruff lint and ruff format should not conflict. If they do:
 
 If you see type-checking errors related to Python version:
 - Ensure `python-version` input matches your project's minimum supported version
-- Example: if your project supports Python 3.10+, use `python-version: '3.10'`
+- Example: if your project supports Python 3.11+, use `python-version: '3.11'`
 
 ---
 
 **Workflow Version**: 1.0
 **Last Updated**: April 2026
-**Compatibility**: GitHub Actions, Python 3.10+, Rust 1.70+, Node.js 18+, C++17
+**Compatibility**: GitHub Actions, Python 3.11+, Rust 1.70+, Node.js 18+, C++17

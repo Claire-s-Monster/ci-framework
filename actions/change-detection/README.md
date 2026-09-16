@@ -251,10 +251,9 @@ jobs:
     if: needs.change-detection.outputs.skip-tests != 'true'
     strategy:
       matrix:
-        python-version: [3.10, 3.11, 3.12]
+        python-version: [3.11, 3.12]
         # Optimize matrix based on change impact
         exclude:
-          - python-version: ${{ needs.change-detection.outputs.optimization-score > 50 && '3.10' || '' }}
           - python-version: ${{ needs.change-detection.outputs.optimization-score > 75 && '3.11' || '' }}
     runs-on: ubuntu-latest
     steps:

@@ -78,8 +78,6 @@ Feature: Cross-Platform Matrix Testing
     When the workflow executes
     Then it should test all combinations:
       | Python Version | Operating System |
-      | 3.10 | ubuntu-latest |
-      | 3.10 | macos-latest |
       | 3.11 | ubuntu-latest |
       | 3.11 | macos-latest |
       | 3.12 | ubuntu-latest |
@@ -219,7 +217,7 @@ Feature: Environment Standardization
 ### **BDD Scenario Completeness**
 - [x] All 6 CI stages covered in scenarios
 - [x] Performance requirements specified (2 min quick checks, 50% reduction)
-- [x] Matrix testing scenarios (Python 3.10-3.12, ubuntu/macos)
+- [x] Matrix testing scenarios (Python 3.11-3.12, ubuntu/macos)
 - [x] Change detection logic defined
 - [x] Security audit integration specified
 - [x] GitHub Status API scenarios included

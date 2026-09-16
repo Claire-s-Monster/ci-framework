@@ -257,7 +257,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 click = ">=8.0"
 rich = "*"
 typer = "*"  # Alternative to click
@@ -302,7 +302,7 @@ cli-cross-platform:
   strategy:
     matrix:
       os: [ubuntu-latest, macos-latest, windows-latest]
-      python-version: ["3.10", "3.11", "3.12"]
+      python-version: ["3.11", "3.12"]
   steps:
     - uses: actions/checkout@v4
     - name: Setup Pixi
@@ -332,7 +332,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 pytest = "*"
 pytest-cov = "*"
 

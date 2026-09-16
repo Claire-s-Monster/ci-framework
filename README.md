@@ -368,7 +368,7 @@ platforms = ["linux-64", "win-64", "osx-64", "osx-arm64"]
 
 # REQUIRED: Default environment - basic runtime
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 
 # REQUIRED: Quality environment - CI testing and validation
 [tool.pixi.environments]
@@ -539,7 +539,7 @@ jobs:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
     with:
       pixi-environment: 'ci'
-      python-versions: '["3.10", "3.11", "3.12"]'
+      python-versions: '["3.11", "3.12"]'
     secrets: inherit
 ```
 

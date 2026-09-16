@@ -44,7 +44,7 @@ jobs:
   web-app-pipeline:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "extended"
       enable-api-testing: "true"
       enable-security-scan: "true"
@@ -109,7 +109,7 @@ jobs:
   data-science-pipeline:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11"
+      python-versions: "3.11"
       quality-level: "essential"
       enable-notebook-testing: "true"
       enable-performance-benchmarks: "true"
@@ -177,7 +177,7 @@ jobs:
   cli-pipeline:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "extended"
       test-platforms: "ubuntu,macos,windows"
       enable-cli-testing: "true"
@@ -192,7 +192,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 click = "*"
 rich = "*"
 pytest = "*"
@@ -244,7 +244,7 @@ jobs:
   package-pipeline:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "full"
       enable-documentation: "true"
       enable-type-checking: "true"
@@ -259,7 +259,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 pytest = "*"
 pytest-cov = "*"
 

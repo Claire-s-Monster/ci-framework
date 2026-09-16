@@ -35,7 +35,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 pytest = "*"
 
 [tool.pixi.tasks]
@@ -59,7 +59,7 @@ git push
 
 ### Minimum Requirements
 
-- **Python**: 3.10 or higher
+- **Python**: 3.11 or higher
 - **Package Manager**: pixi (recommended) or poetry/hatch
 - **Repository**: GitHub repository with Actions enabled
 
@@ -80,12 +80,12 @@ your-project/
 
 ### Matrix Strategy Customization
 
-The default matrix tests Python 3.10-3.12 on ubuntu-latest and macos-latest:
+The default matrix tests Python 3.11-3.12 on ubuntu-latest and macos-latest:
 
 ```yaml
 strategy:
   matrix:
-    python-version: ["3.10", "3.11", "3.12"]
+    python-version: ["3.11", "3.12"]
     os: [ubuntu-latest, macos-latest]
 ```
 
@@ -107,7 +107,7 @@ strategy:
 # Extended Python versions
 strategy:
   matrix:
-    python-version: ["3.10", "3.11", "3.12", "3.13"]
+    python-version: ["3.11", "3.12", "3.13"]
     os: [ubuntu-latest]
 ```
 
@@ -119,8 +119,8 @@ which installs an interpreter on the runner, but `pixi run -e <env> test`
 actually executes under the environment's own interpreter as pinned in
 `pixi.lock` — not whatever `setup-python` put on `PATH`. If your
 `pyproject.toml` only defines one pixi environment, every matrix leg ran the
-exact same Python, while the job names (`🧪 Test Python 3.10 on ubuntu-latest`,
-`🧪 Test Python 3.11 on ubuntu-latest`, `🧪 Test Python 3.12 on ubuntu-latest`)
+exact same Python, while the job names (`🧪 Test Python 3.11 on ubuntu-latest`,
+`🧪 Test Python 3.12 on ubuntu-latest`)
 implied otherwise. A repo declaring `requires-python = ">=3.11"` could show
 three green ticks without its 3.11 floor ever having been exercised. The
 `actions/setup-python` step has since been removed from those two jobs, since
@@ -143,9 +143,6 @@ To make the matrix test what it claims, declare one pixi environment per
 Python version, each pinning that version via a feature:
 
 ```toml
-[tool.pixi.feature.py310.dependencies]
-python = "3.10.*"
-
 [tool.pixi.feature.py311.dependencies]
 python = "3.11.*"
 
@@ -156,7 +153,6 @@ python = "3.12.*"
 pytest = "*"
 
 [tool.pixi.environments]
-py310 = ["py310", "test"]
 py311 = ["py311", "test"]
 py312 = ["py312", "test"]
 ```
@@ -168,8 +164,8 @@ interpreter — matching the `py{nodot}` default of `python-version-env-pattern`
 
 ```yaml
 with:
-  python-versions: '["3.10", "3.11", "3.12"]'
-  strict-python-matrix: true  # only once py310/py311/py312 exist
+  python-versions: '["3.11", "3.12"]'
+  strict-python-matrix: true  # only once py311/py312 exist
 ```
 
 Leave `strict-python-matrix` unset (or `false`) until the environments above
@@ -201,6 +197,7 @@ with:
 - Separately, the "Verify interpreter matches this matrix leg" step is what
   actually detects the resulting version mismatch and emits the annotation,
   titled `Python matrix mismatch`:
+  <!-- python-floor-exempt: sample diagnostic output illustrating a mismatch, not a support declaration -->
   ```
   ::warning title=Python matrix mismatch::this job is named for Python 3.11 but pixi environment 'default' runs Python 3.9, so this leg does not test its declared version. ...
   ```
@@ -528,7 +525,7 @@ deploy-production:
    name = "your-project"
 
    [tool.pixi.dependencies]
-   python = ">=3.10"
+   python = ">=3.11"
    # Move dependencies from requirements.txt
    ```
 

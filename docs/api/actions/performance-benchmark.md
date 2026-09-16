@@ -730,4 +730,4 @@ Replace direct pytest-benchmark usage with action for:
 
 **Action Version**: 0.0.1
 **Last Updated**: January 2025
-**Compatibility**: GitHub Actions v4+, Python 3.10+, pytest-benchmark 4.0+
+**Compatibility**: GitHub Actions v4+, Python 3.11+, pytest-benchmark 4.0+

@@ -36,7 +36,7 @@
 
 ## 📋 Prerequisites (30 seconds to check)
 
-- [ ] **Python 3.10+** (`python --version`)
+- [ ] **Python 3.11+** (`python --version`)
 - [ ] **Git repository** (local or GitHub)
 - [ ] **GitHub account** (for CI/CD)
 - [ ] **5 minutes of time** ⏰

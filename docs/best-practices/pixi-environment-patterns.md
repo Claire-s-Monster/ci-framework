@@ -44,7 +44,7 @@ ci = {features = ["quality", "ci-reporting"], solve-group = "default"}
 ```toml
 # Core dependencies available in ALL environments
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 
 # Core application dependencies
 requests = ">=2.28.0"
@@ -164,7 +164,7 @@ platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
 # Platform-specific dependencies
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 
 # Platform-specific overrides
 [tool.pixi.target.linux-64.dependencies]
@@ -394,7 +394,7 @@ pixi update              # All packages (careful!)
 ```toml
 # pyproject.toml
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.11"
 requests = "^2.28.0"
 
 [tool.poetry.group.dev.dependencies]
@@ -406,7 +406,7 @@ ruff = "^0.1.0"
 ```toml
 # pyproject.toml
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 requests = ">=2.28.0"
 
 [tool.pixi.feature.quality.dependencies]
@@ -467,7 +467,7 @@ name: myproject
 channels:
   - conda-forge
 dependencies:
-  - python>=3.10
+  - python>=3.11
   - requests>=2.28.0
   - pip
   - pip:
@@ -480,7 +480,7 @@ dependencies:
 channels = ["conda-forge"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 requests = ">=2.28.0"
 pytest = ">=8.0.0"  # No more pip section needed
 ```

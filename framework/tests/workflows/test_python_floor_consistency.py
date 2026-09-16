@@ -46,7 +46,7 @@ them here would fail this guard until that PR lands. Doc drift is
 therefore NOT currently guarded by this file.
 
 Issue #286 PR-B added a fourth corpus: `discover_framework_version_declarations`
-walks every `*.py` under `framework/` for version-spec literals (`py3XX`,
+walks every `*.py` under `framework/` and `scripts/` for version-spec literals (`py3XX`,
 `>=3.Y`/`^3.Y`/`~=3.Y`, `3.Y.*`, version-string list literals) and
 `sys.version_info >= (3, N)`-shaped comparisons, checked against the same
 declared floor. Sites that are deliberately below the floor - consumer-project
@@ -58,6 +58,26 @@ entirely such fixtures, a module-level `# python-floor-exempt-module:
 sites is the exact artefact #250/#255/#261/#286 keep going stale on. A bare
 version string with no spec syntax around it (`"3.10"` as a dict key, say) is
 out of scope for this corpus - see the corpus's own docstring below.
+
+Issue #286 PR-C added a fifth corpus: `discover_docs_version_declarations`
+walks `docs/**/*.md`, the repo-root `README.md`, `examples/**/*.yml`|`.yaml`,
+shipped composite-action READMEs (`actions/*/README.md`,
+`.github/actions/*/README.md`), and `workflows/**/*.feature` (Gherkin step
+text is prose, not structured config, so it walks through the same
+markdown/prose corpus rather than a corpus of its own) - the two corpora
+the #286 paragraph above named as still excluded, plus the Gherkin sweep
+that found `workflows/python-ci-template.feature` still declaring Python
+3.10 steps. Markdown mixes structured config with running
+prose, so this corpus classifies each line as structured (inside a ```
+fence or an inline `code span`, matched against the same quoted/structured
+shapes the other corpora use) or prose (a bare `X.Y` token in running
+text), and both modes drop a match whose line/sentence reads as
+non-support ("not supported", "no longer", "dropped", "unsupported",
+"removed", "fail(s)", "ModuleNotFoundError", "must pass an explicit") -
+see `discover_docs_version_declarations`'s own docstring for the full
+contract. `#`-comments do not work in Markdown, so the per-site exemption
+marker is `<!-- python-floor-exempt: <reason> -->` instead of the `#
+python-floor-exempt: <reason>` used elsewhere in this file.
 """
 
 # python-floor-exempt-module: this file's samples are classifier self-test
@@ -488,8 +508,8 @@ def test_declared_floor_matches_tomllib_usage():
 
 
 # ============================================================================
-# #286: version-declaration discovery across TOML / workflow / migrator
-# corpora. See the module docstring for the docs/ and README.md exclusion.
+# #286: version-declaration discovery across TOML / workflow / migrator /
+# framework / docs corpora. See the module docstring for each corpus's scope.
 # ============================================================================
 
 DeclarationRecord = tuple[Path, str, str, tuple[int, int] | None]
@@ -698,16 +718,18 @@ def discover_migrator_version_declarations() -> list[DeclarationRecord]:
 
 
 def discover_version_declarations() -> list[DeclarationRecord]:
-    """Every Python-version declaration across all three corpora.
+    """Every Python-version declaration across all five corpora.
 
-    See the module docstring: `docs/` and `README.md` are deliberately
-    excluded (PR-C's scope), so doc drift is not covered by this check.
+    #286 PR-C added the docs corpus - see the module docstring and
+    `discover_docs_version_declarations` for its structured/prose
+    two-mode contract.
     """
     return (
         discover_toml_version_declarations()
         + discover_workflow_version_declarations()
         + discover_migrator_version_declarations()
         + discover_framework_version_declarations()
+        + discover_docs_version_declarations()
     )
 
 
@@ -799,10 +821,13 @@ def test_declaration_classifier_would_have_caught_py310():
 
 
 # ============================================================================
-# #286 PR-B: version declarations inside `framework/` (source and tests)
+# #286 PR-B: version declarations inside `framework/` (source and tests).
+# #286 PR-C widened this to `scripts/` too (see `_iter_framework_python_files`):
+# standalone tooling that isn't part of the `framework/` package but is
+# exactly as subject to the declared floor.
 #
 # The three corpora above cover what this repo SHIPS (templates, workflows,
-# the migrator's emitted literals). They do not cover `framework/` itself,
+# the migrator's emitted literals). They did not cover `framework/` itself,
 # which is how `test_compatibility_matrix.py` came to assert
 # `sys.version_info >= (3, 10)` and publish `"3.10": "✅ Supported"` while
 # `[project] requires-python` said 3.11.
@@ -818,6 +843,7 @@ def test_declaration_classifier_would_have_caught_py310():
 # ============================================================================
 
 FRAMEWORK_DIR = REPO_ROOT / "framework"
+SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 # Some version literals below the floor are CORRECT and must stay: the
 # classifier self-test samples in this very file, and synthetic fixtures
@@ -867,12 +893,16 @@ def _is_exempt(lines: list[str], lineno: int) -> bool:
 
 
 def _iter_framework_python_files() -> list[Path]:
-    """Every `*.py` under `framework/`, minus the usual excluded directories."""
-    if not FRAMEWORK_DIR.is_dir():
-        return []
+    """Every `*.py` under `framework/` and `scripts/`, minus the usual
+    excluded directories. `scripts/` ships standalone tooling (#286
+    PR-C found `scripts/generate_compatibility_report.py` still pinned to
+    3.10) that isn't part of the `framework/` package but is exactly as
+    subject to the declared floor."""
+    dirs = [d for d in (FRAMEWORK_DIR, SCRIPTS_DIR) if d.is_dir()]
     return sorted(
         path
-        for path in FRAMEWORK_DIR.rglob("*.py")
+        for d in dirs
+        for path in d.rglob("*.py")
         if not any(part in EXCLUDED_DIR_NAMES for part in path.parts)
     )
 
@@ -937,8 +967,23 @@ def test_framework_corpus_is_not_vacuous():
     """Vacuity guard, matching the three corpora above."""
     assert discover_framework_version_declarations(), (
         "no version-spec literals or floor comparisons found anywhere under "
-        "framework/ - the framework walker is broken, and every site in it "
-        "is silently unguarded"
+        "framework/ or scripts/ - the framework walker is broken, and every "
+        "site in it is silently unguarded"
+    )
+
+
+def test_framework_corpus_walks_scripts_root():
+    """Per-root vacuity guard (#286 PR-C): `scripts/**/*.py` must actually
+    contribute records on its own, not just ride along with `framework/`'s
+    count - an empty `scripts/` walk would make
+    `test_framework_corpus_is_not_vacuous` pass for free even if that root
+    were silently unguarded, the same failure shape the other per-corpus
+    vacuity tests in this file guard against."""
+    records = discover_framework_version_declarations()
+    scripts_records = [path for path, *_ in records if SCRIPTS_DIR in path.parents]
+    assert scripts_records, (
+        "no version-spec literals or floor comparisons found under "
+        "scripts/ - the scripts/ root is not actually being walked"
     )
 
 
@@ -986,4 +1031,962 @@ def test_framework_classifier_would_have_caught_the_286_sites():
     assert not any(
         pattern.search('matrix = {"3.10": "not supported"}')
         for _, pattern in FRAMEWORK_SPEC_RES
+    )
+
+
+# ============================================================================
+# #286 PR-C: version declarations inside docs/, README.md, examples/,
+# shipped composite-action READMEs, and workflows/**/*.feature (Gherkin
+# step text - prose, not structured config, so it rides this same
+# markdown/prose corpus rather than getting a corpus of its own).
+#
+# Markdown mixes structured config (fenced code blocks, inline-code spans)
+# with running prose, so this corpus classifies each line in one of two
+# modes rather than a single regex set:
+#
+#   - structured: a line inside a ``` fence or an inline `code span` is
+#     matched against the same quoted/structured shapes the TOML/workflow/
+#     framework corpora above already use (`python = "<spec>"`,
+#     `python-version(s):`/`=` arrays or comma strings, `target-version =
+#     "pyNNN"`, `python_version = "N.NN"`, a bare `- python>=N.NN` list
+#     item).
+#   - prose: any bare `X.Y` version token in running text (`Python 3.10+`,
+#     a table cell, `On 3.10 or older they fail...`) is a candidate, GATED
+#     on a "python" mention in the same line - or, for a table row, in that
+#     row's actual HEADER row (the row immediately above the table's
+#     `|---|---|` delimiter row - never prose that merely sits a few lines
+#     above), matched by column index - so unrelated decimal-shaped numbers
+#     (framework/action versions, percentages, pixi CLI pins, playback
+#     speeds, or an ordinary prose line like "...for Python projects..."
+#     sitting above an unrelated table) don't get swept in as Python-floor
+#     declarations.
+#
+# Both modes are negation-aware: a match is dropped when its line (or, for
+# prose, the enclosing sentence) reads as non-support - "not supported", "no
+# longer", "dropped", "unsupported", "removed", "fail(s)",
+# "ModuleNotFoundError", "must pass an explicit". This is what lets prose
+# describing what ISN'T supported read correctly without an exemption
+# marker. `#`-comments do not work in Markdown, so the exemption mechanism
+# is `<!-- python-floor-exempt: <reason> -->` on the same line or the line
+# above, mirroring `EXEMPT_LINE_RE`'s same-line-or-above contract and
+# mandatory reason.
+# ============================================================================
+
+DOCS_DIR = REPO_ROOT / "docs"
+README_PATH = REPO_ROOT / "README.md"
+EXAMPLES_DIR = REPO_ROOT / "examples"
+ACTIONS_DIR = REPO_ROOT / "actions"
+GITHUB_ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
+WORKFLOWS_FEATURE_DIR = REPO_ROOT / "workflows"
+
+# Mirrors EXEMPT_LINE_RE's same-line-or-above contract and mandatory reason,
+# spelled as an HTML comment since `#` is not a comment marker in Markdown.
+DOCS_EXEMPT_RE = re.compile(r"<!--\s*python-floor-exempt:\s*\S")
+
+# Case-insensitive non-support vocabulary that suppresses a match in either
+# mode - see the corpus header comment above for why this exists.
+# `should\s+not` covers the Gherkin negative-assertion idiom the
+# `workflows/**/*.feature` root (#286 PR-C) introduced - `Then it should not
+# test Python 3.10` states non-support the same way `not supported` does in
+# prose, just with a different verb.
+DOCS_NEGATION_RE = re.compile(
+    r"not\s+supported|no\s+longer|dropped|unsupported|removed|fails?|"
+    r"ModuleNotFoundError|must\s+pass\s+an\s+explicit|should\s+not",
+    re.IGNORECASE,
+)
+
+FENCE_RE = re.compile(r"^\s*```")
+INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
+
+# A markdown table delimiter row (`|---|---|`, `|:--|--:|`, ...): every cell
+# is dashes with optional leading/trailing alignment colons. This is what
+# distinguishes an actual table HEADER from prose that merely sits a few
+# lines above a table - matching by line-count proximity (the previous
+# `DOCS_TABLE_HEADER_WINDOW` approach) let prose mentioning "python"
+# anywhere near a table misattribute an unrelated cell to the Python floor
+# (docs/api/actions/quality-gates.md:16's `| **Version** | v0.0.1 |`, gated
+# in by "...for Python projects..." two rows above prose, not a header).
+TABLE_DELIMITER_CELL_RE = re.compile(r"^:?-+:?$")
+
+DOCS_RUFF_TARGET_RE = re.compile(r"""\btarget-version\s*=\s*(['"])(py\d{2,3})\1""")
+DOCS_MYPY_VERSION_RE = re.compile(r"""\bpython_version\s*=\s*(['"])(\d+\.\d+)\1""")
+DOCS_PIXI_PYTHON_RE = re.compile(r"""\bpython\s*=\s*(['"])([^'"]+)\1""")
+DOCS_VERSION_KEY_RE = re.compile(r"""['"]?(python-versions?)['"]?\s*[:=]\s*(.+)$""")
+DOCS_BARE_SPEC_RE = re.compile(r"-\s*python\s*(>=|==|~=|\^)\s*(\d+\.\d+)")
+
+# Prose-mode Python-attachment (#286 PR-C follow-up): a version token only
+# counts toward the floor when it is syntactically attached to one of these
+# mentions. The longer alternative is tried first so "python-version(s)"/
+# "python_version" isn't eaten by the bare "python" branch before its own
+# attached version-run can be matched against the text right after it.
+PYTHON_MENTION_RE = re.compile(r"python[-_]version(?:s)?|python", re.IGNORECASE)
+
+# The run of version tokens immediately attached to a `PYTHON_MENTION_RE`
+# match: a single token (`3.10`, `3.10+`), a dash/en-dash range
+# (`3.10-3.12`, `3.10–3.12` - the FIRST token is the floor), a textual
+# range ("3.10 or higher", "3.10 and up"), or a comma-run
+# (`3.10, 3.11, 3.12` - the minimum of the run is the floor). Each token
+# after the first requires its own separator immediately before it, so the
+# run stops the instant something that isn't part of this shape follows -
+# which is what keeps `Python 3.10+, Rust 1.70+, Node.js 18+` from
+# swallowing `1.70`/`18` into the same run as `3.10`. The leading `[*_]*`
+# absorbs markdown emphasis closing markers directly after the mention
+# (`- **Python**: 3.10 or higher`), where `mention.end()` lands right before
+# the closing `**` and not before the version token itself; it only
+# consumes emphasis markers immediately there, so it cannot skip ahead
+# through arbitrary text to a later, unrelated number.
+VERSION_RUN_RE = re.compile(
+    r"""
+    [*_]*\s*[:=]?\s*
+    \d+\.\d+\+?
+    (?:
+        \s*(?:,|-|–|or\s+higher|and\s+up|or\s+up)\s*
+        \d+\.\d+\+?
+    )*
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _iter_docs_candidate_files() -> list[Path]:
+    """`docs/**/*.md`, the repo-root `README.md`, `examples/**/*.yml`|`.yaml`,
+    shipped composite-action READMEs (`actions/*/README.md`,
+    `.github/actions/*/README.md`), and `workflows/**/*.feature` (Gherkin
+    step text is prose, not structured config, so it is walked by this
+    corpus rather than the framework one)."""
+    candidates: set[Path] = set()
+    if DOCS_DIR.is_dir():
+        candidates.update(DOCS_DIR.rglob("*.md"))
+    if README_PATH.is_file():
+        candidates.add(README_PATH)
+    if EXAMPLES_DIR.is_dir():
+        candidates.update(EXAMPLES_DIR.rglob("*.yml"))
+        candidates.update(EXAMPLES_DIR.rglob("*.yaml"))
+    if ACTIONS_DIR.is_dir():
+        candidates.update(ACTIONS_DIR.glob("*/README.md"))
+    if GITHUB_ACTIONS_DIR.is_dir():
+        candidates.update(GITHUB_ACTIONS_DIR.glob("*/README.md"))
+    if WORKFLOWS_FEATURE_DIR.is_dir():
+        candidates.update(WORKFLOWS_FEATURE_DIR.rglob("*.feature"))
+    return sorted(
+        path
+        for path in candidates
+        if path.is_file() and not any(part in EXCLUDED_DIR_NAMES for part in path.parts)
+    )
+
+
+def _is_docs_exempt(lines: list[str], lineno: int) -> bool:
+    """True when a `<!-- python-floor-exempt: ... -->` marker sits on line
+    `lineno` or the line above. `lines` is 0-indexed; `lineno` is 1-based."""
+    for candidate in (lineno - 1, lineno - 2):
+        if 0 <= candidate < len(lines) and DOCS_EXEMPT_RE.search(lines[candidate]):
+            return True
+    return False
+
+
+def _fence_is_exempt(lines: list[str], fence_lineno: int) -> bool:
+    """True when a `<!-- python-floor-exempt: ... -->` marker sits on the
+    line immediately ABOVE an opening fence at 1-based `fence_lineno`.
+
+    An HTML comment placed INSIDE the fence would render literally as part
+    of the sample it's meant to exempt, so `_is_docs_exempt`'s same-line-or-
+    line-above contract can never reach a line that is itself inside a
+    fenced block - the marker and the flagged line are always separated by
+    the opening ``` fence itself. This is the fence-scoped counterpart: the
+    marker exempts every line inside the fence that follows it (up to its
+    closing fence), not just one line. "Immediately above" (not "somewhere
+    above") keeps the scope tight and visible to reviewers - a blank or
+    prose line between the marker and the fence breaks the association, the
+    same way `EXEMPT_MODULE_RE` requires an explicit, reasoned marker rather
+    than an implicit central list.
+    """
+    candidate = fence_lineno - 2
+    return (
+        0 <= candidate < len(lines)
+        and DOCS_EXEMPT_RE.search(lines[candidate]) is not None
+    )
+
+
+def _is_table_delimiter_row(line: str) -> bool:
+    """True when `line` is a markdown table delimiter row (`|---|:--|--:|`):
+    every cell is dashes with optional alignment colons, nothing else."""
+    if not line.lstrip().startswith("|"):
+        return False
+    cells = _split_table_cells(line)
+    return bool(cells) and all(TABLE_DELIMITER_CELL_RE.match(cell) for cell in cells)
+
+
+def _table_header_index(lines: list[str], index: int) -> int | None:
+    """Index of the HEADER row for the table row at `index`, or None.
+
+    Walks upward through the contiguous block of pipe-delimited rows this
+    row belongs to; the block's topmost row counts as a header when the row
+    immediately below it is a markdown delimiter row. That is what
+    distinguishes an actual table header from prose that merely happens to
+    sit a few lines above a table - proximity alone is not enough (see
+    `TABLE_DELIMITER_CELL_RE`'s comment for the concrete false positive
+    this replaced).
+
+    Gherkin data tables (`| Python Version | Operating System |` followed
+    directly by data rows, as in `bdd-scenarios-ci-workflow.md`) never carry
+    a `|---|---|` delimiter row at all - that's markdown-table syntax, not
+    Gherkin's. When NO row anywhere in the contiguous block is a delimiter
+    row, the topmost row is accepted as the header by the Gherkin table
+    spec (first row = header, unconditionally). This can't resurrect the
+    nearby-prose false positive above: that block only ever forms from
+    contiguous `|`-prefixed lines, so prose sitting outside the block is
+    still excluded from `top` by the same upward walk as before.
+    """
+    top = index
+    while top - 1 >= 0 and lines[top - 1].lstrip().startswith("|"):
+        top -= 1
+    if top + 1 < len(lines) and _is_table_delimiter_row(lines[top + 1]):
+        return top
+    bottom = index
+    while bottom + 1 < len(lines) and lines[bottom + 1].lstrip().startswith("|"):
+        bottom += 1
+    if top < bottom and not any(
+        _is_table_delimiter_row(lines[i]) for i in range(top, bottom + 1)
+    ):
+        return top
+    return None
+
+
+def _has_python_context(lines: list[str], index: int, line: str) -> bool:
+    """True when `line` mentions "python" - or, for a markdown table row,
+    when that row's actual HEADER row (see `_table_header_index`; requires
+    a delimiter row immediately beneath it) does. `index` is 0-based,
+    matching `lines`.
+
+    This is the gate that keeps prose mode from sweeping in unrelated
+    decimal-shaped numbers (framework/action versions, percentages, pixi
+    CLI pins, playback speeds) as Python-floor declarations. A table row
+    with no qualifying header contributes nothing - it does NOT fall back
+    to scanning nearby prose.
+    """
+    if "python" in line.lower():
+        return True
+    if not line.lstrip().startswith("|"):
+        return False
+    header_index = _table_header_index(lines, index)
+    if header_index is None:
+        return False
+    return "python" in lines[header_index].lower()
+
+
+def _split_table_cells(line: str) -> list[str]:
+    """Cell texts of one markdown table row, leading/trailing `|` stripped."""
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    return [cell.strip() for cell in stripped.split("|")]
+
+
+def _table_python_value_cells(lines: list[str], index: int) -> list[str] | None:
+    """The cell(s) of the table row at `index` that hold Python-version
+    data, or None when this isn't a recognisable Python-version table row.
+
+    Two shapes, mirroring `_has_python_context`'s own-row-or-actual-header
+    lookup: a ROW-oriented table, where a cell in THIS row names Python (a
+    row label like `| Python | 3.10+ |`, or a self-contained cell like
+    `| Python 3.10+ |`) - the data is that cell itself if it already
+    carries an attached version, otherwise every other cell in the row; or
+    a COLUMN-oriented table, where this row's actual HEADER row (see
+    `_table_header_index`; requires a delimiter row immediately beneath it
+    - prose above a table is never a header) names a Python column at some
+    index - the data is just this row's cell at that SAME column index.
+    Either way the extraction is scoped to the identified cell(s), not the
+    whole row, so an unrelated column (`Framework Version: v1.0.x`,
+    `Operating System: ubuntu-latest`) can't contribute a stray token.
+    Returns None - contributing nothing, with no further fallback - when
+    neither shape matches.
+    """
+    line = lines[index]
+    if not line.lstrip().startswith("|"):
+        return None
+    cells = _split_table_cells(line)
+    for col, cell in enumerate(cells):
+        if PYTHON_MENTION_RE.search(cell):
+            if VERSION_TOKEN_RE.search(cell):
+                return [cell]
+            return cells[:col] + cells[col + 1 :]
+    header_index = _table_header_index(lines, index)
+    if header_index is None:
+        return None
+    header_cells = _split_table_cells(lines[header_index])
+    for col, header_cell in enumerate(header_cells):
+        if PYTHON_MENTION_RE.search(header_cell):
+            return [cells[col]] if col < len(cells) else None
+    return None
+
+
+def _sentence_containing(line: str, position: int) -> str:
+    """The sentence in `line` (period/question/exclamation-delimited) that
+    contains character offset `position`, so prose-mode negation is gated
+    per-sentence rather than per-line when a line carries more than one."""
+    start = 0
+    end = len(line)
+    for boundary_match in re.finditer(r"[.!?](?:\s|$)", line):
+        boundary = boundary_match.end()
+        if boundary <= position:
+            start = boundary
+        else:
+            end = boundary
+            break
+    return line[start:end]
+
+
+def _match_docs_structured(
+    text: str,
+) -> tuple[str, str, tuple[int, int] | None] | None:
+    """Match one of the quoted/structured version-declaration shapes this
+    corpus scans for inside fenced code blocks and inline-code spans.
+    Mirrors the quoted-literal shapes `FRAMEWORK_SPEC_RES` and the
+    TOML/workflow corpora above already match, so the same declaration
+    written in a doc's example config is caught the same way."""
+    match = DOCS_RUFF_TARGET_RE.search(text)
+    if match is not None:
+        value = match.group(2)
+        return "docs-ruff-target-version", value, _parse_ruff_target_version(value)
+
+    match = DOCS_MYPY_VERSION_RE.search(text)
+    if match is not None:
+        value = match.group(2)
+        return "docs-mypy-python-version", value, _parse_mypy_python_version(value)
+
+    match = DOCS_PIXI_PYTHON_RE.search(text)
+    if match is not None:
+        value = match.group(2)
+        return "docs-pixi-python", value, _parse_version_floor_loose(value)
+
+    match = DOCS_VERSION_KEY_RE.search(text)
+    if match is not None:
+        raw = match.group(2).strip()
+        versions = _extract_array_versions(raw)
+        floor = min(versions) if versions else _parse_version_floor_loose(raw)
+        if floor is not None:
+            return "docs-python-versions", raw, floor
+
+    match = DOCS_BARE_SPEC_RE.search(text)
+    if match is not None:
+        raw = match.group(0).strip()
+        return "docs-bare-python-spec", raw, _parse_version_floor_loose(raw)
+
+    return None
+
+
+def _structured_record(
+    path: Path, line: str, text: str, lineno: int
+) -> DeclarationRecord | None:
+    """One structured-mode record for `text` (either a whole fenced line or
+    an inline-code span's contents), gated on `line`-level negation."""
+    structured = _match_docs_structured(text)
+    if structured is None or DOCS_NEGATION_RE.search(line):
+        return None
+    kind, raw, parsed = structured
+    return (path, f"{kind}:{lineno}", raw, parsed)
+
+
+def _prose_floor(prose_line: str) -> tuple[int, int] | None:
+    """Minimum non-negated version-token floor in a prose line, scanning
+    only version tokens syntactically ATTACHED to a Python mention (see
+    `PYTHON_MENTION_RE`/`VERSION_RUN_RE`) - not every version-shaped token
+    on the line. A token that isn't attached to Python (`Rust 1.70`,
+    `Node.js 18+`, `C++17`) contributes nothing, which is what stops this
+    line-wide scan from misattributing another tool's version to the
+    Python floor. Returns None when no mention has an attached run, or
+    every attached run's sentence reads as non-support.
+    """
+    floor: tuple[int, int] | None = None
+    for mention in PYTHON_MENTION_RE.finditer(prose_line):
+        run_match = VERSION_RUN_RE.match(prose_line, mention.end())
+        if run_match is None:
+            continue
+        sentence = _sentence_containing(prose_line, run_match.start())
+        if DOCS_NEGATION_RE.search(sentence):
+            continue
+        for major, minor in VERSION_TOKEN_RE.findall(run_match.group(0)):
+            candidate = (int(major), int(minor))
+            if floor is None or candidate < floor:
+                floor = candidate
+    return floor
+
+
+def _prose_python_floor(
+    lines: list[str], index: int, prose_line: str
+) -> tuple[int, int] | None:
+    """The Python-attached version floor for one prose line.
+
+    A markdown table row is scoped to just its Python-identified cell(s)
+    (`_table_python_value_cells`, row-label or column-header) and
+    contributes NOTHING - no loose-scan fallback - when neither shape
+    qualifies; every other prose line is scoped to version tokens
+    syntactically attached to a Python mention (`_prose_floor`). A table
+    row's own cells are checked against `DOCS_NEGATION_RE` as a whole
+    (mirroring the structured-mode per-line check) rather than
+    per-sentence, since a table cell rarely forms a full sentence of its
+    own.
+    """
+    if prose_line.lstrip().startswith("|"):
+        cells = _table_python_value_cells(lines, index)
+        if cells is None:
+            return None
+        if DOCS_NEGATION_RE.search(prose_line):
+            return None
+        tokens = [
+            (int(major), int(minor))
+            for cell in cells
+            for major, minor in VERSION_TOKEN_RE.findall(cell)
+        ]
+        return min(tokens) if tokens else None
+    return _prose_floor(prose_line)
+
+
+# How far a bare `["3.10", "3.11", "3.12"]`-shaped array literal (2+
+# tokens, via `_extract_array_versions`) may sit from a "python" mention on
+# a DIFFERENT line before the two are considered attached, e.g. a jq
+# pipeline that builds `["3.10", "3.11", "3.12"] as $versions |` on one
+# line and consumes it as `{package: $pkg, python: $ver}` a couple of
+# lines later (`examples/monorepo-change-detection.yml`). Kept small and
+# gated on the array shape itself (not a bare "python" word scan) so this
+# can't resurrect the nearby-prose false positive `_table_header_index`'s
+# delimiter check exists to close - an array of 2+ version-shaped tokens is
+# a far stronger signal than proximity to the word "python" alone.
+ARRAY_PYTHON_MENTION_WINDOW = 3
+
+
+def _nearby_python_mention(lines: list[str], index: int) -> bool:
+    """True when a "python" mention sits within
+    `ARRAY_PYTHON_MENTION_WINDOW` lines of `index` (either direction, not
+    counting `index` itself)."""
+    lo = max(0, index - ARRAY_PYTHON_MENTION_WINDOW)
+    hi = min(len(lines), index + ARRAY_PYTHON_MENTION_WINDOW + 1)
+    return any("python" in lines[i].lower() for i in range(lo, hi) if i != index)
+
+
+def _docs_records_for_text(path: Path, text: str) -> list[DeclarationRecord]:
+    """Real per-file classifier, factored out of
+    `discover_docs_version_declarations` so the self-test below can feed it
+    synthetic markdown directly - the same way `classify_python`/
+    `classify_text` are unit-tested above `discover_tomllib_sites`.
+
+    Fenced-code lines and inline-code spans go through the structured
+    matcher first; everything else (including a fenced or inline-code span
+    that ISN'T one of the structured shapes - a prose sentence or a Gherkin
+    table row quoted inside a ``` fence, a console-output job name wrapped
+    in a single inline-code span) falls back to the same bare-`X.Y`-token
+    prose scan used for ordinary text, gated on a "python" mention (line or
+    table header - see `_has_python_context`). A bare version-array literal
+    with no "python" mention on its OWN line, but one nearby, is also
+    caught (see `_nearby_python_mention`). Every mode drops a match whose
+    line/sentence reads as non-support (see `DOCS_NEGATION_RE`), and all
+    honour a same-line-or-above `<!-- python-floor-exempt: ... -->` marker.
+    """
+    records: list[DeclarationRecord] = []
+    lines = text.splitlines()
+    in_fence = False
+    fence_exempt = False
+    for index, line in enumerate(lines):
+        lineno = index + 1
+        if FENCE_RE.match(line):
+            if in_fence:
+                in_fence = False
+                fence_exempt = False
+            else:
+                in_fence = True
+                fence_exempt = _fence_is_exempt(lines, lineno)
+            continue
+        if in_fence and fence_exempt:
+            continue
+        if _is_docs_exempt(lines, lineno):
+            continue
+
+        if in_fence:
+            record = _structured_record(path, line, line, lineno)
+            if record is not None:
+                records.append(record)
+            elif _has_python_context(lines, index, line):
+                floor = _prose_python_floor(lines, index, line)
+                if floor is not None:
+                    records.append(
+                        (path, f"docs-prose-token:{lineno}", line.strip(), floor)
+                    )
+            continue
+
+        for span in INLINE_CODE_RE.finditer(line):
+            span_text = span.group(1)
+            record = _structured_record(path, line, span_text, lineno)
+            if record is not None:
+                records.append(record)
+            else:
+                floor = _prose_floor(span_text)
+                if floor is not None:
+                    records.append(
+                        (path, f"docs-prose-token:{lineno}", span_text.strip(), floor)
+                    )
+
+        prose_line = INLINE_CODE_RE.sub(" ", line)
+        if _has_python_context(lines, index, prose_line):
+            floor = _prose_python_floor(lines, index, prose_line)
+            if floor is not None:
+                records.append(
+                    (path, f"docs-prose-token:{lineno}", prose_line.strip(), floor)
+                )
+        elif not prose_line.lstrip().startswith("|"):
+            versions = _extract_array_versions(prose_line)
+            if (
+                versions
+                and len(versions) > 1
+                and _nearby_python_mention(lines, index)
+                and not DOCS_NEGATION_RE.search(prose_line)
+            ):
+                records.append(
+                    (
+                        path,
+                        f"docs-nearby-array-token:{lineno}",
+                        prose_line.strip(),
+                        min(versions),
+                    )
+                )
+    return records
+
+
+def discover_docs_version_declarations() -> list[DeclarationRecord]:
+    """Python-version declarations across docs/, README.md, examples/,
+    shipped composite-action READMEs, and workflows/**/*.feature (#286
+    PR-C)."""
+    records: list[DeclarationRecord] = []
+    for path in _iter_docs_candidate_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        records.extend(_docs_records_for_text(path, text))
+    return records
+
+
+def test_docs_corpus_is_not_vacuous():
+    """Vacuity guard, matching `test_framework_corpus_is_not_vacuous` above."""
+    assert discover_docs_version_declarations(), (
+        "no version declarations found anywhere in docs/, README.md, "
+        "examples/, shipped action READMEs, or workflows/**/*.feature - the "
+        "docs walker is broken, and every site in it is silently unguarded"
+    )
+
+
+def test_docs_corpus_walks_workflows_feature_root():
+    """Per-root vacuity guard (#286 PR-C): `workflows/**/*.feature` must
+    actually contribute records on its own, not just ride along with the
+    rest of the docs corpus's count - mirrors
+    `test_framework_corpus_walks_scripts_root` for the sibling new root."""
+    records = discover_docs_version_declarations()
+    feature_records = [
+        path for path, *_ in records if WORKFLOWS_FEATURE_DIR in path.parents
+    ]
+    assert feature_records, (
+        "no version declarations found under workflows/**/*.feature - the "
+        "workflows/.feature root is not actually being walked"
+    )
+
+
+def test_docs_classifier_handles_gherkin_step_lines():
+    """Classifier self-test for the `workflows/**/*.feature` root (#286
+    PR-C): replays the real #286 PR-C shape found in
+    `workflows/python-ci-template.feature` - a `Then`/`And` Gherkin step
+    naming a Python version - as synthetic input through the real
+    classifier (`_docs_records_for_text`), mirroring
+    `test_classifier_detects_the_fallback_idiom` above. Gherkin step text
+    is prose (no fences, no code spans), so it exercises the same
+    Python-attachment (`VERSION_RUN_RE`) and negation-awareness
+    (`DOCS_NEGATION_RE`, extended with `should\\s+not` for this idiom) the
+    rest of the docs corpus already relies on."""
+    positive = "Then it should test Python 3.10 on ubuntu-latest\n"
+    positive_violations = _violations(
+        _docs_records_for_text(Path("<gherkin-sample>"), positive)
+    )
+    assert positive_violations, (
+        f"Gherkin step naming Python 3.10 was not flagged: {positive_violations}"
+    )
+    assert {parsed for *_, parsed in positive_violations} == {(3, 10)}, (
+        f"Gherkin step must parse floor (3, 10): {positive_violations}"
+    )
+
+    negative = "Then it should not test Python 3.10\n"
+    negative_violations = _violations(
+        _docs_records_for_text(Path("<gherkin-sample>"), negative)
+    )
+    assert not negative_violations, (
+        "a Gherkin step explicitly stating non-support ('should not test') "
+        f"must not be flagged: {negative_violations}"
+    )
+
+
+def test_docs_classifier_distinguishes_support_from_deprecation():
+    """Anti-vacuity self-test for the docs corpus: feeds synthetic markdown
+    through the REAL classifier (`_docs_records_for_text`), mirroring
+    `test_classifier_detects_the_fallback_idiom` above. A classifier that
+    silently ignored everything, or that flagged deprecation prose as a
+    live declaration, would make this corpus vacuous or noisy without a
+    test like this one catching it."""
+    sample = (
+        "Some intro text.\n"
+        "```toml\n"
+        'python = ">=3.10"\n'
+        "```\n"
+        "This project supports Python 3.10+.\n"
+        "Python 3.10 is no longer supported here.\n"
+        'python = ">=3.9"  <!-- python-floor-exempt: fixture -->\n'
+    )
+    records = _docs_records_for_text(Path("<docs-sample>"), sample)
+    flagged_lines = {int(kind.rsplit(":", 1)[1]) for _, kind, _, _ in records}
+
+    assert 3 in flagged_lines, (
+        f'fenced `python = ">=3.10"` (line 3) was not flagged: {records}'
+    )
+    assert 5 in flagged_lines, (
+        f"prose 'Python 3.10+' (line 5) was not flagged: {records}"
+    )
+    assert 6 not in flagged_lines, (
+        "deprecation prose '3.10 is no longer supported' (line 6) was "
+        f"incorrectly flagged: {records}"
+    )
+    assert 7 not in flagged_lines, (
+        f'exempted `python = ">=3.9"` (line 7) was incorrectly flagged: {records}'
+    )
+
+
+def test_docs_prose_classifier_only_attaches_versions_to_python():
+    """Regression for the #286 PR-C follow-up: prose mode used to take the
+    line-wide minimum of EVERY version-shaped token on a line gated only by
+    a "python" mention somewhere on it, so `Python 3.10+, Rust 1.70+` read
+    Rust's `1.70` as the Python floor. That happened to still flag the
+    line (1.70 < 3.11), which made the bug invisible - the same shape with
+    a correct Python version (`Python 3.12+, Rust 1.70+`) would report a
+    false-positive violation on a perfectly fine line. This checks both the
+    absence of a violation on the correct-version line AND the exact parsed
+    floor on the violating line, per the classifier self-test convention
+    used elsewhere in this file (`test_classifier_detects_the_fallback_idiom`,
+    `test_framework_classifier_would_have_caught_the_286_sites`): checking
+    only "something was flagged" would let the misattribution regress
+    invisibly, the same way it did originally.
+    """
+    clean_sample = (
+        "**Compatibility**: GitHub Actions, Python 3.12+, Rust 1.70+, Node.js 18+\n"
+    )
+    clean_records = _docs_records_for_text(Path("<docs-sample>"), clean_sample)
+    clean_violations = [
+        record
+        for record in clean_records
+        if record[3] is not None and record[3] < MINIMUM_FLOOR
+    ]
+    assert not clean_violations, (
+        "a line whose Python version is above the floor must produce no "
+        "violation even though it also mentions Rust/Node versions - Rust's "
+        f"1.70 must not be misread as the Python floor: {clean_records}"
+    )
+
+    violating_sample = "**Compatibility**: GitHub Actions, Python 3.10+, Rust 1.70+\n"
+    violating_records = _docs_records_for_text(Path("<docs-sample>"), violating_sample)
+    assert violating_records, (
+        "a line whose Python version is below the floor must be flagged: "
+        f"{violating_records}"
+    )
+    parsed_floors = {parsed for _, _, _, parsed in violating_records}
+    assert parsed_floors == {(3, 10)}, (
+        "classifier misattributed a non-Python version token (likely Rust's "
+        f"1.70) to the Python floor instead of parsing Python's own 3.10: "
+        f"{violating_records}"
+    )
+
+
+def test_docs_table_header_must_be_a_real_header_not_nearby_prose():
+    """Regression for the exact `docs/api/actions/quality-gates.md:16` false
+    positive: a prose line mentioning "python" sitting a few rows above an
+    UNRELATED table used to be accepted as that table's header by pure
+    line-count proximity, so `| **Version** | v0.0.1 |` (an action's own
+    version, not a Python version) was misread as a Python floor of
+    `(0, 0)`. A line only counts as a table header now when it is
+    immediately followed by a markdown delimiter row (`_table_header_index`),
+    and a cell is only a Python-version candidate when the header cell AT
+    THE SAME COLUMN INDEX names Python (`_table_python_value_cells`) - so
+    prose above a table can never stand in for its header.
+
+    The second assertion is the anti-vacuity half: it proves the fix did
+    not simply disable table scanning by feeding a table whose header
+    genuinely does name a Python column and asserting it is still caught,
+    with the exact parsed floor - the same convention used by
+    `test_docs_prose_classifier_only_attaches_versions_to_python` above.
+    """
+    quality_gates_shape = (
+        "This action is intended for Python projects.\n"
+        "\n"
+        "| Setting | Value |\n"
+        "|---------|-------|\n"
+        "| **Version** | v0.0.1 |\n"
+    )
+    no_violation_records = _docs_records_for_text(
+        Path("<docs-sample>"), quality_gates_shape
+    )
+    no_violations = [
+        record
+        for record in no_violation_records
+        if record[3] is not None and record[3] < MINIMUM_FLOOR
+    ]
+    assert not no_violations, (
+        "prose mentioning 'python' above an unrelated table must not turn "
+        "that table's non-Python cell into a Python-floor violation: "
+        f"{no_violation_records}"
+    )
+
+    python_column_shape = (
+        "| Python version | Status |\n"
+        "|-----------------|--------|\n"
+        "| 3.10 | Supported |\n"
+    )
+    violating_records = _docs_records_for_text(
+        Path("<docs-sample>"), python_column_shape
+    )
+    assert violating_records, (
+        "a table whose header genuinely names a Python column must still "
+        f"be flagged - the fix must not disable table scanning: {python_column_shape!r}"
+    )
+    parsed_floors = {parsed for _, _, _, parsed in violating_records}
+    assert parsed_floors == {(3, 10)}, (
+        "a real Python-version column table must parse floor (3, 10), not "
+        f"be silently dropped or misparsed: {violating_records}"
+    )
+
+
+def _violations(records: list[DeclarationRecord]) -> list[DeclarationRecord]:
+    """Records below the floor, for the paired MISS/near-miss tests below."""
+    return [r for r in records if r[3] is not None and r[3] < MINIMUM_FLOOR]
+
+
+def test_docs_prose_classifier_handles_markdown_bold_python_mention():
+    """Regression for #286 PR-C follow-up survey site
+    `docs/ci-workflow-guide.md:62`: `- **Python**: 3.10 or higher` was not
+    flagged because markdown bold syntax puts a closing `**` directly
+    between the "Python" mention and its version, and `VERSION_RUN_RE`
+    anchored immediately after the mention (via `re.match`, not `re.search`)
+    with no allowance for it - `mention.end()` lands right before the `**`,
+    not before the digits, so the match failed at the very first character.
+    """
+    sample = "- **Python**: 3.10 or higher\n"
+    violations = _violations(_docs_records_for_text(Path("<docs-sample>"), sample))
+    assert violations, f"bold-then-colon Python mention was not flagged: {violations}"
+    assert {parsed for *_, parsed in violations} == {(3, 10)}, violations
+
+    # Near-miss: consuming the closing `**` must not let the regex skip
+    # through unrelated text to a LATER, unrelated version number.
+    near_miss = "**Python** is documented separately; see **v2.0** for details.\n"
+    near_violations = _violations(
+        _docs_records_for_text(Path("<docs-sample>"), near_miss)
+    )
+    assert not near_violations, (
+        f"an unattached later version must not be swept in: {near_violations}"
+    )
+
+
+def test_docs_inline_code_prose_is_not_dropped_by_the_structured_matcher():
+    """Regression for #286 PR-C follow-up survey site
+    `docs/ci-workflow-guide.md:122`: a job name like `` `🧪 Test Python 3.10
+    on ubuntu-latest` `` wrapped in inline code was silently dropped twice
+    over - the structured matcher only recognises config shapes (not free
+    prose), and `INLINE_CODE_RE.sub(" ", line)` blanks the span out of the
+    prose scanner's view before it ever runs.
+    """
+    sample = "Job names: `🧪 Test Python 3.10 on ubuntu-latest`.\n"
+    violations = _violations(_docs_records_for_text(Path("<docs-sample>"), sample))
+    assert violations, f"prose inside inline code was not flagged: {violations}"
+    assert {parsed for *_, parsed in violations} == {(3, 10)}, violations
+
+    # Near-miss: "Python" mentioned but not immediately attached to the
+    # version that follows an unrelated word - must not be swept in.
+    near_miss = "Job names: `Test Python and Node 3.10 on ubuntu-latest`.\n"
+    near_violations = _violations(
+        _docs_records_for_text(Path("<docs-sample>"), near_miss)
+    )
+    assert not near_violations, (
+        f"an unattached version inside inline code must not be flagged: {near_violations}"
+    )
+
+
+def test_docs_fenced_gherkin_table_without_delimiter_row_is_caught():
+    """Regression for #286 PR-C follow-up survey site
+    `docs/bdd-scenarios-ci-workflow.md:81-82`: a Gherkin data table nested
+    inside a ```gherkin fence was invisible twice over - fenced lines only
+    ran through the structured matcher (no table logic at all), and Gherkin
+    tables never carry markdown's `|---|---|` delimiter row in the first
+    place, which `_table_header_index` used to require unconditionally.
+    """
+    sample = (
+        "```gherkin\n"
+        "    Then it should test all combinations:\n"
+        "      | Python Version | Operating System |\n"
+        "      | 3.10 | ubuntu-latest |\n"
+        "      | 3.11 | ubuntu-latest |\n"
+        "```\n"
+    )
+    violations = _violations(_docs_records_for_text(Path("<docs-sample>"), sample))
+    assert violations, f"fenced Gherkin table column was not flagged: {violations}"
+    assert {parsed for *_, parsed in violations} == {(3, 10)}, violations
+
+    # Near-miss: a delimiter-less fenced table with no Python column must
+    # stay silent - proves this isn't just "flag every fenced table".
+    near_miss = (
+        "```gherkin\n"
+        "      | Framework Version | Operating System |\n"
+        "      | 1.2 | ubuntu-latest |\n"
+        "```\n"
+    )
+    near_violations = _violations(
+        _docs_records_for_text(Path("<docs-sample>"), near_miss)
+    )
+    assert not near_violations, (
+        f"a non-Python fenced table column must not be flagged: {near_violations}"
+    )
+
+
+def test_docs_fenced_prose_sentence_is_caught():
+    """Regression for #286 PR-C follow-up survey site
+    `docs/examples/quick-start.md:138`: a prose sentence inside a ```bash
+    fence (here, a multi-line git commit message body) was invisible
+    because fenced lines only ran through the structured matcher, which
+    doesn't recognise free prose at all - the same gap
+    `test_docs_fenced_gherkin_table_without_delimiter_row_is_caught` closes
+    for table rows, closed here for ordinary sentences.
+    """
+    sample = "```bash\n- Configure cross-platform testing (Python 3.10-3.12)\n```\n"
+    violations = _violations(_docs_records_for_text(Path("<docs-sample>"), sample))
+    assert violations, f"fenced prose sentence was not flagged: {violations}"
+    assert {parsed for *_, parsed in violations} == {(3, 10)}, violations
+
+    # Near-miss: fenced prose whose Python version is fine must not flag,
+    # even though it also mentions an unrelated tool's version.
+    near_miss = (
+        "```bash\n- Configure cross-platform testing (Python 3.12+, Rust 1.70+)\n```\n"
+    )
+    near_violations = _violations(
+        _docs_records_for_text(Path("<docs-sample>"), near_miss)
+    )
+    assert not near_violations, (
+        f"a fine fenced Python version must not be flagged: {near_violations}"
+    )
+
+
+def test_docs_nearby_array_literal_without_same_line_python_is_caught():
+    """Regression for #286 PR-C follow-up survey site
+    `examples/monorepo-change-detection.yml:55`: a jq pipeline builds
+    `["3.10", "3.11", "3.12"] as $versions |` on one line and consumes it as
+    `{package: $pkg, python: $ver}` two lines later - the array line itself
+    never mentions "python", so the same-line-only gate missed it even
+    though `examples/**/*.yml` is genuinely walked (`_iter_docs_candidate_files`
+    includes it, and this is the only version-shaped content anywhere under
+    `examples/`).
+    """
+    sample = (
+        'test_matrix=$(echo "$package_array" | jq \'\n'
+        "  [.[] as $pkg |\n"
+        '   ["3.10", "3.11", "3.12"] as $versions |\n'
+        "   $versions[] as $ver |\n"
+        "   {package: $pkg, python: $ver}]')\n"
+    )
+    violations = _violations(_docs_records_for_text(Path("<docs-sample>"), sample))
+    assert violations, f"nearby array literal was not flagged: {violations}"
+    assert {parsed for *_, parsed in violations} == {(3, 10)}, violations
+
+    # Near-miss: an unrelated array sitting outside the mention window must
+    # not be swept in, even though a "python" mention appears later on.
+    near_miss = "retries = [1.5, 2.5, 3.5]\n\n\n\n# uses python for orchestration\n"
+    near_violations = _violations(
+        _docs_records_for_text(Path("<docs-sample>"), near_miss)
+    )
+    assert not near_violations, (
+        f"an out-of-window array must not be flagged: {near_violations}"
+    )
+
+
+def test_docs_fence_scoped_exemption_is_tight_and_does_not_leak():
+    """Regression for `docs/ci-workflow-guide.md:202`: a sample diagnostic
+    (`::warning ... this job is named for Python 3.11 but pixi environment
+    'default' runs Python 3.9 ...`) sits several lines inside a fenced code
+    block, illustrating a mismatch rather than declaring one. An HTML
+    comment cannot live INSIDE the fence - it would render literally as
+    part of the sample - so `<!-- python-floor-exempt: ... -->` has to sit
+    on the line immediately above the OPENING fence instead, and
+    `_is_docs_exempt`'s same-line-or-line-above contract can never see a
+    marker separated from its target by the fence line itself. This is the
+    fence-scoped counterpart (`_fence_is_exempt`), checked in three parts
+    so the exemption is proven both present where it should be and absent
+    everywhere it should not leak to - the same paired
+    present/absent convention as `test_docs_prose_classifier_only_attaches_versions_to_python`.
+    """
+    # Part 1: marker immediately above the opening fence exempts a line two
+    # rows deep in that block - must raise no violation at all.
+    exempt_sample = (
+        "<!-- python-floor-exempt: sample diagnostic output illustrating a "
+        "mismatch, not a support declaration -->\n"
+        "```\n"
+        "some diagnostic preamble\n"
+        'python = ">=3.9"\n'
+        "```\n"
+    )
+    exempt_violations = _violations(
+        _docs_records_for_text(Path("<docs-sample>"), exempt_sample)
+    )
+    assert not exempt_violations, (
+        "a marker immediately above the opening fence must exempt every "
+        f"line inside that fenced block: {exempt_violations}"
+    )
+
+    # Part 2 (anti-vacuity): a BLANK line between the marker and the fence
+    # breaks the association, so the identical fenced content is flagged
+    # with the exact parsed floor - proves the exemption is scoped to
+    # "immediately before the fence", not merely "somewhere above it".
+    blank_gap_sample = (
+        "<!-- python-floor-exempt: sample diagnostic output illustrating a "
+        "mismatch, not a support declaration -->\n"
+        "\n"
+        "```\n"
+        "some diagnostic preamble\n"
+        'python = ">=3.9"\n'
+        "```\n"
+    )
+    blank_gap_violations = _violations(
+        _docs_records_for_text(Path("<docs-sample>"), blank_gap_sample)
+    )
+    assert blank_gap_violations, (
+        "a marker separated from the fence by a blank line must NOT exempt "
+        f"the block: {blank_gap_violations}"
+    )
+    assert {parsed for *_, parsed in blank_gap_violations} == {(3, 9)}, (
+        f"blank-gap block must parse floor (3, 9): {blank_gap_violations}"
+    )
+
+    # Part 3: a marker exempting one fenced block must not leak past its own
+    # closing fence into a LATER, unmarked block in the same document.
+    two_block_sample = (
+        "<!-- python-floor-exempt: sample diagnostic output illustrating a "
+        "mismatch, not a support declaration -->\n"
+        "```\n"
+        'python = ">=3.9"\n'
+        "```\n"
+        "\n"
+        "Some unrelated prose here.\n"
+        "\n"
+        "```\n"
+        'python = ">=3.10"\n'
+        "```\n"
+    )
+    two_block_violations = _violations(
+        _docs_records_for_text(Path("<docs-sample>"), two_block_sample)
+    )
+    assert two_block_violations, (
+        f"the second, unmarked fenced block must still be flagged: {two_block_violations}"
+    )
+    assert {parsed for *_, parsed in two_block_violations} == {(3, 10)}, (
+        "exemption leaked past its own closing fence into the second block "
+        f"(expected only (3, 10) from block B): {two_block_violations}"
     )

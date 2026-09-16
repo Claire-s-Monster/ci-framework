@@ -153,7 +153,7 @@ jobs:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
       quality-level: "essential"
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
 ```
 
 ### Making Your First Change (2:30-2:50)

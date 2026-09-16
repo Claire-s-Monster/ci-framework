@@ -3,7 +3,7 @@
 Compatibility Report Generator
 
 Generates comprehensive compatibility matrix report for CI workflow template
-across Python 3.10-3.12 and ubuntu/macos platforms as specified in Task 2.7.
+across Python 3.11-3.12 and ubuntu/macos platforms as specified in Task 2.7.
 """
 
 import json
@@ -31,9 +31,9 @@ class CompatibilityReportGenerator:
                 "machine": platform.machine(),
             },
             "matrix_specification": {
-                "python_versions": ["3.10", "3.11", "3.12"],
+                "python_versions": ["3.11", "3.12"],
                 "os_platforms": ["ubuntu-latest", "macos-latest"],
-                "total_combinations": 6,
+                "total_combinations": 4,
             },
             "validation_results": {},
             "gate_checklist": {},
@@ -71,7 +71,7 @@ class CompatibilityReportGenerator:
             python_versions = matrix.get("python-version", [])
             os_platforms = matrix.get("os", [])
 
-            expected_python = ["3.10", "3.11", "3.12"]
+            expected_python = ["3.11", "3.12"]
             expected_os = ["ubuntu-latest", "macos-latest"]
 
             matrix_valid = (
@@ -129,26 +129,26 @@ class CompatibilityReportGenerator:
             dependencies = pixi_config.get("dependencies", {})
             python_spec = dependencies.get("python", "")
 
-            python_310_support = (
-                "3.10" in python_spec
-                or ">=3.10" in python_spec
+            python_311_support = (
+                "3.11" in python_spec
+                or ">=3.11" in python_spec
                 or "3.12" in python_spec
             )
             python_312_support = True  # 3.12.* includes 3.12 support
 
             self.report_data["validation_results"]["pixi_config"] = {
                 "status": "passed"
-                if (linux_support and python_310_support)
+                if (linux_support and python_311_support)
                 else "failed",
                 "platforms_configured": platforms,
                 "linux_support": linux_support,
                 "macos_support": macos_support,
                 "python_specification": python_spec,
-                "python_310_support": python_310_support,
+                "python_311_support": python_311_support,
                 "python_312_support": python_312_support,
             }
 
-            return linux_support and python_310_support
+            return linux_support and python_311_support
 
         except ImportError:
             # Fall back for Python < 3.11
@@ -234,18 +234,8 @@ class CompatibilityReportGenerator:
         """Simulate performance across matrix combinations"""
         print("⚡ Simulating matrix performance variance...")
 
-        # Simulate performance data for 6 combinations
+        # Simulate performance data for 4 combinations
         mock_performance = {
-            "python_3.10_ubuntu-latest": {
-                "duration": 120.5,
-                "memory_mb": 512,
-                "cpu_percent": 45.2,
-            },
-            "python_3.10_macos-latest": {
-                "duration": 125.8,
-                "memory_mb": 520,
-                "cpu_percent": 48.1,
-            },
             "python_3.11_ubuntu-latest": {
                 "duration": 118.9,
                 "memory_mb": 508,
@@ -302,8 +292,8 @@ class CompatibilityReportGenerator:
         validation_results = self.report_data["validation_results"]
 
         gates = {
-            "all_6_matrix_combinations_configured": (
-                validation_results.get("ci_template", {}).get("total_combinations") == 6
+            "all_4_matrix_combinations_configured": (
+                validation_results.get("ci_template", {}).get("total_combinations") == 4
             ),
             "no_platform_specific_failures": (
                 validation_results.get("pixi_config", {}).get("linux_support", False)
@@ -317,7 +307,7 @@ class CompatibilityReportGenerator:
             ),
             "python_version_compatibility_verified": (
                 validation_results.get("pixi_config", {}).get(
-                    "python_310_support", False
+                    "python_311_support", False
                 )
                 and validation_results.get("pixi_config", {}).get(
                     "python_312_support", False

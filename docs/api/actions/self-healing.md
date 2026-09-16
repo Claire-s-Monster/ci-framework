@@ -199,7 +199,7 @@ The self-healing engine uses pattern-based detection and fixes:
 ```toml
 # pyproject.toml - Required PIXI configuration
 [tool.pixi.feature.dev.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 ruff = "*"
 mypy = "*"
 pytest = "*"

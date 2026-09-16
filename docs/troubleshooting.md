@@ -309,7 +309,7 @@ strategy:
 strategy:
   fail-fast: true  # Stop other jobs if one fails
   matrix:
-    python-version: ["3.10", "3.11", "3.12"]
+    python-version: ["3.11", "3.12"]
 ```
 
 ### 7. Platform-Specific Issues

@@ -221,7 +221,7 @@ jobs:
 strategy:
   matrix:
     environment: [ubuntu, alpine, centos]
-    python-version: ['3.10', '3.11', '3.12']
+    python-version: ['3.11', '3.12']
 
 steps:
   - name: Test ${{ matrix.environment }} with Python ${{ matrix.python-version }}

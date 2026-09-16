@@ -57,12 +57,10 @@ Feature: Python CI Workflow Template
     And the summary should include total execution time
     And the summary should include artifact links
 
-  Scenario: Matrix testing covers Python 3.10-3.12 on ubuntu/macos
+  Scenario: Matrix testing covers Python 3.11-3.12 on ubuntu/macos
     Given I have matrix testing configured
     When the CI workflow runs
-    Then it should test Python 3.10 on ubuntu-latest
-    And it should test Python 3.10 on macos-latest
-    And it should test Python 3.11 on ubuntu-latest
+    Then it should test Python 3.11 on ubuntu-latest
     And it should test Python 3.11 on macos-latest
     And it should test Python 3.12 on ubuntu-latest
     And it should test Python 3.12 on macos-latest

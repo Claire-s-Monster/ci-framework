@@ -254,19 +254,18 @@ runs:
         EOF
 
     - name: Upload Quality Reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: quality-reports-${{ inputs.tier }}
         path: ${{ inputs.reports-dir }}
         retention-days: 30
 
-    - name: Upload SARIF Results
-      uses: github/codeql-action/upload-sarif@v2
-      if: always() && hashFiles(format('{0}/security.sarif', inputs.reports-dir)) != ''
-      with:
-        sarif_file: ${{ inputs.reports-dir }}/security.sarif
-        category: quality-gates-security
+    # No SARIF upload here: this action runs quality gates, not security
+    # scanners, and never wrote the security.sarif it used to reference. The
+    # step was dead (its hashFiles guard could not be satisfied) and pinned to
+    # a stale upload-sarif@v2 with no token. Security SARIF is produced and
+    # uploaded by actions/security-scan and the reusable-* workflows (#306).
 
     - name: Comment PR with Results
       uses: actions/github-script@v6

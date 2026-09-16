@@ -140,7 +140,7 @@ runs:
           performance-benchmark-${{ runner.os }}-
 
     - name: Download Baseline Results
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v8
       if: inputs.compare-baseline == 'true'
       continue-on-error: true
       with:
@@ -366,7 +366,7 @@ runs:
         EOF
 
     - name: Upload Benchmark Results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: benchmark-results-${{ inputs.suite }}-${{ github.sha }}
@@ -374,7 +374,7 @@ runs:
         retention-days: 90
 
     - name: Upload Baseline Results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       if: always() && github.ref == format('refs/heads/{0}', inputs.baseline-branch)
       with:
         name: benchmark-baseline-${{ inputs.baseline-branch }}

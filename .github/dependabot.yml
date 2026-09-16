@@ -21,6 +21,124 @@ updates:
       - "MementoRC"
     open-pull-requests-limit: 5
 
+  # NOTE: the "github-actions" entry above with directory: "/" only scans
+  # .github/workflows for `uses:` pins - it does NOT reach composite actions
+  # under actions/**/action.yml. That gap is how actions/ silently drifted
+  # to retired majors (e.g. upload-artifact@v3/v4) while .github/workflows/
+  # stayed current on the same actions (see #306 follow-up). Each composite
+  # action needs its own entry below or its pins will rot unnoticed again.
+  - package-ecosystem: "github-actions"
+    directory: "/actions/change-detection"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "MementoRC"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/actions/cleanup-dev-files"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "MementoRC"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/actions/cross-platform-validation"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "MementoRC"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/actions/performance-benchmark"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "MementoRC"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/actions/quality-gates"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "MementoRC"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/actions/security-scan"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "MementoRC"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/actions/self-healing"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "MementoRC"
+    open-pull-requests-limit: 5
+
   # Python/pip dependencies (pyproject.toml, requirements.txt)
   - package-ecosystem: "pip"
     directory: "/"

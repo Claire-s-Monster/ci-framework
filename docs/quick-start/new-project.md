@@ -90,7 +90,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 pytest = "*"
 ruff = "*"
 mypy = "*"
@@ -115,7 +115,7 @@ jobs:
   quality-gates:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "essential"
 
   security-scan:

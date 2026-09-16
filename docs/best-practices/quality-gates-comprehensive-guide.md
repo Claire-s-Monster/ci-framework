@@ -224,7 +224,7 @@ upload_sarif = true
 select = ["F", "E9", "W", "B", "C4", "UP"]
 ignore = ["E501", "B008"]
 line-length = 88
-target-version = "py310"
+target-version = "py311"
 
 [quality_gates.tools.mypy]
 strict = true
@@ -320,13 +320,13 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ['3.11', '3.12']
         tier: [essential, extended]
         exclude:
           # Optimize matrix based on context
           - os: windows-latest
             tier: extended
-          - python-version: '3.10'
+          - python-version: '3.11'
             tier: extended
 
     runs-on: ${{ matrix.os }}

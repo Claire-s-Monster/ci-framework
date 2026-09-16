@@ -176,7 +176,7 @@ dependencies = ["requests", "click"]
 
 # Framework adds optimized sections
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 pytest = "*"
 ruff = "*"
 

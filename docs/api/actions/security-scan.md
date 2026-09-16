@@ -674,4 +674,4 @@ ignore_ids = ["12345", "67890"]  # Ignore specific CVEs
 
 **Action Version**: 0.0.1
 **Last Updated**: January 2025
-**Compatibility**: GitHub Actions v4+, Python 3.10+
+**Compatibility**: GitHub Actions v4+, Python 3.11+

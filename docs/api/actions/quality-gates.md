@@ -221,7 +221,7 @@ jobs:
     strategy:
       matrix:
         tier: [essential, extended, full]
-        python-version: [3.10, 3.11, 3.12]
+        python-version: [3.11, 3.12]
     steps:
       - uses: actions/checkout@v4
 
@@ -545,4 +545,4 @@ Quality gates include and extend pre-commit functionality:
 
 **Action Version**: 0.0.1
 **Last Updated**: January 2025
-**Compatibility**: GitHub Actions v4+, Python 3.10+
+**Compatibility**: GitHub Actions v4+, Python 3.11+

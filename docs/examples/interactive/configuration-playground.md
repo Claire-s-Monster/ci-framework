@@ -92,7 +92,7 @@ name: Balanced CI
 on: [push, pull_request]
 
 env:
-  PYTHON_VERSIONS: "3.10,3.11,3.12"
+  PYTHON_VERSIONS: "3.11,3.12"
 
 jobs:
   change-detection:
@@ -124,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: ./actions/quality-gates
@@ -161,7 +161,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 pytest = "*"
 pytest-cov = "*"
 ruff = "*"
@@ -207,7 +207,7 @@ name: Enterprise CI
 on: [push, pull_request]
 
 env:
-  PYTHON_VERSIONS: "3.10,3.11,3.12"
+  PYTHON_VERSIONS: "3.11,3.12"
   SECURITY_LEVEL: "critical"
 
 jobs:
@@ -230,7 +230,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
@@ -300,7 +300,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 pytest = "*"
 pytest-cov = "*"
 pytest-xdist = "*"
@@ -504,7 +504,7 @@ Enterprise Configuration:
 | **Unit Tests** | ✅ Basic | ✅ Full | ✅ Full + Parallel |
 | **Integration Tests** | ❌ | ✅ | ✅ |
 | **Cross-Platform** | ❌ | ❌ | ✅ (Linux + macOS) |
-| **Multi-Python** | ❌ | ✅ (3.10-3.12) | ✅ (3.10-3.12) |
+| **Multi-Python** | ❌ | ✅ (3.11-3.12) | ✅ (3.11-3.12) |
 | **Performance Tests** | ❌ | ❌ | ✅ |
 | **Container Tests** | ❌ | ❌ | ✅ (4 environments) |
 | **API Tests** | ❌ | ❌ | ✅ |
@@ -827,7 +827,7 @@ strategy:
         quality-tier: "essential"
 
       # Comprehensive for main branch
-      - python-version: "3.10"
+      - python-version: "3.11"
         os: ubuntu-latest
         quality-tier: "extended"
       - python-version: "3.12"

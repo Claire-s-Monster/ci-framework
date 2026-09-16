@@ -348,7 +348,7 @@ def fast_function(items):
    platforms = ["linux-64"]   # Match your CI platform
 
    [tool.pixi.dependencies]
-   python = ">=3.10,<3.13"    # Use version ranges
+   python = ">=3.11,<3.13"    # Use version ranges
    ```
 
 3. **Task execution failures**
@@ -405,7 +405,7 @@ pixi run lint
    ```toml
    # Use looser version constraints
    [tool.poetry.dependencies]
-   python = "^3.10"  # Instead of exact version
+   python = "^3.11"  # Instead of exact version
    requests = "*"     # Let poetry resolve
    ```
 
@@ -571,7 +571,7 @@ yamllint .github/actions/*/action.yml
    # Use supported versions
    strategy:
      matrix:
-       python-version: ["3.10", "3.11", "3.12"]  # Stable versions
+       python-version: ["3.11", "3.12"]  # Stable versions
    ```
 
 3. **System dependency missing**
@@ -595,7 +595,7 @@ runs-on: ${{ matrix.os }}
 strategy:
   matrix:
     os: [ubuntu-latest, macos-latest, windows-latest]
-    python-version: ["3.10", "3.11", "3.12"]
+    python-version: ["3.11", "3.12"]
 
 steps:
   - uses: actions/checkout@v4
@@ -658,7 +658,7 @@ steps:
        needs: quick-checks
        strategy:
          matrix:
-           python-version: ["3.10", "3.11", "3.12"]
+           python-version: ["3.11", "3.12"]
        # Run different versions in parallel
    ```
 
@@ -1195,7 +1195,7 @@ Brief description of what's not working
 ## Configuration
 - Project type: [web app/CLI/package/etc.]
 - Package manager: [pixi/poetry/pip]
-- Python version: [3.10/3.11/3.12]
+- Python version: [3.11/3.12]
 - OS: [ubuntu/macos/windows]
 
 ## Error Message

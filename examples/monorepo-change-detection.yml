@@ -52,7 +52,7 @@ jobs:
             # Create test matrix (package + Python version combinations)
             test_matrix=$(echo "$package_array" | jq '
               [.[] as $pkg |
-               ["3.10", "3.11", "3.12"] as $versions |
+               ["3.11", "3.12"] as $versions |
                $versions[] as $ver |
                {package: $pkg, python: $ver}]')
             echo "test-matrix=$test_matrix" >> $GITHUB_OUTPUT

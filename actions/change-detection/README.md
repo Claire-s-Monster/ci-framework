@@ -254,7 +254,6 @@ jobs:
         python-version: [3.11, 3.12]
         # Optimize matrix based on change impact
         exclude:
-          - python-version: ${{ needs.change-detection.outputs.optimization-score > 50 && '3.11' || '' }}
           - python-version: ${{ needs.change-detection.outputs.optimization-score > 75 && '3.11' || '' }}
     runs-on: ubuntu-latest
     steps:

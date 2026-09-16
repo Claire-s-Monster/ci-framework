@@ -46,7 +46,7 @@ them here would fail this guard until that PR lands. Doc drift is
 therefore NOT currently guarded by this file.
 
 Issue #286 PR-B added a fourth corpus: `discover_framework_version_declarations`
-walks every `*.py` under `framework/` for version-spec literals (`py3XX`,
+walks every `*.py` under `framework/` and `scripts/` for version-spec literals (`py3XX`,
 `>=3.Y`/`^3.Y`/`~=3.Y`, `3.Y.*`, version-string list literals) and
 `sys.version_info >= (3, N)`-shaped comparisons, checked against the same
 declared floor. Sites that are deliberately below the floor - consumer-project
@@ -61,9 +61,13 @@ out of scope for this corpus - see the corpus's own docstring below.
 
 Issue #286 PR-C added a fifth corpus: `discover_docs_version_declarations`
 walks `docs/**/*.md`, the repo-root `README.md`, `examples/**/*.yml`|`.yaml`,
-and shipped composite-action READMEs (`actions/*/README.md`,
-`.github/actions/*/README.md`) - the two corpora the #286 paragraph above
-named as still excluded. Markdown mixes structured config with running
+shipped composite-action READMEs (`actions/*/README.md`,
+`.github/actions/*/README.md`), and `workflows/**/*.feature` (Gherkin step
+text is prose, not structured config, so it walks through the same
+markdown/prose corpus rather than a corpus of its own) - the two corpora
+the #286 paragraph above named as still excluded, plus the Gherkin sweep
+that found `workflows/python-ci-template.feature` still declaring Python
+3.10 steps. Markdown mixes structured config with running
 prose, so this corpus classifies each line as structured (inside a ```
 fence or an inline `code span`, matched against the same quoted/structured
 shapes the other corpora use) or prose (a bare `X.Y` token in running
@@ -817,10 +821,13 @@ def test_declaration_classifier_would_have_caught_py310():
 
 
 # ============================================================================
-# #286 PR-B: version declarations inside `framework/` (source and tests)
+# #286 PR-B: version declarations inside `framework/` (source and tests).
+# #286 PR-C widened this to `scripts/` too (see `_iter_framework_python_files`):
+# standalone tooling that isn't part of the `framework/` package but is
+# exactly as subject to the declared floor.
 #
 # The three corpora above cover what this repo SHIPS (templates, workflows,
-# the migrator's emitted literals). They do not cover `framework/` itself,
+# the migrator's emitted literals). They did not cover `framework/` itself,
 # which is how `test_compatibility_matrix.py` came to assert
 # `sys.version_info >= (3, 10)` and publish `"3.10": "✅ Supported"` while
 # `[project] requires-python` said 3.11.
@@ -836,6 +843,7 @@ def test_declaration_classifier_would_have_caught_py310():
 # ============================================================================
 
 FRAMEWORK_DIR = REPO_ROOT / "framework"
+SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 # Some version literals below the floor are CORRECT and must stay: the
 # classifier self-test samples in this very file, and synthetic fixtures
@@ -885,12 +893,16 @@ def _is_exempt(lines: list[str], lineno: int) -> bool:
 
 
 def _iter_framework_python_files() -> list[Path]:
-    """Every `*.py` under `framework/`, minus the usual excluded directories."""
-    if not FRAMEWORK_DIR.is_dir():
-        return []
+    """Every `*.py` under `framework/` and `scripts/`, minus the usual
+    excluded directories. `scripts/` ships standalone tooling (#286
+    PR-C found `scripts/generate_compatibility_report.py` still pinned to
+    3.10) that isn't part of the `framework/` package but is exactly as
+    subject to the declared floor."""
+    dirs = [d for d in (FRAMEWORK_DIR, SCRIPTS_DIR) if d.is_dir()]
     return sorted(
         path
-        for path in FRAMEWORK_DIR.rglob("*.py")
+        for d in dirs
+        for path in d.rglob("*.py")
         if not any(part in EXCLUDED_DIR_NAMES for part in path.parts)
     )
 
@@ -955,8 +967,23 @@ def test_framework_corpus_is_not_vacuous():
     """Vacuity guard, matching the three corpora above."""
     assert discover_framework_version_declarations(), (
         "no version-spec literals or floor comparisons found anywhere under "
-        "framework/ - the framework walker is broken, and every site in it "
-        "is silently unguarded"
+        "framework/ or scripts/ - the framework walker is broken, and every "
+        "site in it is silently unguarded"
+    )
+
+
+def test_framework_corpus_walks_scripts_root():
+    """Per-root vacuity guard (#286 PR-C): `scripts/**/*.py` must actually
+    contribute records on its own, not just ride along with `framework/`'s
+    count - an empty `scripts/` walk would make
+    `test_framework_corpus_is_not_vacuous` pass for free even if that root
+    were silently unguarded, the same failure shape the other per-corpus
+    vacuity tests in this file guard against."""
+    records = discover_framework_version_declarations()
+    scripts_records = [path for path, *_ in records if SCRIPTS_DIR in path.parents]
+    assert scripts_records, (
+        "no version-spec literals or floor comparisons found under "
+        "scripts/ - the scripts/ root is not actually being walked"
     )
 
 
@@ -1008,8 +1035,10 @@ def test_framework_classifier_would_have_caught_the_286_sites():
 
 
 # ============================================================================
-# #286 PR-C: version declarations inside docs/, README.md, examples/, and
-# shipped composite-action READMEs.
+# #286 PR-C: version declarations inside docs/, README.md, examples/,
+# shipped composite-action READMEs, and workflows/**/*.feature (Gherkin
+# step text - prose, not structured config, so it rides this same
+# markdown/prose corpus rather than getting a corpus of its own).
 #
 # Markdown mixes structured config (fenced code blocks, inline-code spans)
 # with running prose, so this corpus classifies each line in one of two
@@ -1048,6 +1077,7 @@ README_PATH = REPO_ROOT / "README.md"
 EXAMPLES_DIR = REPO_ROOT / "examples"
 ACTIONS_DIR = REPO_ROOT / "actions"
 GITHUB_ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
+WORKFLOWS_FEATURE_DIR = REPO_ROOT / "workflows"
 
 # Mirrors EXEMPT_LINE_RE's same-line-or-above contract and mandatory reason,
 # spelled as an HTML comment since `#` is not a comment marker in Markdown.
@@ -1055,9 +1085,13 @@ DOCS_EXEMPT_RE = re.compile(r"<!--\s*python-floor-exempt:\s*\S")
 
 # Case-insensitive non-support vocabulary that suppresses a match in either
 # mode - see the corpus header comment above for why this exists.
+# `should\s+not` covers the Gherkin negative-assertion idiom the
+# `workflows/**/*.feature` root (#286 PR-C) introduced - `Then it should not
+# test Python 3.10` states non-support the same way `not supported` does in
+# prose, just with a different verb.
 DOCS_NEGATION_RE = re.compile(
     r"not\s+supported|no\s+longer|dropped|unsupported|removed|fails?|"
-    r"ModuleNotFoundError|must\s+pass\s+an\s+explicit",
+    r"ModuleNotFoundError|must\s+pass\s+an\s+explicit|should\s+not",
     re.IGNORECASE,
 )
 
@@ -1116,8 +1150,10 @@ VERSION_RUN_RE = re.compile(
 
 def _iter_docs_candidate_files() -> list[Path]:
     """`docs/**/*.md`, the repo-root `README.md`, `examples/**/*.yml`|`.yaml`,
-    and shipped composite-action READMEs (`actions/*/README.md`,
-    `.github/actions/*/README.md`)."""
+    shipped composite-action READMEs (`actions/*/README.md`,
+    `.github/actions/*/README.md`), and `workflows/**/*.feature` (Gherkin
+    step text is prose, not structured config, so it is walked by this
+    corpus rather than the framework one)."""
     candidates: set[Path] = set()
     if DOCS_DIR.is_dir():
         candidates.update(DOCS_DIR.rglob("*.md"))
@@ -1130,6 +1166,8 @@ def _iter_docs_candidate_files() -> list[Path]:
         candidates.update(ACTIONS_DIR.glob("*/README.md"))
     if GITHUB_ACTIONS_DIR.is_dir():
         candidates.update(GITHUB_ACTIONS_DIR.glob("*/README.md"))
+    if WORKFLOWS_FEATURE_DIR.is_dir():
+        candidates.update(WORKFLOWS_FEATURE_DIR.rglob("*.feature"))
     return sorted(
         path
         for path in candidates
@@ -1516,8 +1554,9 @@ def _docs_records_for_text(path: Path, text: str) -> list[DeclarationRecord]:
 
 
 def discover_docs_version_declarations() -> list[DeclarationRecord]:
-    """Python-version declarations across docs/, README.md, examples/, and
-    shipped composite-action READMEs (#286 PR-C)."""
+    """Python-version declarations across docs/, README.md, examples/,
+    shipped composite-action READMEs, and workflows/**/*.feature (#286
+    PR-C)."""
     records: list[DeclarationRecord] = []
     for path in _iter_docs_candidate_files():
         try:
@@ -1532,8 +1571,55 @@ def test_docs_corpus_is_not_vacuous():
     """Vacuity guard, matching `test_framework_corpus_is_not_vacuous` above."""
     assert discover_docs_version_declarations(), (
         "no version declarations found anywhere in docs/, README.md, "
-        "examples/, or shipped action READMEs - the docs walker is broken, "
-        "and every site in it is silently unguarded"
+        "examples/, shipped action READMEs, or workflows/**/*.feature - the "
+        "docs walker is broken, and every site in it is silently unguarded"
+    )
+
+
+def test_docs_corpus_walks_workflows_feature_root():
+    """Per-root vacuity guard (#286 PR-C): `workflows/**/*.feature` must
+    actually contribute records on its own, not just ride along with the
+    rest of the docs corpus's count - mirrors
+    `test_framework_corpus_walks_scripts_root` for the sibling new root."""
+    records = discover_docs_version_declarations()
+    feature_records = [
+        path for path, *_ in records if WORKFLOWS_FEATURE_DIR in path.parents
+    ]
+    assert feature_records, (
+        "no version declarations found under workflows/**/*.feature - the "
+        "workflows/.feature root is not actually being walked"
+    )
+
+
+def test_docs_classifier_handles_gherkin_step_lines():
+    """Classifier self-test for the `workflows/**/*.feature` root (#286
+    PR-C): replays the real #286 PR-C shape found in
+    `workflows/python-ci-template.feature` - a `Then`/`And` Gherkin step
+    naming a Python version - as synthetic input through the real
+    classifier (`_docs_records_for_text`), mirroring
+    `test_classifier_detects_the_fallback_idiom` above. Gherkin step text
+    is prose (no fences, no code spans), so it exercises the same
+    Python-attachment (`VERSION_RUN_RE`) and negation-awareness
+    (`DOCS_NEGATION_RE`, extended with `should\\s+not` for this idiom) the
+    rest of the docs corpus already relies on."""
+    positive = "Then it should test Python 3.10 on ubuntu-latest\n"
+    positive_violations = _violations(
+        _docs_records_for_text(Path("<gherkin-sample>"), positive)
+    )
+    assert positive_violations, (
+        f"Gherkin step naming Python 3.10 was not flagged: {positive_violations}"
+    )
+    assert {parsed for *_, parsed in positive_violations} == {(3, 10)}, (
+        f"Gherkin step must parse floor (3, 10): {positive_violations}"
+    )
+
+    negative = "Then it should not test Python 3.10\n"
+    negative_violations = _violations(
+        _docs_records_for_text(Path("<gherkin-sample>"), negative)
+    )
+    assert not negative_violations, (
+        "a Gherkin step explicitly stating non-support ('should not test') "
+        f"must not be flagged: {negative_violations}"
     )
 
 

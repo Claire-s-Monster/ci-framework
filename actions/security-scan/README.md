@@ -87,6 +87,21 @@ The `github-token` input defaults to `${{ github.token }}` (the calling job's ow
 
 Setting `sarif-upload: 'false'` disables the upload entirely, in which case no elevated permission is required.
 
+## Bandit SARIF Findings Require a Formatter Plugin
+
+bandit has no built-in SARIF writer. The `-f sarif` output format only works when the `bandit-sarif-formatter` plugin is installed alongside bandit itself.
+
+This action installs its tools from the caller's own pixi environment — whichever one the `pixi-environment` input points at (default `quality-extended`) — not from anything bundled with the action. That means the action cannot supply the plugin for you; if you want bandit's findings in the uploaded SARIF, you need to add `bandit-sarif-formatter` to that environment in your own `pyproject.toml`.
+
+Skipping it doesn't break the scan: bandit still runs and still reports findings, and other tools that emit SARIF natively (semgrep, Trivy) are unaffected. Only bandit's contribution to the combined SARIF is dropped, and the action surfaces this with a `::warning::` at runtime.
+
+`bandit-sarif-formatter` is published on PyPI; add it as a pypi dependency on the feature matching your `pixi-environment` input:
+
+```toml
+[tool.pixi.feature.quality-extended.pypi-dependencies]
+bandit-sarif-formatter = "*"
+```
+
 ## Outputs
 
 | Output | Description |

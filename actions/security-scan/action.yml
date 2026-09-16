@@ -309,6 +309,19 @@ runs:
             }
         }
 
+        def _escape_annotation(text: str) -> str:
+            """Escape text for a GitHub Actions workflow command.
+
+            Workflow commands are line-delimited, so a raw newline would end the
+            `::warning::` and dump the remainder as plain log output. `%` must be
+            escaped first or the escapes below get double-escaped.
+            """
+            return (
+                text.replace("%", "%25")
+                .replace("\r", "%0D")
+                .replace("\n", "%0A")
+            )
+
         class SecurityScanner:
             def __init__(self, security_level: str, project_dir: Path, reports_dir: Path):
                 self.security_level = security_level
@@ -369,7 +382,7 @@ runs:
                             "::warning::bandit SARIF output unavailable - install "
                             "bandit-sarif-formatter to include bandit findings in "
                             "code scanning. Details: "
-                            f"{sarif_result.stderr.strip()}"
+                            f"{_escape_annotation(sarif_result.stderr.strip())}"
                         )
 
                     # Parse results
@@ -792,7 +805,7 @@ runs:
         EOF
 
     - name: Upload Security Reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: security-reports-${{ inputs.security-level }}
@@ -808,7 +821,7 @@ runs:
         token: ${{ inputs.github-token }}
 
     - name: Upload SBOM Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       if: always() && inputs.sbom-generation == 'true' && steps.security-scan.outputs.sbom-file != ''
       with:
         name: sbom-${{ inputs.security-level }}

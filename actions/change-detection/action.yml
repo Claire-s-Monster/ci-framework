@@ -733,7 +733,7 @@ runs:
         EOF
 
     - name: Upload Change Detection Reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: change-detection-reports-${{ inputs.detection-level }}

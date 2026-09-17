@@ -29,7 +29,7 @@ mv python-ci-template.yml.template .github/workflows/ci.yml
 Ensure your `pyproject.toml` has the minimum required configuration:
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-project"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -521,7 +521,7 @@ deploy-production:
 2. **Update pyproject.toml**:
    ```toml
    # Add pixi configuration
-   [tool.pixi.project]
+   [tool.pixi.workspace]
    name = "your-project"
 
    [tool.pixi.dependencies]

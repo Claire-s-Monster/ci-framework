@@ -267,6 +267,50 @@ test = "pytest"
             detected_platforms = patterns["platforms"]
             assert detected_platforms == platform_config
 
+    def test_platform_detection_from_workspace_table(self, quality_gates_action):
+        """Pixi deprecated `[tool.pixi.project]` in favour of
+        `[tool.pixi.workspace]`; platform detection must read the new table."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir) / "workspace_platform_test"
+            project_dir.mkdir()
+
+            (project_dir / "pyproject.toml").write_text(
+                """
+[tool.pixi.workspace]
+name = "workspace-platform-test"
+platforms = ["linux-64", "osx-arm64"]
+
+[tool.pixi.tasks]
+test = "pytest"
+"""
+            )
+
+            patterns = quality_gates_action._detect_project_patterns(project_dir)
+
+            assert patterns["platforms"] == ["linux-64", "osx-arm64"]
+
+    def test_platform_detection_from_legacy_project_table(self, quality_gates_action):
+        """Consumers who have not migrated yet still declare
+        `[tool.pixi.project]`; platform detection must keep accepting it."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir) / "legacy_platform_test"
+            project_dir.mkdir()
+
+            (project_dir / "pyproject.toml").write_text(
+                """
+[tool.pixi.project]
+name = "legacy-platform-test"
+platforms = ["linux-64", "osx-arm64"]
+
+[tool.pixi.tasks]
+test = "pytest"
+"""
+            )
+
+            patterns = quality_gates_action._detect_project_patterns(project_dir)
+
+            assert patterns["platforms"] == ["linux-64", "osx-arm64"]
+
     def test_platform_specific_command_adaptation(self, quality_gates_action):
         """Test that commands adapt appropriately to different platforms"""
 

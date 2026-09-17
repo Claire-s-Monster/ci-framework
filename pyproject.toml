@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "ci-framework-tools"
 version = "2.1.0"
 channels = ["conda-forge"]

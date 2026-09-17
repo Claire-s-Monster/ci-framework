@@ -117,7 +117,9 @@ class CompatibilityReportGenerator:
                 config = tomllib.load(f)
 
             pixi_config = config.get("tool", {}).get("pixi", {})
-            project_config = pixi_config.get("project", {})
+            project_config = pixi_config.get("workspace") or pixi_config.get(
+                "project", {}
+            )
 
             # Check platforms (local development uses linux-64, CI matrix handles cross-platform)
             platforms = project_config.get("platforms", [])

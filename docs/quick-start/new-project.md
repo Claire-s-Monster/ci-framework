@@ -84,7 +84,7 @@ version = "0.1.0"
 description = "A new Python project with CI framework"
 dependencies = []
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "my-package-name"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "win-64"]

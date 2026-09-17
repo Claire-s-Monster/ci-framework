@@ -53,7 +53,7 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-web-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -118,7 +118,7 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-ds-project"
 channels = ["conda-forge", "pytorch"]
 platforms = ["linux-64"]
@@ -186,7 +186,7 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-cli-tool"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
@@ -253,7 +253,7 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-package"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
@@ -332,7 +332,7 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "enterprise-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]

@@ -49,7 +49,7 @@ jobs:
 
 ```toml
 # pyproject.toml - Minimal
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "minimal-project"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -155,7 +155,7 @@ jobs:
 
 ```toml
 # pyproject.toml - Balanced
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "balanced-project"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -294,7 +294,7 @@ jobs:
 
 ```toml
 # pyproject.toml - Enterprise
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "enterprise-project"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64"]

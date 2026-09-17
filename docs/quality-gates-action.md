@@ -148,7 +148,7 @@ print(f"Environment support: {manager.environment_support}")
 **Detection**: `[tool.pixi]` section in `pyproject.toml`
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "my-project"
 channels = ["conda-forge"]
 platforms = ["linux-64"]

@@ -417,7 +417,7 @@ python -m cProfile -s cumulative -m pytest tests/ > profile.txt
 
 ```toml
 # Optimize dependency resolution
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]  # Fewer channels = faster
 platforms = ["linux-64"]   # Only needed platforms
 

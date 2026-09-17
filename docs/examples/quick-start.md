@@ -33,7 +33,7 @@ mv python-ci-template.yml.template .github/workflows/ci.yml
 Create or update your `pyproject.toml`:
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-project-name"
 channels = ["conda-forge"]
 platforms = ["linux-64"]  # Add "osx-arm64", "osx-64" for local macOS support

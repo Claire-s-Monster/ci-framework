@@ -343,7 +343,7 @@ def fast_function(items):
    **🛠️ Solution:**
    ```toml
    # Check pyproject.toml
-   [tool.pixi.project]
+   [tool.pixi.workspace]
    channels = ["conda-forge"]  # Ensure conda-forge is included
    platforms = ["linux-64"]   # Match your CI platform
 
@@ -810,7 +810,7 @@ jobs:
    **🛠️ Solutions:**
    ```toml
    # Use multiple channels/mirrors
-   [tool.pixi.project]
+   [tool.pixi.workspace]
    channels = ["conda-forge", "defaults"]  # Fallback channels
    ```
 

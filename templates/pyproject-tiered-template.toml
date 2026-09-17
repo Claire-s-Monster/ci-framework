@@ -19,7 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 # Optional dependencies for different use cases
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "{{ project_name }}"
 version = "{{ version }}"
 channels = ["conda-forge"]

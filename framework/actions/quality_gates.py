@@ -154,11 +154,14 @@ class QualityGatesAction:
         manager = self.detect_package_manager(project_dir)
         patterns["package_manager"] = manager.name
 
-        # Detect platforms from pixi config
+        # Detect platforms from pixi config (workspace preferred, project legacy)
         if "tool" in config and "pixi" in config["tool"]:
             pixi_config = config["tool"]["pixi"]
-            if "project" in pixi_config and "platforms" in pixi_config["project"]:
-                patterns["platforms"] = pixi_config["project"]["platforms"]
+            workspace_section = pixi_config.get("workspace") or pixi_config.get(
+                "project", {}
+            )
+            if "platforms" in workspace_section:
+                patterns["platforms"] = workspace_section["platforms"]
 
         # Detect type checker
         if "tool" in config:

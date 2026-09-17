@@ -362,7 +362,7 @@ description = "Your project description"
 channels = ["conda-forge", "pola-rs"]
 platforms = ["linux-64", "win-64", "osx-64", "osx-arm64"]
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge", "pola-rs"]
 platforms = ["linux-64", "win-64", "osx-64", "osx-arm64"]
 

@@ -19,7 +19,7 @@ Pixi represents a paradigm shift in Python project management, combining the **s
 ### Foundation Pattern: Solve Group Strategy
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "project-name"
 channels = ["conda-forge", "pyviz"]  # conda-forge first for stability
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
@@ -158,7 +158,7 @@ benchmark = "pytest --benchmark-only"
 ### Multi-Platform Configuration
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
@@ -333,7 +333,7 @@ evaluate = "python scripts/evaluate_model.py"
 ### Dependency Resolution Optimization
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 # Optimize channel priority for faster resolution
 channels = [
     "conda-forge",    # Primary: Most packages, best maintained
@@ -476,7 +476,7 @@ dependencies:
 
 #### After (Pixi)
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 
 [tool.pixi.dependencies]
@@ -496,7 +496,7 @@ pytest = ">=8.0.0"  # No more pip section needed
 ### Example 1: MCP Server (llm-cli-runner)
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "llm-cli-runner"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "osx-arm64"]
@@ -532,7 +532,7 @@ quality = { depends-on = ["test", "lint"] }
 ### Example 2: Large Application (hb-strategy-sandbox)
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "hb-strategy-sandbox"
 channels = ["conda-forge", "pyviz"]
 platforms = ["linux-64", "osx-64"]
@@ -573,7 +573,7 @@ dashboard = "pixi run -e full python scripts/run_dashboard.py"
 ### Example 3: CI Framework (This Project)
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "ci-framework-tools"
 channels = ["conda-forge"]
 platforms = ["linux-64"]

@@ -390,7 +390,7 @@ class TestCIMatrixIntegration:
 
             # Create minimal pixi project
             pyproject_content = """
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "matrix-test"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64"]
@@ -417,7 +417,7 @@ lint = "echo 'lint check'"
             assert "pixi" in config["tool"]
 
             pixi_config = config["tool"]["pixi"]
-            assert "project" in pixi_config
+            assert "workspace" in pixi_config
             assert "dependencies" in pixi_config
             assert "tasks" in pixi_config
 

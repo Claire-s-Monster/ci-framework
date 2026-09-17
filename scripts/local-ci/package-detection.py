@@ -126,7 +126,9 @@ class PackageDetector:
             tool_section = data.get("tool", {})
 
             if pkg_type == "pixi" and "pixi" in tool_section:
-                project_info = tool_section["pixi"].get("project", {})
+                project_info = tool_section["pixi"].get("workspace") or tool_section[
+                    "pixi"
+                ].get("project", {})
                 name = project_info.get("name", config_path.parent.name)
                 return self._create_package_info(
                     pkg_type, config_path, name, data=tool_section["pixi"]

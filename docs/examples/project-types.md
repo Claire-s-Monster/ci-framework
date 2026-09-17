@@ -8,7 +8,7 @@ This guide provides ready-to-use CI configurations for different types of Python
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "fastapi-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -78,7 +78,7 @@ api-tests:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "django-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -122,7 +122,7 @@ quality = { depends-on = ["test", "lint"] }
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "ml-project"
 channels = ["conda-forge", "pytorch", "nvidia"]
 platforms = ["linux-64"]
@@ -204,7 +204,7 @@ ml-validation:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "data-analysis"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -251,7 +251,7 @@ quality = { depends-on = ["test", "lint", "validate-notebooks"] }
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "cli-tool"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
@@ -326,7 +326,7 @@ cli-cross-platform:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "my-python-package"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
@@ -409,7 +409,7 @@ publish:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "research-project"
 channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64"]
@@ -458,7 +458,7 @@ quality = { depends-on = ["test", "test-hypothesis", "lint"] }
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "enterprise-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]

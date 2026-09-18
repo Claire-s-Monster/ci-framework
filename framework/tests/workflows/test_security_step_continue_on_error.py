@@ -45,7 +45,10 @@ asserted by `test_exempted_security_step_has_a_downstream_failure_gate`, is:
 and, separately, that any such gate hanging off a `workflow_call` input has
 that input defaulting to `true` - a gate defaulting to `false` is a scanner
 that is advisory until a consumer opts in, which is #288's silence moved up one
-level. `fail-on-sast` is exactly that, and is tracked in #305.
+level. `fail-on-sast` is exactly that - but it is a deliberate, permanent
+exception rather than an open question: #305 decided to keep the default
+`false` and document the tradeoff in `docs/security-scanning.md` instead of
+changing it.
 
 SARIF upload steps are classified as non-scanner infrastructure and are not
 gated at all: an upload failing is a permissions or API problem, not a finding.
@@ -178,20 +181,53 @@ _KNOWN_UNGATED: dict[str, str] = {
 # advisory until a consumer opts in.
 _GATE_DEFAULTS_OFF: dict[str, str] = {
     "reusable-ci.yml::sast-semgrep::Run Semgrep": (
-        "fail-on-sast defaults to false. SEMGREP_RULES is p/python plus "
-        "p/security-audit, an audit ruleset tuned for review breadth rather "
-        "than gating, so defaulting it true would turn adopters' pipelines red "
-        "on advisory findings. Policy call tracked in #305."
+        "fail-on-sast defaults to false, permanently and by design (#305). "
+        "SEMGREP_RULES is p/python plus p/security-audit, an audit ruleset "
+        "tuned for review breadth rather than gating, so defaulting it true "
+        "would turn adopters' pipelines red on advisory findings. See "
+        "docs/security-scanning.md ('Why SAST Defaults to Advisory') for the "
+        "documented rationale and the opt-in path."
     ),
     "reusable-security.yml::sast-semgrep::Run Semgrep": (
-        "fail-on-sast defaults to false - the same step as the reusable-ci.yml "
-        "entry above, duplicated verbatim between the two workflows. Tracked "
-        "in #305."
+        "fail-on-sast defaults to false, permanently and by design (#305) - "
+        "the same step as the reusable-ci.yml entry above, duplicated "
+        "verbatim between the two workflows. See docs/security-scanning.md "
+        "('Why SAST Defaults to Advisory') for the documented rationale and "
+        "the opt-in path."
     ),
 }
 
 _ISSUE_REF_RE = re.compile(r"#\d+")
 _INPUT_REF_RE = re.compile(r"inputs\.([A-Za-z0-9_-]+)")
+
+# #305: docs/security-scanning.md documents the same `fail-on-sast: false`
+# default recorded in _GATE_DEFAULTS_OFF above. Nothing ties the two together
+# mechanically except this guard - a workflow default and a doc are free to
+# drift independently otherwise.
+DOCS_SECURITY_SCANNING = Path("docs/security-scanning.md")
+
+# A row of the "All Inputs" markdown table: `| \`name\` | type | \`default\` |
+# description |`. Matched as a whole table row (anchored to line start, cells
+# split on `|`) rather than a substring search, so a mention of
+# `fail-on-sast: false` in prose elsewhere in the doc can't be mistaken for
+# the documented default in the table.
+_DOCS_INPUT_ROW_RE = re.compile(
+    r"^\|\s*`(?P<name>[\w-]+)`\s*\|[^|]*\|\s*`?(?P<default>true|false)`?\s*\|",
+    re.MULTILINE,
+)
+
+
+def docs_input_default(docs_text: str, input_name: str) -> str | None:
+    """The literal `Default` column text for `input_name`'s row, or None.
+
+    Returns `"true"` / `"false"` (as written in the doc), never a bool, so a
+    caller comparing it against a doc-authored string can't be fooled by a
+    coercion bug the way comparing to a Python `False` could be.
+    """
+    for match in _DOCS_INPUT_ROW_RE.finditer(docs_text):
+        if match.group("name") == input_name:
+            return match.group("default")
+    return None
 
 
 def workflow_call_inputs(doc: object) -> dict:
@@ -675,4 +711,77 @@ def test_reusable_security_codeql_keeps_the_native_upload_path():
         "the native code-scanning path is what sets the aggregate `CodeQL` "
         "check conclusion, and `upload: false` plus a decoupled upload-sarif "
         "step leaves it `neutral` on every consumer PR (#222)"
+    )
+
+
+def test_docs_input_default_parser_self_test(tmp_path):
+    """Non-vacuity: `docs_input_default` actually reads `true` when present.
+
+    Without this, a regex typo in `_DOCS_INPUT_ROW_RE` could make the drift
+    guard below return `None` forever and never fail no matter what the docs
+    say - the exact "green means nothing" shape #304 was about, one level up.
+    """
+    synthetic = tmp_path / "synthetic-security-scanning.md"
+    synthetic.write_text(
+        "| Input | Type | Default | Description |\n"
+        "|-------|------|---------|-------------|\n"
+        "| `fail-on-sast` | boolean | `true` | Fail on SAST findings. |\n"
+    )
+    text = synthetic.read_text()
+    assert docs_input_default(text, "fail-on-sast") == "true", (
+        "the docs-table parser did not find `true` in a synthetic table - it "
+        "would not notice a real default flipping to `true` either"
+    )
+    assert docs_input_default(text, "does-not-exist") is None, (
+        "the parser must return None, not a stale match, for an input absent "
+        "from the table"
+    )
+
+
+def test_fail_on_sast_default_matches_between_workflows_and_docs():
+    """#305: `fail-on-sast: false` must stay in sync across three places.
+
+    `_GATE_DEFAULTS_OFF` above documents this exemption as tied to the input
+    defaulting `false` in both reusable workflows AND to
+    `docs/security-scanning.md` explaining why. Nothing else enforces that the
+    three stay aligned; this is that enforcement. If the workflow default is
+    ever intentionally changed to `true`, the two `_GATE_DEFAULTS_OFF` entries
+    above must be removed (the step would then be self-gating) and
+    docs/security-scanning.md must be updated to match - not the other way
+    around.
+    """
+    workflow_defaults = {}
+    for name in ("reusable-ci.yml", "reusable-security.yml"):
+        inputs = workflow_call_inputs(
+            yaml.safe_load((WORKFLOWS_DIR / name).read_text())
+        )
+        declared = inputs.get("fail-on-sast")
+        assert isinstance(declared, dict), (
+            f"{name}: fail-on-sast input did not parse - this guard is vacuous"
+        )
+        workflow_defaults[name] = declared.get("default")
+
+    assert workflow_defaults == {
+        "reusable-ci.yml": False,
+        "reusable-security.yml": False,
+    }, (
+        "fail-on-sast's default changed in one of the reusable workflows. "
+        "#305 decided to keep this false permanently: if that decision "
+        "changed, the _GATE_DEFAULTS_OFF entries above must be removed and "
+        f"docs/security-scanning.md updated to match: {workflow_defaults}"
+    )
+
+    docs_default = docs_input_default(
+        DOCS_SECURITY_SCANNING.read_text(), "fail-on-sast"
+    )
+    assert docs_default is not None, (
+        "docs/security-scanning.md's inputs table no longer documents a "
+        "`fail-on-sast` default - the drift guard is vacuous"
+    )
+    assert docs_default == "false", (
+        "docs/security-scanning.md documents a different `fail-on-sast` "
+        f"default ({docs_default!r}) than the workflows (`false`). If the "
+        "workflow default was intentionally changed to `true`, the "
+        "_GATE_DEFAULTS_OFF entries above must be removed and this doc "
+        "updated to match - not the other way around."
     )

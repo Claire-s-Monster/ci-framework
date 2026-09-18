@@ -70,6 +70,16 @@ All inputs are optional. The workflow will auto-detect your languages and use se
 | SAST (code pattern issue) | **WARN** — annotates PR only | `fail-on-sast` |
 | Scorecard (posture) | **REPORT** — appears in workflow summary | (informational) |
 
+## Why SAST Defaults to Advisory
+
+Semgrep runs with `SEMGREP_RULES: p/python p/security-audit`. `p/security-audit` is an audit ruleset tuned for review breadth, not for gating: it is deliberately broad, and by design it carries a high false-positive rate. That breadth is useful in PR review — a human can skim and dismiss noise — but it is a poor basis for automatically failing a build. CVEs and secrets are binary, high-confidence findings; the audit ruleset is not. That distinction is why `fail-on-cve` and `fail-on-secrets` default to `true` and block, while `fail-on-sast` defaults to `false` and only warns.
+
+Defaulting `fail-on-sast` to `false` does not mean SAST findings go unreported. The Semgrep step still runs on every invocation, uploads its results to GitHub's Security tab as SARIF, and annotates the PR when findings touch changed files (see [SARIF Integration](#sarif-integration) and [How Findings Appear](#how-findings-appear) below). Only the job's pass/fail status is unaffected by default.
+
+To opt in, set `fail-on-sast: true`. If you gate on SAST, consider narrowing `SEMGREP_RULES` to a higher-confidence rule set rather than gating on `p/security-audit` as-is — otherwise the gate will fail on advisory findings rather than real ones.
+
+This is a deliberate, permanent default — decided in #305 — not a pending decision. It is documented here so a future reader does not mistake it for an oversight and file it again as a bug.
+
 ## SARIF Integration
 
 Several tools upload results to GitHub's Security tab:

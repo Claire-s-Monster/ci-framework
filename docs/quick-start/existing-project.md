@@ -1,7 +1,7 @@
 # 🔄 Existing Project Integration (3-4 Minutes)
 
-> **For**: Python projects with existing code/CI  
-> **Time**: 3-4 minutes  
+> **For**: Python projects with existing code/CI
+> **Time**: 3-4 minutes
 > **Result**: Enhanced CI/CD with framework integration
 
 ## ⏱️ Integration Strategy
@@ -176,7 +176,7 @@ dependencies = ["requests", "click"]
 
 # Framework adds optimized sections
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 pytest = "*"
 ruff = "*"
 

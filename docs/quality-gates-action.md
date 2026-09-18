@@ -11,7 +11,7 @@ The Quality Gates Action implements a sophisticated 3-tier quality validation sy
 - **🎯 Tiered Quality Enforcement**: Essential → Extended → Full validation tiers
 - **⚡ Zero-Tolerance Policy**: Critical violations fail immediately (F,E9 lint errors)
 - **🔧 Package Manager Agnostic**: Supports pixi, poetry, hatch, pip with auto-detection
-- **🌍 Multi-Platform**: Python 3.10-3.12, Linux/macOS/Windows support
+- **🌍 Multi-Platform**: Python 3.11-3.12, Linux/macOS/Windows support
 - **⚙️ Environment Isolation**: Clean dependency separation between tiers
 - **📊 Comprehensive Reporting**: JUnit XML, SARIF, coverage reports
 - **🚀 Performance Optimized**: Parallel execution, smart timeouts, efficient cleanup
@@ -148,7 +148,7 @@ print(f"Environment support: {manager.environment_support}")
 **Detection**: `[tool.pixi]` section in `pyproject.toml`
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "my-project"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -180,7 +180,7 @@ name = "my-project"
 version = "0.1.0"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.11"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
@@ -411,10 +411,10 @@ if result.failure_reason == "timeout":
 ## Compatibility Matrix
 
 ### Python Versions
-- ✅ Python 3.10 (Supported)
 - ✅ Python 3.11 (Supported)
 - ✅ Python 3.12 (Supported)
 - 🟡 Python 3.13 (Not tested)
+- ❌ Python 3.10 (Not supported)
 - ❌ Python 3.9 (Not supported)
 
 ### Platforms

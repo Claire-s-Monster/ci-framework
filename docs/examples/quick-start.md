@@ -6,7 +6,7 @@
 
 After following this guide, your project will have:
 
-- ✅ **Cross-platform testing** (Python 3.10-3.12 × ubuntu/macos)
+- ✅ **Cross-platform testing** (Python 3.11-3.12 × ubuntu/macos)
 - ✅ **Quality gates** (tests, linting, security, type checking)
 - ✅ **Security scanning** (bandit, safety, CodeQL)
 - ✅ **Performance monitoring** (benchmark tracking)
@@ -33,13 +33,13 @@ mv python-ci-template.yml.template .github/workflows/ci.yml
 Create or update your `pyproject.toml`:
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-project-name"
 channels = ["conda-forge"]
 platforms = ["linux-64"]  # Add "osx-arm64", "osx-64" for local macOS support
 
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 pytest = "*"
 ruff = "*"
 
@@ -64,7 +64,7 @@ version = "0.1.0"
 description = ""
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.11"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
@@ -135,7 +135,7 @@ git add tests/
 git commit -m "🚀 Add CI Framework
 
 - Add comprehensive CI workflow with quality gates
-- Configure cross-platform testing (Python 3.10-3.12)
+- Configure cross-platform testing (Python 3.11-3.12)
 - Enable security scanning and performance monitoring
 - Set up pixi/poetry package management"
 
@@ -155,7 +155,7 @@ git push
 You should see these jobs running:
 - 🔍 **Change Detection** - Determines what to test
 - ⚡ **Quick Checks** - Fast linting and basic validation
-- 🧪 **Comprehensive Tests** - Full test matrix (6 combinations)
+- 🧪 **Comprehensive Tests** - Full test matrix (4 combinations)
 - 🛡️ **Security Audit** - Security vulnerability scanning
 - ⚡ **Performance Check** - Benchmark validation
 - 📊 **Summary** - Aggregated results and reporting
@@ -174,7 +174,7 @@ If everything is working, you should see:
 |-----|---------|----------|
 | Change Detection | Analyzes what files changed to optimize testing | ~10s |
 | Quick Checks | Runs fast linting for immediate feedback | ~30s |
-| Comprehensive Tests | Runs full test suite across Python 3.10-3.12 on ubuntu/macos | ~2-5min |
+| Comprehensive Tests | Runs full test suite across Python 3.11-3.12 on ubuntu/macos | ~2-5min |
 | Security Audit | Scans for vulnerabilities with bandit, safety, CodeQL | ~1-3min |
 | Performance Check | Runs benchmarks and checks for regressions | ~1-2min |
 | Summary | Aggregates results and generates reports | ~15s |
@@ -232,7 +232,7 @@ Congratulations! You now have enterprise-grade CI running on your Python project
 - **Performance Monitoring**: Benchmark tracking for performance regressions
 - **Professional Standards**: Industry best practices built-in
 
-### Share Your Success! 
+### Share Your Success!
 
 Add a CI badge to your README:
 
@@ -242,8 +242,8 @@ Add a CI badge to your README:
 
 ---
 
-**⏱️ Total Time**: ~5 minutes  
-**⚡ Result**: Enterprise-grade CI with zero configuration needed  
-**🔄 Maintenance**: Minimal - updates automatically  
+**⏱️ Total Time**: ~5 minutes
+**⚡ Result**: Enterprise-grade CI with zero configuration needed
+**🔄 Maintenance**: Minimal - updates automatically
 
 *Need help? Check our [troubleshooting guide](../ci-workflow-guide.md#️-troubleshooting) or [open an issue](https://github.com/MementoRC/ci-framework/issues).*

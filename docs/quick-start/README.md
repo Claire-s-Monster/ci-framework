@@ -26,17 +26,17 @@
 
 ## 🛡️ What You Get in 5 Minutes
 
-✅ **Automated Quality Gates** - Tests, linting, type checking  
-✅ **Security Scanning** - Vulnerability detection  
-✅ **Performance Monitoring** - Benchmark tracking  
-✅ **Change Detection** - Smart CI optimization  
-✅ **Standardized Workflows** - Production-ready pipelines  
+✅ **Automated Quality Gates** - Tests, linting, type checking
+✅ **Security Scanning** - Vulnerability detection
+✅ **Performance Monitoring** - Benchmark tracking
+✅ **Change Detection** - Smart CI optimization
+✅ **Standardized Workflows** - Production-ready pipelines
 
 ---
 
 ## 📋 Prerequisites (30 seconds to check)
 
-- [ ] **Python 3.10+** (`python --version`)
+- [ ] **Python 3.11+** (`python --version`)
 - [ ] **Git repository** (local or GitHub)
 - [ ] **GitHub account** (for CI/CD)
 - [ ] **5 minutes of time** ⏰
@@ -81,7 +81,7 @@ git push           # Should trigger CI ✅
 ```
 
 ### Step 3: Celebrate! 🎉
-You now have production-ready CI/CD! 
+You now have production-ready CI/CD!
 
 **Next Steps**: [Best Practices](../best-practices/README.md) | [Advanced Configuration](../tutorials/interactive-examples/advanced-configuration.md)
 

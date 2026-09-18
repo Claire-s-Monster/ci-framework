@@ -8,7 +8,7 @@ This action provides unified security scanning by integrating multiple security 
 
 - **bandit** - AST-based security analysis for Python code
 - **safety** - Dependency vulnerability scanning
-- **pip-audit** - Package auditing for known vulnerabilities  
+- **pip-audit** - Package auditing for known vulnerabilities
 - **semgrep** - Pattern-based security detection
 - **Trivy** - Container scanning and SBOM generation
 
@@ -67,6 +67,40 @@ This action provides unified security scanning by integrating multiple security 
 | `enable-trivy` | Enable Trivy scanning | No | `false` |
 | `sarif-upload` | Upload SARIF to GitHub Security | No | `true` |
 | `sbom-generation` | Generate SBOM | No | `false` |
+| `pixi-version` | Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7. | No | `v0.74.0` |
+
+## Required Caller Permissions
+
+This action is a **composite** action, so it cannot declare its own `permissions:` block — it always runs with whatever permissions the calling job was granted. For the SARIF upload to reach the code-scanning API, the calling job must grant:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+```
+
+`contents: read` is needed for checkout; `security-events: write` is needed for the SARIF upload step.
+
+If the calling job doesn't grant `security-events: write`, the SARIF upload fails with a 403 while the rest of the scan still completes normally — the missing permission is easy to miss.
+
+The `github-token` input defaults to `${{ github.token }}` (the calling job's own token). If the calling workflow can't grant `security-events: write` directly — for example, some fork-based or cross-repository scenarios — pass a PAT with `security_events` scope via `github-token` instead.
+
+Setting `sarif-upload: 'false'` disables the upload entirely, in which case no elevated permission is required.
+
+## Bandit SARIF Findings Require a Formatter Plugin
+
+bandit has no built-in SARIF writer. The `-f sarif` output format only works when the `bandit-sarif-formatter` plugin is installed alongside bandit itself.
+
+This action installs its tools from the caller's own pixi environment — whichever one the `pixi-environment` input points at (default `quality-extended`) — not from anything bundled with the action. That means the action cannot supply the plugin for you; if you want bandit's findings in the uploaded SARIF, you need to add `bandit-sarif-formatter` to that environment in your own `pyproject.toml`.
+
+Skipping it doesn't break the scan: bandit still runs and still reports findings, and other tools that emit SARIF natively (semgrep, Trivy) are unaffected. Only bandit's contribution to the combined SARIF is dropped, and the action surfaces this with a `::warning::` at runtime.
+
+`bandit-sarif-formatter` is published on PyPI; add it as a pypi dependency on the feature matching your `pixi-environment` input:
+
+```toml
+[tool.pixi.feature.quality-extended.pypi-dependencies]
+bandit-sarif-formatter = "*"
+```
 
 ## Outputs
 
@@ -97,7 +131,7 @@ This action provides unified security scanning by integrating multiple security 
 
 ### Medium (Default)
 - **Tools**: bandit, safety, pip-audit
-- **Timeout**: 120s per tool  
+- **Timeout**: 120s per tool
 - **Fail on vulnerabilities**: Yes (critical/high only)
 - **Use case**: PR validation, CI pipelines
 
@@ -124,15 +158,18 @@ on: [push, pull_request]
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Security Scan
         uses: ./actions/security-scan
         with:
           security-level: 'medium'
           sarif-upload: true
-        
+
       - name: Upload Security Reports
         uses: actions/upload-artifact@v3
         if: always()
@@ -152,9 +189,12 @@ on:
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Comprehensive Security Scan
         uses: ./actions/security-scan
         with:
@@ -174,12 +214,15 @@ on: [push, pull_request]
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       matrix:
         security-level: [low, medium, high]
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Security Scan - ${{ matrix.security-level }}
         uses: ./actions/security-scan
         with:
@@ -192,7 +235,7 @@ The action generates several artifacts:
 
 ### Security Reports
 - `bandit-results.json` - Bandit scan results
-- `safety-results.json` - Safety vulnerability results  
+- `safety-results.json` - Safety vulnerability results
 - `pip-audit-results.json` - Pip-audit findings
 - `semgrep-results.json` - Semgrep pattern matches
 - `trivy-results.json` - Trivy scan results
@@ -203,7 +246,7 @@ The action generates several artifacts:
 - `trivy.sarif` - Trivy SARIF format
 - `security-unified.sarif` - Combined SARIF report
 
-### SBOM Files  
+### SBOM Files
 - `trivy-sbom.json` - Software Bill of Materials
 
 ## Troubleshooting

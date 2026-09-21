@@ -23,11 +23,22 @@ import yaml
 TEMPLATES_DIR = Path("templates")
 ACTIONS_DIR = Path("actions")
 ACTION_MANIFEST_NAMES = ("action.yml", "action.yaml")
+TEMPLATE_SUFFIXES = (".yml", ".yaml")
 LOCAL_ACTION_PREFIX = "./actions/"
+
+# templates/github/dependabot.yml carries Jinja2 placeholders (e.g.
+# `{{ python_pr_limit | default(5) }}`) and only becomes valid YAML after
+# template rendering, so it can never parse standalone. This is the sole
+# expected exclusion from YAML-parse-based coverage; see
+# test_only_known_templates_are_unparseable, which asserts nothing else
+# silently joins it.
+KNOWN_UNPARSEABLE_TEMPLATES = frozenset({Path("templates/github/dependabot.yml")})
 
 
 def _template_files() -> list[Path]:
-    return sorted(TEMPLATES_DIR.rglob("*.yml")) + sorted(TEMPLATES_DIR.rglob("*.yaml"))
+    return sorted(
+        path for path in TEMPLATES_DIR.rglob("*") if path.suffix in TEMPLATE_SUFFIXES
+    )
 
 
 def _iter_uses_values(node):
@@ -99,6 +110,13 @@ def _resolve_ref_dir(uses: str) -> Path:
     Built via string splitting rather than `Path(uses).parts` since pathlib
     silently normalizes away a leading `./` and that normalization is not
     something this helper wants to depend on.
+
+    Precondition: callers must have already filtered `uses` values on
+    `LOCAL_ACTION_PREFIX` ("./actions/", with the trailing slash) - as
+    `_local_action_refs` does. That trailing slash guarantees `remainder`
+    always has at least two "/"-separated segments, which is what makes
+    `remainder.split("/")[1]` safe. A bare "./actions" (no trailing slash)
+    would not satisfy the prefix filter, so it never reaches this function.
     """
     remainder = uses[len("./") :]  # 'actions/<name>/...'
     name = remainder.split("/")[1]
@@ -205,4 +223,32 @@ def test_guard_does_not_over_fire_on_a_real_action_directory():
     assert _has_action_manifest(ref_dir), (
         f"real action directory {ref_dir} was not recognized as valid - "
         "the guard would over-fire on legitimate refs"
+    )
+
+
+def test_only_known_templates_are_unparseable():
+    """`_safe_load` tolerates YAML errors; this asserts that tolerance is exact.
+
+    Without this assertion, a template that becomes malformed would be
+    silently skipped by `_safe_load` (which swallows `yaml.YAMLError` and
+    returns None) instead of failing this suite - it would look green while
+    quietly dropping out of local-action-ref coverage. This test calls
+    `yaml.safe_load` directly, not `_safe_load`, since going through
+    `_safe_load` would mask exactly the failure this test exists to catch.
+    """
+    actually_unparseable = set()
+    for path in _template_files():
+        try:
+            yaml.safe_load(path.read_text())
+        except yaml.YAMLError:
+            actually_unparseable.add(path)
+
+    assert actually_unparseable == KNOWN_UNPARSEABLE_TEMPLATES, (
+        "mismatch between templates that actually fail to parse as standalone "
+        f"YAML ({sorted(actually_unparseable)}) and KNOWN_UNPARSEABLE_TEMPLATES "
+        f"({sorted(KNOWN_UNPARSEABLE_TEMPLATES)}). "
+        "A file newly present in the former but not the latter is a real "
+        "defect - fix the template, do not just add it to the constant. "
+        "A file listed in KNOWN_UNPARSEABLE_TEMPLATES that now parses fine "
+        "should be removed from the constant so coverage is restored."
     )

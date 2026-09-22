@@ -61,7 +61,7 @@ jobs:
   ci:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "essential"
 ```
 
@@ -150,7 +150,7 @@ jobs:
       matrix:
         tier: [essential, extended]
     steps:
-      - uses: actions/checkout@v4  
+      - uses: actions/checkout@v4
       - uses: ./actions/quality-gates
         with:
           tier: ${{ matrix.tier }}
@@ -278,7 +278,7 @@ Adjust timeouts based on project size:
   with:
     timeout: '300'  # 5 minutes
 
-# Large project (> 10000 files)  
+# Large project (> 10000 files)
 - uses: ./actions/quality-gates
   with:
     timeout: '1800'  # 30 minutes
@@ -307,8 +307,8 @@ Actions follow semantic versioning with tagged releases:
 
 | Framework Version | GitHub Actions | Python Versions | Package Managers |
 |------------------|----------------|------------------|------------------|
-| v1.0.x | v4+ | 3.10, 3.11, 3.12 | pixi, poetry, hatch, pip |
-| v0.9.x | v3+ | 3.9, 3.10, 3.11 | poetry, pip |
+| v1.0.x | v4+ | 3.11, 3.12 | pixi, poetry, hatch, pip |
+| v0.9.x | v3+ | 3.9, 3.10, 3.11 | poetry, pip | <!-- python-floor-exempt: historical compatibility record for released v0.9.x, not a current support declaration -->
 
 ---
 
@@ -407,6 +407,6 @@ Submit enhancement requests with:
 
 ---
 
-**API Version**: 1.0.0  
-**Last Updated**: January 2025  
-**Compatibility**: GitHub Actions v4+, Python 3.10+
+**API Version**: 1.0.0
+**Last Updated**: January 2025
+**Compatibility**: GitHub Actions v4+, Python 3.11+

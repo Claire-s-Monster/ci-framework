@@ -82,6 +82,7 @@ jobs:
 | `fail-fast` | Fail on first critical violation | No | `true` |
 | `reports-dir` | Reports output directory | No | `reports` |
 | `package-manager` | Force package manager | No | `auto` |
+| `pixi-version` | Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7. | No | `v0.74.0` |
 
 ## Outputs
 
@@ -153,7 +154,7 @@ strict = true
 strategy:
   matrix:
     os: [ubuntu-latest, macos-latest]
-    python-version: ['3.10', '3.11', '3.12']
+    python-version: ['3.11', '3.12']
     tier: [essential, extended]
 
 steps:

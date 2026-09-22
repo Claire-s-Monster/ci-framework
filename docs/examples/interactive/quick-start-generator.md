@@ -19,7 +19,7 @@ This generator asks you simple questions about your project and creates a comple
 
 **Package Manager:**
 - 🟢 **Pixi** (Recommended - fastest, most reliable)
-- 🟡 **Poetry** (Good - widely used)  
+- 🟡 **Poetry** (Good - widely used)
 - 🟡 **pip** (Basic - works everywhere)
 
 **Framework:**
@@ -44,7 +44,7 @@ jobs:
   web-app-pipeline:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "extended"
       enable-api-testing: "true"
       enable-security-scan: "true"
@@ -53,7 +53,7 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-web-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -109,7 +109,7 @@ jobs:
   data-science-pipeline:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11"
+      python-versions: "3.11"
       quality-level: "essential"
       enable-notebook-testing: "true"
       enable-performance-benchmarks: "true"
@@ -118,7 +118,7 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-ds-project"
 channels = ["conda-forge", "pytorch"]
 platforms = ["linux-64"]
@@ -163,7 +163,7 @@ quality = { depends-on = ["test", "test-notebooks", "lint"] }
 
 **Platforms:**
 - [ ] Linux
-- [ ] macOS 
+- [ ] macOS
 - [ ] Windows
 - [ ] Cross-platform (all)
 
@@ -177,7 +177,7 @@ jobs:
   cli-pipeline:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "extended"
       test-platforms: "ubuntu,macos,windows"
       enable-cli-testing: "true"
@@ -186,13 +186,13 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-cli-tool"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 click = "*"
 rich = "*"
 pytest = "*"
@@ -244,7 +244,7 @@ jobs:
   package-pipeline:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "full"
       enable-documentation: "true"
       enable-type-checking: "true"
@@ -253,13 +253,13 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "your-package"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 pytest = "*"
 pytest-cov = "*"
 
@@ -332,7 +332,7 @@ jobs:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "enterprise-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -423,7 +423,7 @@ quality = { depends-on = ["test", "lint", "typecheck", "test-security"] }
 - Production deployments
 
 **Includes:**
-- ✅ Everything in Extended  
+- ✅ Everything in Extended
 - ✅ Complete test suite
 - ✅ Cross-platform testing
 - ✅ Security audit with SARIF
@@ -444,7 +444,7 @@ quality = { depends-on = ["test", "lint", "typecheck", "test-security"] }
 
 **Security Level:**
 - **Medium** - Standard vulnerability detection
-- **High** - Comprehensive security analysis  
+- **High** - Comprehensive security analysis
 - **Critical** - Enterprise-grade security with SBOM
 
 **Tools included:**
@@ -501,7 +501,7 @@ performance-benchmark:
 
 **Test Modes:**
 - **Smoke** - Basic installation verification
-- **Test** - Standard test suite execution  
+- **Test** - Standard test suite execution
 - **Full** - Complete validation with linting
 
 **Configuration added:**
@@ -553,7 +553,7 @@ Based on your selections above, here's your complete, ready-to-use CI configurat
 # Copy the specific configuration from your project type section
 ```
 
-#### `pyproject.toml` 
+#### `pyproject.toml`
 ```toml
 # This will be generated based on your selections above
 # Copy the specific configuration from your project type section

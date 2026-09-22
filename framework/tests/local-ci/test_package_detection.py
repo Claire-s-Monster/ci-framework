@@ -2,6 +2,7 @@
 Tests for package detection functionality.
 """
 
+import importlib.util
 import json
 import os
 import sys
@@ -10,15 +11,27 @@ from pathlib import Path
 
 import pytest
 
-# Add scripts directory to path for imports
-sys.path.insert(
-    0, str(Path(__file__).parent.parent.parent.parent / "scripts" / "local-ci")
+# package-detection.py uses a hyphen in its filename, so it cannot be
+# imported as a regular module; load it directly from its file path.
+_SCRIPT_PATH = (
+    Path(__file__).parent.parent.parent.parent
+    / "scripts"
+    / "local-ci"
+    / "package-detection.py"
 )
 
-try:
-    from package_detection import PackageDetector
-except ImportError:
-    pytest.skip("package-detection.py not available", allow_module_level=True)
+if not _SCRIPT_PATH.exists():
+    pytest.skip(
+        f"package-detection.py not found at {_SCRIPT_PATH}", allow_module_level=True
+    )
+
+_spec = importlib.util.spec_from_file_location("package_detection", _SCRIPT_PATH)
+assert _spec is not None and _spec.loader is not None, _SCRIPT_PATH
+_package_detection = importlib.util.module_from_spec(_spec)
+sys.modules["package_detection"] = _package_detection
+_spec.loader.exec_module(_package_detection)
+
+PackageDetector = _package_detection.PackageDetector
 
 
 class TestPackageDetector:
@@ -37,6 +50,33 @@ class TestPackageDetector:
         # Create a pyproject.toml with pixi configuration
         pyproject_content = """
 [tool.pixi.project]
+name = "test-project"
+version = "0.1.0"
+
+[tool.pixi.dependencies]
+python = "3.11.*"
+"""
+        pyproject_file = tmp_path / "pyproject.toml"
+        pyproject_file.write_text(pyproject_content)
+
+        detector = PackageDetector(str(tmp_path))
+        packages = detector.detect_packages({"pixi"})
+
+        assert "pixi" in packages
+        assert len(packages["pixi"]) == 1
+
+        package = packages["pixi"][0]
+        assert package["name"] == "test-project"
+        assert package["type"] == "pixi"
+        assert package["path"] == "."
+        assert "test" in package["commands"]
+        assert "lint" in package["commands"]
+
+    def test_pixi_detection_workspace_table(self, tmp_path):
+        """Test detection of pixi projects using the `[tool.pixi.workspace]`
+        table pixi now prefers over the deprecated `[tool.pixi.project]`."""
+        pyproject_content = """
+[tool.pixi.workspace]
 name = "test-project"
 version = "0.1.0"
 
@@ -345,14 +385,18 @@ name = "list-test-project"
         import subprocess
 
         # Create multiple package types
-        (tmp_path / "pyproject.toml").write_text("""
+        (tmp_path / "pyproject.toml").write_text(
+            """
 [tool.pixi.project]
 name = "pixi-project"
-""")
+"""
+        )
 
-        (tmp_path / "package.json").write_text("""
+        (tmp_path / "package.json").write_text(
+            """
 {"name": "npm-project"}
-""")
+"""
+        )
 
         script_path = (
             Path(__file__).parent.parent.parent.parent

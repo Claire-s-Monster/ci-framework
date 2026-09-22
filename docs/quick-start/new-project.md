@@ -1,7 +1,7 @@
 # 🆕 New Project Setup (2 Minutes)
 
-> **For**: Python projects starting from scratch  
-> **Time**: 2-3 minutes  
+> **For**: Python projects starting from scratch
+> **Time**: 2-3 minutes
 > **Result**: Production-ready project with full CI/CD pipeline
 
 ## ⏱️ Quick Setup Path
@@ -84,13 +84,13 @@ version = "0.1.0"
 description = "A new Python project with CI framework"
 dependencies = []
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "my-package-name"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 pytest = "*"
 ruff = "*"
 mypy = "*"
@@ -115,12 +115,12 @@ jobs:
   quality-gates:
     uses: MementoRC/ci-framework/.github/workflows/python-ci.yml@main
     with:
-      python-versions: "3.10,3.11,3.12"
+      python-versions: "3.11,3.12"
       quality-level: "essential"
-      
+
   security-scan:
     uses: MementoRC/ci-framework/.github/workflows/security-scan.yml@main
-    
+
   performance-check:
     uses: MementoRC/ci-framework/.github/workflows/performance-benchmark.yml@main
 ```
@@ -186,7 +186,7 @@ After setup, you should see:
 curl -sSL https://github.com/MementoRC/ci-framework/templates/library-template.sh | bash
 ```
 
-### Application Project  
+### Application Project
 ```bash
 curl -sSL https://github.com/MementoRC/ci-framework/templates/application-template.sh | bash
 ```

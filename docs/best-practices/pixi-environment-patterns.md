@@ -9,7 +9,7 @@ Pixi represents a paradigm shift in Python project management, combining the **s
 ### Core Benefits
 
 - 🚀 **Lightning-fast installs** with conda-forge binary packages
-- 🔒 **Reproducible environments** with platform-specific lockfiles  
+- 🔒 **Reproducible environments** with platform-specific lockfiles
 - 🎯 **Isolated feature environments** for specialized workflows
 - ⚡ **Zero virtual environment overhead** with native activation
 - 🔄 **Cross-platform consistency** from development to production
@@ -19,7 +19,7 @@ Pixi represents a paradigm shift in Python project management, combining the **s
 ### Foundation Pattern: Solve Group Strategy
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "project-name"
 channels = ["conda-forge", "pyviz"]  # conda-forge first for stability
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
@@ -44,7 +44,7 @@ ci = {features = ["quality", "ci-reporting"], solve-group = "default"}
 ```toml
 # Core dependencies available in ALL environments
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 
 # Core application dependencies
 requests = ">=2.28.0"
@@ -118,8 +118,12 @@ coverage = ">=7.0.0"
 sarif-tools = ">=0.1.0"
 
 [tool.pixi.feature.ci-reporting.tasks]
-ci-test = "pytest framework/tests/ --cov=framework --cov-report=xml --json-report"
-ci-lint = "ruff check framework/ --output-format=github"
+# Delegate to an env that actually provides the tool; a bare invocation here
+# exits 127 whenever the caller is not already in the right env (#267, #268).
+ci-test = "pixi run -e ci ci-test-impl"
+ci-test-impl = "pytest framework/tests/ --cov=framework --cov-report=xml --json-report"
+ci-lint = "pixi run -e quality ci-lint-impl"
+ci-lint-impl = "ruff check framework/ --output-format=github"
 ```
 
 **Use Case**: GitHub Actions, GitLab CI, automated reporting
@@ -154,13 +158,13 @@ benchmark = "pytest --benchmark-only"
 ### Multi-Platform Configuration
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
 # Platform-specific dependencies
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 
 # Platform-specific overrides
 [tool.pixi.target.linux-64.dependencies]
@@ -263,7 +267,7 @@ dev = "echo 'Development environment ready'"
 # Core quality gates (< 5 minutes)
 test = "pixi run -e quality test-impl"
 test-impl = "pytest framework/tests/ -v --timeout=120"
-lint = "pixi run -e quality lint-impl" 
+lint = "pixi run -e quality lint-impl"
 lint-impl = "ruff check framework/ --select=F,E9"
 typecheck = "pixi run -e quality typecheck-impl"
 typecheck-impl = "mypy framework/"
@@ -284,7 +288,7 @@ quality = { depends-on = ["test", "lint", "typecheck"] }
 # TIER 2: Extended Validation
 security = "pixi run -e quality-extended security-impl"
 security-impl = "bandit -r framework/ && safety check"
-complexity = "pixi run -e quality-extended complexity-impl" 
+complexity = "pixi run -e quality-extended complexity-impl"
 complexity-impl = "radon cc framework/ --min B"
 
 # TIER 3: CI Integration
@@ -315,7 +319,7 @@ test-full = { cmd = "pytest framework/tests/", env = { PYTEST_TIMEOUT = "300" } 
 [tool.pixi.target.linux-64.tasks]
 benchmark-linux = "pytest --benchmark-only --benchmark-storage=linux-bench"
 
-[tool.pixi.target.osx-64.tasks]  
+[tool.pixi.target.osx-64.tasks]
 benchmark-macos = "pytest --benchmark-only --benchmark-storage=macos-bench"
 
 # Feature-dependent tasks
@@ -329,7 +333,7 @@ evaluate = "python scripts/evaluate_model.py"
 ### Dependency Resolution Optimization
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 # Optimize channel priority for faster resolution
 channels = [
     "conda-forge",    # Primary: Most packages, best maintained
@@ -365,7 +369,7 @@ pixi update              # All packages (careful!)
     curl -fsSL https://pixi.sh/install.sh | bash
     echo "$HOME/.pixi/bin" >> $GITHUB_PATH
 
-- name: Cache Pixi Environment  
+- name: Cache Pixi Environment
   uses: actions/cache@v3
   with:
     path: |
@@ -390,7 +394,7 @@ pixi update              # All packages (careful!)
 ```toml
 # pyproject.toml
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.11"
 requests = "^2.28.0"
 
 [tool.poetry.group.dev.dependencies]
@@ -402,7 +406,7 @@ ruff = "^0.1.0"
 ```toml
 # pyproject.toml
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 requests = ">=2.28.0"
 
 [tool.pixi.feature.quality.dependencies]
@@ -463,7 +467,7 @@ name: myproject
 channels:
   - conda-forge
 dependencies:
-  - python>=3.10
+  - python>=3.11
   - requests>=2.28.0
   - pip
   - pip:
@@ -472,11 +476,11 @@ dependencies:
 
 #### After (Pixi)
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 
-[tool.pixi.dependencies] 
-python = ">=3.10"
+[tool.pixi.dependencies]
+python = ">=3.11"
 requests = ">=2.28.0"
 pytest = ">=8.0.0"  # No more pip section needed
 ```
@@ -492,7 +496,7 @@ pytest = ">=8.0.0"  # No more pip section needed
 ### Example 1: MCP Server (llm-cli-runner)
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "llm-cli-runner"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "osx-arm64"]
@@ -528,7 +532,7 @@ quality = { depends-on = ["test", "lint"] }
 ### Example 2: Large Application (hb-strategy-sandbox)
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "hb-strategy-sandbox"
 channels = ["conda-forge", "pyviz"]
 platforms = ["linux-64", "osx-64"]
@@ -569,7 +573,7 @@ dashboard = "pixi run -e full python scripts/run_dashboard.py"
 ### Example 3: CI Framework (This Project)
 
 ```toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "ci-framework-tools"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -743,8 +747,8 @@ The result is a development experience that feels fast locally while maintaining
 
 ---
 
-**Pattern Version**: 1.0.0  
-**Framework Version**: 1.0.0  
-**Last Updated**: January 2025  
-**Validated across**: 8 production projects using pixi  
+**Pattern Version**: 1.0.0
+**Framework Version**: 1.0.0
+**Last Updated**: January 2025
+**Validated across**: 8 production projects using pixi
 **Performance**: 10x+ faster installs vs pip, 3x+ faster than poetry

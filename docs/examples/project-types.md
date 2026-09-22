@@ -8,7 +8,7 @@ This guide provides ready-to-use CI configurations for different types of Python
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "fastapi-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -78,7 +78,7 @@ api-tests:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "django-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -122,7 +122,7 @@ quality = { depends-on = ["test", "lint"] }
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "ml-project"
 channels = ["conda-forge", "pytorch", "nvidia"]
 platforms = ["linux-64"]
@@ -204,7 +204,7 @@ ml-validation:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "data-analysis"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -251,13 +251,13 @@ quality = { depends-on = ["test", "lint", "validate-notebooks"] }
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "cli-tool"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 click = ">=8.0"
 rich = "*"
 typer = "*"  # Alternative to click
@@ -302,7 +302,7 @@ cli-cross-platform:
   strategy:
     matrix:
       os: [ubuntu-latest, macos-latest, windows-latest]
-      python-version: ["3.10", "3.11", "3.12"]
+      python-version: ["3.11", "3.12"]
   steps:
     - uses: actions/checkout@v4
     - name: Setup Pixi
@@ -326,13 +326,13 @@ cli-cross-platform:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "my-python-package"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.10"
+python = ">=3.11"
 pytest = "*"
 pytest-cov = "*"
 
@@ -409,7 +409,7 @@ publish:
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "research-project"
 channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64"]
@@ -458,7 +458,7 @@ quality = { depends-on = ["test", "test-hypothesis", "lint"] }
 
 ```toml
 # pyproject.toml
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "enterprise-app"
 channels = ["conda-forge"]
 platforms = ["linux-64"]

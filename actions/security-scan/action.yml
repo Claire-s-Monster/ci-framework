@@ -829,7 +829,7 @@ runs:
         retention-days: 90
 
     - name: Comment PR with Security Results
-      uses: actions/github-script@v6
+      uses: actions/github-script@v9
       if: always() && github.event_name == 'pull_request'
       with:
         script: |

@@ -382,7 +382,7 @@ runs:
         retention-days: 365
 
     - name: Comment PR with Performance Results
-      uses: actions/github-script@v6
+      uses: actions/github-script@v9
       if: always() && github.event_name == 'pull_request'
       with:
         script: |

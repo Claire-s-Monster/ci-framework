@@ -101,7 +101,7 @@ runs:
         cache: false
 
     - name: Cache Quality Gates Dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cache/pip

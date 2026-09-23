@@ -193,7 +193,7 @@ runs:
         fi
 
     - name: Cache Security Scan Dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cache/pip

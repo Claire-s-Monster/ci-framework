@@ -5,6 +5,113 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.9...v3.0.0) (2026-09-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ci:** self-healing.yml drops the workflow_call inputs `healing-level`, `auto-fix`, `rollback-on-failure` and the output `fixes-applied`. See below.
+
+### Features
+
+* **ci:** expose overridable pixi-version input and explain lock-schema failures ([a149eb6](https://github.com/Claire-s-Monster/ci-framework/commit/a149eb665db88eeb34e2dba2c8c696a6ec8741fb))
+* **ci:** expose overridable pixi-version input and explain lock-schema failures ([388d25a](https://github.com/Claire-s-Monster/ci-framework/commit/388d25a769ad47abb258ab8c8cf4d72d7ca1749d))
+* **ci:** make the python-versions matrix test the interpreter it claims ([6586781](https://github.com/Claire-s-Monster/ci-framework/commit/658678117a5388bc4f019cd6a698b18953af3dc0))
+* **ci:** make the python-versions matrix test the interpreter it claims ([8f5de89](https://github.com/Claire-s-Monster/ci-framework/commit/8f5de8916b04d373e7e85d573a2529c19cb77ad1))
+* **lint:** shellcheck the bash embedded in composite actions ([41a399d](https://github.com/Claire-s-Monster/ci-framework/commit/41a399d9e4f07c7bf37e412fa88a234dafb6cce9))
+* **lint:** shellcheck the bash embedded in composite actions ([12da1f2](https://github.com/Claire-s-Monster/ci-framework/commit/12da1f201e994a54f2972717fa60e96820707618)), closes [#261](https://github.com/Claire-s-Monster/ci-framework/issues/261) [#273](https://github.com/Claire-s-Monster/ci-framework/issues/273) [#274](https://github.com/Claire-s-Monster/ci-framework/issues/274)
+
+
+### Bug Fixes
+
+* **actions:** align fallback attribute names and guard attribute parity ([#291](https://github.com/Claire-s-Monster/ci-framework/issues/291)) ([334e19e](https://github.com/Claire-s-Monster/ci-framework/commit/334e19e6209247ca19212200ecdf0bcd43a417fa))
+* **actions:** reject git refs beginning with '-' before they reach git ([#291](https://github.com/Claire-s-Monster/ci-framework/issues/291)) ([5fbff77](https://github.com/Claire-s-Monster/ci-framework/commit/5fbff77c9aee079805c68e4f6acbe2b909975785))
+* **actions:** stop empty inputs from silently defeating their own defaults ([0458eb5](https://github.com/Claire-s-Monster/ci-framework/commit/0458eb5629a46dcb6b8d3400664198477e5f2a0f))
+* **actions:** teach dependabot about actions/, and fix the pins it never saw ([#306](https://github.com/Claire-s-Monster/ci-framework/issues/306)) ([9a9ea2e](https://github.com/Claire-s-Monster/ci-framework/commit/9a9ea2e1e5a262bf3ab4ef3de0ee1e0a1c6b4f69))
+* **actions:** thread every declared input into ChangeDetectionAction on both paths ([#291](https://github.com/Claire-s-Monster/ci-framework/issues/291)) ([c9abf44](https://github.com/Claire-s-Monster/ci-framework/commit/c9abf44309a362c8ce8717a12898266e75dd243d))
+* **actions:** thread every declared input into ChangeDetectionAction on both paths ([#291](https://github.com/Claire-s-Monster/ci-framework/issues/291)) ([8f79bf2](https://github.com/Claire-s-Monster/ci-framework/commit/8f79bf229d9b19e4e4716862d860abfc11efd9c0))
+* **actions:** wire up three inputs that were accepted and ignored ([37b1d55](https://github.com/Claire-s-Monster/ci-framework/commit/37b1d55627f5a26b9aca78b27d224ba43067e4cc))
+* **actions:** wire up three inputs that were accepted and ignored ([51463f9](https://github.com/Claire-s-Monster/ci-framework/commit/51463f9d90b39adcc9d1cb6ceeb6bbb5b79fc507))
+* **ci:** commit this framework's own pixi.lock and install from it ([975385c](https://github.com/Claire-s-Monster/ci-framework/commit/975385cad558bd6404b7225dcf813c2d564ec017))
+* **ci:** commit this framework's own pixi.lock and install from it ([8c2ba84](https://github.com/Claire-s-Monster/ci-framework/commit/8c2ba84c62075b86501f42298d01f7a3327fe1aa))
+* **ci:** declare shellcheck so local linting matches CI, and fix what it finds ([f4afb99](https://github.com/Claire-s-Monster/ci-framework/commit/f4afb997d7c61692530367904b3f7aaa61e81afa))
+* **ci:** drop the unused setup-python step from the pixi matrix jobs ([a3dc00b](https://github.com/Claire-s-Monster/ci-framework/commit/a3dc00b816e82aee023519e8a4eddaf4944ed13e))
+* **ci:** drop the unused setup-python step from the pixi matrix jobs ([9625d84](https://github.com/Claire-s-Monster/ci-framework/commit/9625d84e694f080a69b96edb2419fa2f43c9bc8d))
+* **ci:** lint every workflow, and fix what that uncovers ([9ce47f8](https://github.com/Claire-s-Monster/ci-framework/commit/9ce47f89029bb229b39bf8d6fb12fc10cf437b72))
+* **ci:** lint every workflow, and fix what that uncovers ([bd8b9e6](https://github.com/Claire-s-Monster/ci-framework/commit/bd8b9e6950dc9b673a34481d1e94f520a799fae3))
+* **ci:** make the type-check gate propagate mypy's exit code ([b324618](https://github.com/Claire-s-Monster/ci-framework/commit/b32461804e7ac0339813acfd3a469c09b998274f))
+* **ci:** make the type-check gate propagate mypy's exit code ([b533264](https://github.com/Claire-s-Monster/ci-framework/commit/b5332640ff3b8f10a295044fd072625985cef07e)), closes [#278](https://github.com/Claire-s-Monster/ci-framework/issues/278)
+* **ci:** pin setup-codeql-matrix action ref to release tag instead of [@main](https://github.com/main) ([5b55245](https://github.com/Claire-s-Monster/ci-framework/commit/5b5524556fcbd253e7745bd912d7da77d0d0ae41))
+* **ci:** run the pre-commit hooks that were configured but never fired ([31a20a7](https://github.com/Claire-s-Monster/ci-framework/commit/31a20a7a44961b7799798f49987c54de8c221a2a))
+* **ci:** run the pre-commit hooks that were configured but never fired ([5589888](https://github.com/Claire-s-Monster/ci-framework/commit/5589888e7bd61766669659dd71f28332d5c1a82a))
+* **ci:** satisfy ruff format gate and move workflow expressions out of run bodies ([9f12b4c](https://github.com/Claire-s-Monster/ci-framework/commit/9f12b4c6ab1e4f8fb751a147cfe50056fa293dac))
+* **ci:** scope PYTHONNOUSERSITE=1 to the pytest step, not pixi activation ([9c5887c](https://github.com/Claire-s-Monster/ci-framework/commit/9c5887c89229147d62a3fb1e687df78557dfe2b6))
+* **config:** point ruff and mypy at the 3.11 floor the project declares ([d95851a](https://github.com/Claire-s-Monster/ci-framework/commit/d95851ac4d041d3bf707aa6ddc58e60d646d8cd3))
+* **config:** point ruff and mypy at the 3.11 floor the project declares ([7a0aa02](https://github.com/Claire-s-Monster/ci-framework/commit/7a0aa02fef57d00c6e816fcbce2c1fd5040e3e1a))
+* **docs:** reconcile Python 3.10 references with the 3.11 floor, and guard the docs corpus ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286)) ([7e35bf5](https://github.com/Claire-s-Monster/ci-framework/commit/7e35bf5c110c200061f955c2cef57e4c99672343))
+* **docs:** reconcile Python 3.10 references with the 3.11 floor, and guard the docs corpus ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286)) ([77380ef](https://github.com/Claire-s-Monster/ci-framework/commit/77380effe98c397192ec4799eba2c7a3fec316eb))
+* **lint:** catch a swallow that a trailing `;` was hiding ([cdaa8cd](https://github.com/Claire-s-Monster/ci-framework/commit/cdaa8cdb81680bfdf3cb09247d627fdc777c9442)), closes [#278](https://github.com/Claire-s-Monster/ci-framework/issues/278)
+* **lint:** do not mistake a mention of the anti-pattern for the anti-pattern ([60673df](https://github.com/Claire-s-Monster/ci-framework/commit/60673df7c3184797c390558c6172206625012bd9)), closes [#278](https://github.com/Claire-s-Monster/ci-framework/issues/278)
+* **lint:** fail loudly when shellcheck does not run, and fix SC2002 ([9d16406](https://github.com/Claire-s-Monster/ci-framework/commit/9d16406f7bbd28058210328e8b31f4c772520d6e)), closes [#261](https://github.com/Claire-s-Monster/ci-framework/issues/261)
+* **lint:** lint every workflow by discovery, not a six-file list ([c6d12b5](https://github.com/Claire-s-Monster/ci-framework/commit/c6d12b5526297f863a7c2b837f256127b858e2af))
+* **lint:** lint every workflow by discovery, not a six-file list ([40bdb7b](https://github.com/Claire-s-Monster/ci-framework/commit/40bdb7b97a00dc3a761d060e7ed2dc2f2b0d5673)), closes [#279](https://github.com/Claire-s-Monster/ci-framework/issues/279)
+* **lint:** run the gate against the pinned shellcheck, not any PATH build ([9b229f9](https://github.com/Claire-s-Monster/ci-framework/commit/9b229f9f4d8ed993c5411963b9df4138be9d53db)), closes [#261](https://github.com/Claire-s-Monster/ci-framework/issues/261)
+* **lint:** widen yaml-lint to the action trees and wire it into CI ([f2abf68](https://github.com/Claire-s-Monster/ci-framework/commit/f2abf687d25de8c77615ec09a21a970f18539c0b))
+* **lint:** widen yaml-lint to the action trees and wire it into CI ([0740e05](https://github.com/Claire-s-Monster/ci-framework/commit/0740e05307d166281356696688212d5382054675))
+* **migration:** stop silently rewriting the consumer's python floor ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286)) ([88cfa5e](https://github.com/Claire-s-Monster/ci-framework/commit/88cfa5eaba60266b89d1bba3699f60aa8b610dcd))
+* **pixi:** delegate every bare task to an env that provides its tool ([e353192](https://github.com/Claire-s-Monster/ci-framework/commit/e35319246dbfbfac0f95226b39d81d3c1a17837b))
+* **pixi:** delegate every bare task to an env that provides its tool ([acdbd66](https://github.com/Claire-s-Monster/ci-framework/commit/acdbd66d006e32c421178fe06b6211d02d102e41))
+* **pixi:** delete the dead ci-* task tier instead of repairing it ([#294](https://github.com/Claire-s-Monster/ci-framework/issues/294)) ([4a2cf69](https://github.com/Claire-s-Monster/ci-framework/commit/4a2cf69e58254a14a138cd22190838a2e4743935))
+* **pixi:** delete the dead ci-* task tier instead of repairing it ([#294](https://github.com/Claire-s-Monster/ci-framework/issues/294)) ([35c3106](https://github.com/Claire-s-Monster/ci-framework/commit/35c31069f8847ce7db872f33e93df26531b7bb1b))
+* **pixi:** move to [tool.pixi.workspace], and keep reading consumers' legacy [tool.pixi.project] ([0c2c655](https://github.com/Claire-s-Monster/ci-framework/commit/0c2c6550a1185339a1a1318d84441edab0875363))
+* **pixi:** move to [tool.pixi.workspace], and keep reading consumers' legacy [tool.pixi.project] ([a9c86b3](https://github.com/Claire-s-Monster/ci-framework/commit/a9c86b3f8ffa47acc0a717024c6f5786b888e431))
+* **python:** declare the 3.11 floor and make every tomllib import bare ([f162696](https://github.com/Claire-s-Monster/ci-framework/commit/f1626962d545b977ceb0cf86973db4b4ede852b9))
+* **python:** declare the 3.11 floor and make every tomllib import bare ([f8eea08](https://github.com/Claire-s-Monster/ci-framework/commit/f8eea08319bf6aca2729e64af6bc6e423015628c)), closes [#281](https://github.com/Claire-s-Monster/ci-framework/issues/281)
+* **python:** drop 3.10 from shipped config and CI matrix defaults ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286), PR-A of 3) ([44648f1](https://github.com/Claire-s-Monster/ci-framework/commit/44648f1fd21705156e5c60aa6bff95f20f88fc2f))
+* **python:** drop 3.10 from shipped config and CI matrix defaults ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286)) ([6000918](https://github.com/Claire-s-Monster/ci-framework/commit/6000918d831cd2d517eb2f6cc5f5abc7b36ccf09))
+* **quality:** make format-check env-self-contained and add it to the quality gate ([47fc4e6](https://github.com/Claire-s-Monster/ci-framework/commit/47fc4e67ecf8a2980f66c533c4b1aed69b9d546f))
+* **quality:** make format-check env-self-contained and add it to the quality gate ([488e374](https://github.com/Claire-s-Monster/ci-framework/commit/488e3748692d3fedc1bd158106775c68eee1ff09))
+* **quality:** point the mandatory gate at the full ruff ruleset ([08649cd](https://github.com/Claire-s-Monster/ci-framework/commit/08649cd7a74509a11a3d70ff4e2d28a75edaaf48))
+* **quality:** point the mandatory gate at the full ruff ruleset ([17bc0c1](https://github.com/Claire-s-Monster/ci-framework/commit/17bc0c138718579575da3e8fcd042f1466916b3a)), closes [#271](https://github.com/Claire-s-Monster/ci-framework/issues/271)
+* **quality:** run ruff from the pixi quality env instead of a second pinned rev ([873665a](https://github.com/Claire-s-Monster/ci-framework/commit/873665a6abaac31d1958ba4edd63200b871c8794))
+* **quality:** run ruff from the pixi quality env instead of a second pinned rev ([bc22560](https://github.com/Claire-s-Monster/ci-framework/commit/bc2256075d4bca5b9dc54437f1644652fdc62e84))
+* **review:** restore tiered matrix exclude, and guard workflows/ and scripts/ ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286)) ([711c58a](https://github.com/Claire-s-Monster/ci-framework/commit/711c58a5e28234c05ea72bbc16ab943830afe6de))
+* **security:** close the last two heredoc injection sites ([87aefb0](https://github.com/Claire-s-Monster/ci-framework/commit/87aefb04d8e0dc63e45e8f326c69799f73678f27))
+* **security:** close the last two heredoc injection sites ([cc114f0](https://github.com/Claire-s-Monster/ci-framework/commit/cc114f077117078e6c6670652c2e8c08b51f544a))
+* **security:** close the SARIF sites the guard could not see ([#306](https://github.com/Claire-s-Monster/ci-framework/issues/306)) ([c439eb6](https://github.com/Claire-s-Monster/ci-framework/commit/c439eb679ad9fb770d0560638d6f4d4c8f67ca05))
+* **security:** close the SARIF sites the guard could not see ([#306](https://github.com/Claire-s-Monster/ci-framework/issues/306)) ([c117b21](https://github.com/Claire-s-Monster/ci-framework/commit/c117b211f6b4ee7dc960cb35590ea3f70b37486a))
+* **security:** keep GPG keys and bot tokens off the shell command line ([b93d5ed](https://github.com/Claire-s-Monster/ci-framework/commit/b93d5edf9614fa0f33c3b2a98ef4c1dd4310f8b3))
+* **security:** keep GPG keys and bot tokens off the shell command line ([eb8aadd](https://github.com/Claire-s-Monster/ci-framework/commit/eb8aadd7c1fb32ab516af908d3770e41a3365881))
+* **security:** let the two unauthorized SARIF uploads authenticate ([#306](https://github.com/Claire-s-Monster/ci-framework/issues/306)) ([894543b](https://github.com/Claire-s-Monster/ci-framework/commit/894543b63fed5fe4ab1f9b4ec768b89fb7a02986))
+* **security:** let the two unauthorized SARIF uploads authenticate ([#306](https://github.com/Claire-s-Monster/ci-framework/issues/306)) ([d25aeb6](https://github.com/Claire-s-Monster/ci-framework/commit/d25aeb6eadc6f95396b0e61022dfa8644594f520))
+* **security:** make detect-secrets run, and actually gate on what it finds ([#288](https://github.com/Claire-s-Monster/ci-framework/issues/288)) ([f356e02](https://github.com/Claire-s-Monster/ci-framework/commit/f356e020ce162a90e0f8dc25cc74df8baa25c8ed))
+* **security:** make detect-secrets run, and actually gate on what it finds ([#288](https://github.com/Claire-s-Monster/ci-framework/issues/288)) ([c9d83cd](https://github.com/Claire-s-Monster/ci-framework/commit/c9d83cd25a9701028c595e28466e62f1efa8bf3c))
+* **security:** make pip-audit and Bandit gate CI, and fix what they found ([#301](https://github.com/Claire-s-Monster/ci-framework/issues/301)) ([ab5359d](https://github.com/Claire-s-Monster/ci-framework/commit/ab5359d4f14ab70b67e6f5160b6225b593b4859f))
+* **security:** make pip-audit and Bandit gate CI, and fix what they found ([#301](https://github.com/Claire-s-Monster/ci-framework/issues/301)) ([1c32774](https://github.com/Claire-s-Monster/ci-framework/commit/1c327740b6a957b5bba1483d843047adbab2731e))
+* **security:** resync .secrets.baseline after the line shift this PR caused ([#301](https://github.com/Claire-s-Monster/ci-framework/issues/301)) ([68e768a](https://github.com/Claire-s-Monster/ci-framework/commit/68e768a2226117d6a79ab959c971a0e725280824))
+* **security:** revert the CodeQL split - it reintroduced [#222](https://github.com/Claire-s-Monster/ci-framework/issues/222) ([#304](https://github.com/Claire-s-Monster/ci-framework/issues/304)) ([c86ab54](https://github.com/Claire-s-Monster/ci-framework/commit/c86ab54ca0ebfea1003a07edd45835fcdd0c76ca))
+* **security:** stop splicing shell variables into action Python source ([6864e69](https://github.com/Claire-s-Monster/ci-framework/commit/6864e695a9ac425d4f57b791d0d640ec09eb6378))
+* **security:** walk every workflow, and gate on the right invariant ([#304](https://github.com/Claire-s-Monster/ci-framework/issues/304)) ([a440a2c](https://github.com/Claire-s-Monster/ci-framework/commit/a440a2c39043505fe2e38a856d5e6ac6f677e5da))
+* **security:** walk every workflow, and gate on the right invariant ([#304](https://github.com/Claire-s-Monster/ci-framework/issues/304)) ([cdbe1d5](https://github.com/Claire-s-Monster/ci-framework/commit/cdbe1d55e087323ea2f3083c4e3d1f8222c90920))
+* **self-healing:** pin the local action ref so external consumers can resolve it ([ded156c](https://github.com/Claire-s-Monster/ci-framework/commit/ded156cc0c5f0e1676548c3f263ce1adc5edf4f3))
+* **self-healing:** pin the local action ref so external consumers can resolve it ([879dc75](https://github.com/Claire-s-Monster/ci-framework/commit/879dc75e681efa661dfb61ec0eeecc52edd92838))
+* **templates:** drop the docker-cross-platform action that never existed ([968e846](https://github.com/Claire-s-Monster/ci-framework/commit/968e8468f2345e60ff3f29b532081f20f81cd2b5))
+* **templates:** drop the docker-cross-platform action that never existed ([df36d5b](https://github.com/Claire-s-Monster/ci-framework/commit/df36d5b0a026b43916c02f344abfbb9eccb2371f))
+* **templates:** make every tool-invoking pixi task env-self-contained ([2f7906a](https://github.com/Claire-s-Monster/ci-framework/commit/2f7906ab37fb215bdf55cbf1e09e71acdd10e2e6))
+* **templates:** make every tool-invoking pixi task env-self-contained ([a879897](https://github.com/Claire-s-Monster/ci-framework/commit/a879897750f3411a872e78c8065b9f55f5d688b8))
+* **tests:** catch a compatibility-table row being deleted, not just mis-marked ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286)) ([d9716e3](https://github.com/Claire-s-Monster/ci-framework/commit/d9716e3572ac94f1c8d1bd4f35ad8f099d8c288d))
+* **tests:** reconcile the compatibility matrix with the declared floor ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286), PR-B of 3) ([775d0fa](https://github.com/Claire-s-Monster/ci-framework/commit/775d0fa7da8c5aad1ebaa77840582c79a505fdaa))
+* **tests:** reconcile the compatibility matrix with the declared floor ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286)) ([179d602](https://github.com/Claire-s-Monster/ci-framework/commit/179d602f2297361891f571385b10f0bc52330384))
+* **tests:** report every sub-floor declaration, not just the first ([#286](https://github.com/Claire-s-Monster/ci-framework/issues/286)) ([4ecc9ff](https://github.com/Claire-s-Monster/ci-framework/commit/4ecc9ff4d0d138f9e164adf0c99ff9f94f9d24be))
+
+
+### Documentation
+
+* **security:** document fail-on-sast as a permanent opt-in gate ([#305](https://github.com/Claire-s-Monster/ci-framework/issues/305)) ([9c50862](https://github.com/Claire-s-Monster/ci-framework/commit/9c508624974acea909a524e42f1ba7e83809cc0e))
+* **security:** document fail-on-sast as a permanent opt-in gate ([#305](https://github.com/Claire-s-Monster/ci-framework/issues/305)) ([8192a85](https://github.com/Claire-s-Monster/ci-framework/commit/8192a85f2f8f40e62d5aaca9ae7ee428e8fb7c96))
+* **security:** document the caller permissions the action cannot grant itself ([#306](https://github.com/Claire-s-Monster/ci-framework/issues/306)) ([d2338bb](https://github.com/Claire-s-Monster/ci-framework/commit/d2338bbbf3d9ea29ce50ec0d8bec4b345a3abb5d))
+* **test:** record the pixi coupling and the flat-scan decision ([2291fa1](https://github.com/Claire-s-Monster/ci-framework/commit/2291fa162b0cecb11230ea28d77af29f6c3ed538))
+
 ## [2.9.9](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.8...v2.9.9) (2026-07-29)
 
 

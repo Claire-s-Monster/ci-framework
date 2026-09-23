@@ -166,7 +166,7 @@ runs:
 
     - name: Install Docker (for Trivy)
       if: inputs.enable-trivy == 'true'
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Install Security Tools
       shell: bash

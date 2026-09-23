@@ -268,7 +268,7 @@ runs:
     # uploaded by actions/security-scan and the reusable-* workflows (#306).
 
     - name: Comment PR with Results
-      uses: actions/github-script@v6
+      uses: actions/github-script@v9
       if: always() && github.event_name == 'pull_request'
       with:
         script: |

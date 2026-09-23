@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ci-framework-tools"
-version = "2.9.9"
+version = "3.0.0"
 description = "Internal tools and scripts for the CI Framework."
 # 3.11 is the floor because `tomllib` is stdlib only from 3.11, and this repo
 # imports it bare — including in composite actions that run on the consumer's

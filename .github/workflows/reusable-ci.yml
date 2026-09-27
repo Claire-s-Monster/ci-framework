@@ -748,7 +748,11 @@ jobs:
   # ============================================================================
 
   test:
-    name: "🧪 Test Python ${{ matrix.python-version }} on ${{ matrix.os }}"
+    # Matrix vars deliberately omitted from `name:`: a job skipped by a
+    # false job-level `if:` has no matrix context, so the template would
+    # render literally in the check-run name. GitHub appends the leg
+    # suffix itself when the job actually runs. See #339.
+    name: "🧪 Test"
     runs-on: ${{ matrix.os }}
     needs: detect-changes
     if: >-
@@ -849,7 +853,11 @@ jobs:
           pixi run -e "$RESOLVED_PIXI_ENV" test
 
   test-postgres:
-    name: "🐘 Test+PG Python ${{ matrix.python-version }}"
+    # Matrix vars deliberately omitted from `name:`: a job skipped by a
+    # false job-level `if:` has no matrix context, so the template would
+    # render literally in the check-run name. GitHub appends the leg
+    # suffix itself when the job actually runs. See #339.
+    name: "🐘 Test+PG"
     runs-on: ubuntu-latest
     needs: detect-changes
     if: >-

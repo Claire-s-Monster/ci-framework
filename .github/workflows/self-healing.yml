@@ -61,7 +61,10 @@ jobs:
           gpg-key-id: ${{ secrets.CI_BOT_GPG_KEY_ID }}
           git-user-name: "CIFrameworkBot"
           git-user-email: "223036950+CIFrameworkBot@users.noreply.github.com"
-          config-scope: global
+          # local, not global: this is a reusable workflow, so a consumer may
+          # run it on a self-hosted runner where --global writes persist across
+          # jobs and would leak this bot identity into unrelated builds.
+          config-scope: local
 
       - name: "Commit Healing Changes"
         if: steps.healing.outputs.healed == 'true'

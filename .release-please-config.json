@@ -4,6 +4,10 @@
   "bump-patch-for-minor-pre-major": true,
   "extra-files": [
     {
+      "path": ".github/workflows/cleanup-dev-files.yml",
+      "type": "generic"
+    },
+    {
       "path": ".github/workflows/reusable-ci.yml",
       "type": "generic"
     },

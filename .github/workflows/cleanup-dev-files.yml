@@ -180,52 +180,20 @@ jobs:
 
       - name: Setup GPG for signing
         if: steps.branch-check.outputs.exists == 'true'
-        # Secrets arrive via env:, not interpolated into the script body, which
-        # would render the private key into the executed script text. Not yet
-        # switched to .github/actions/gpg-signing-setup because this is a
-        # reusable workflow: a ./-relative action resolves against the caller's
-        # checkout, and the pinned remote form would dangle until a release cuts
-        # (.release-please-config.json does not track this file). See #258.
-        env:
-          CI_BOT_GPG_KEY: ${{ secrets.CI_BOT_GPG_KEY }}
-          CI_BOT_GPG_KEY_ID: ${{ secrets.CI_BOT_GPG_KEY_ID }}
-        run: |
-          # Import bot GPG private key for commit signing (passphrase-less key)
-          printf '%s\n' "$CI_BOT_GPG_KEY" | gpg --import --batch --yes
-          gpg --list-secret-keys  # Verify import worked
-
-          # Configure GPG for non-interactive CI environment
-          mkdir -p ~/.gnupg
-          chmod 700 ~/.gnupg
-
-          # GPG configuration for non-interactive operation
-          cat > ~/.gnupg/gpg.conf << 'EOF'
-          use-agent
-          pinentry-mode loopback
-          batch
-          no-tty
-          EOF
-
-          # Set proper permissions
-          chmod 600 ~/.gnupg/gpg.conf
-
-          # Set ultimate trust for the bot key
-          printf '%s:6:\n' "$CI_BOT_GPG_KEY_ID" | gpg --import-ownertrust
-
-          echo "Bot GPG key imported and configured for CI signing"
+        uses: Claire-s-Monster/ci-framework/.github/actions/gpg-signing-setup@v3.0.0  # x-release-please-version
+        with:
+          gpg-private-key: ${{ secrets.CI_BOT_GPG_KEY }}
+          gpg-key-id: ${{ secrets.CI_BOT_GPG_KEY_ID }}
+          git-user-name: "CIFrameworkBot"
+          git-user-email: "223036950+CIFrameworkBot@users.noreply.github.com"
+          config-scope: local
 
       - name: Commit cleanup if files were removed
         if: steps.branch-check.outputs.exists == 'true'
         env:
-          CI_BOT_GPG_KEY_ID: ${{ secrets.CI_BOT_GPG_KEY_ID }}
           CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
         run: |
-          # Use CI bot account with GPG signing capability
-          git config user.name "ci-framework-bot"
-          git config user.email "223036950+CIFrameworkBot@users.noreply.github.com"
-          git config user.signingkey "$CI_BOT_GPG_KEY_ID"
-          git config commit.gpgsign true
-          git config gpg.program gpg
+          # Identity and signing are configured by the gpg-signing-setup step above.
 
           # Configure git to use the bot token for authentication
           git_token_url="https://x-access-token:$CI_BOT_TOKEN@github.com/"
@@ -245,7 +213,7 @@ jobs:
             git checkout -b "$cleanup_branch"
 
             git add -A
-            git commit -S -m "chore: automated cleanup of development artifacts
+            git commit -m "chore: automated cleanup of development artifacts
 
               Comprehensive cleanup of development files from ${{ matrix.branch }} branch.
 
@@ -258,7 +226,7 @@ jobs:
 
               Files removed: ${removed_files}
 
-              🤖 Automated cleanup by ci-framework-bot with verified signature"
+              🤖 Automated cleanup by CIFrameworkBot with verified signature"
 
             # Push cleanup branch
             git push origin "$cleanup_branch"

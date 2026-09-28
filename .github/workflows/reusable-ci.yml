@@ -635,8 +635,14 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # No job-level `permissions:` block on purpose. Such a block REPLACES the
+    # caller's grant instead of extending it, so pinning `contents: read` here
+    # stripped `security-events: write` from a caller that had granted it and
+    # left the `|| github.token` fallback below unable to authenticate.
+    # Requesting the permission here instead would be worse: a workflow_call
+    # job asking for more than the caller granted fails the whole run at
+    # startup. Inheriting leaves consumers who omit the permission exactly as
+    # they were, while letting those who grant it upload without a PAT. See #306.
     container:
       image: semgrep/semgrep
     steps:
@@ -667,8 +673,14 @@ jobs:
     # when using this workflow standalone (no reusable-security.yml).
     if: inputs.codeql && needs.detect-changes.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # No job-level `permissions:` block on purpose. Such a block REPLACES the
+    # caller's grant instead of extending it, so pinning `contents: read` here
+    # stripped `security-events: write` from a caller that had granted it and
+    # left the `|| github.token` fallback below unable to authenticate.
+    # Requesting the permission here instead would be worse: a workflow_call
+    # job asking for more than the caller granted fails the whole run at
+    # startup. Inheriting leaves consumers who omit the permission exactly as
+    # they were, while letting those who grant it upload without a PAT. See #306.
     strategy:
       fail-fast: false
       matrix:

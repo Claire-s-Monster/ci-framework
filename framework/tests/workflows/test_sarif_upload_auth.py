@@ -187,6 +187,61 @@ def sarif_upload_is_authorized(
     )
 
 
+def job_permissions_narrow_without_security_events_write(job_perms: dict) -> bool:
+    """True when `job_perms` is a non-empty permissions block missing
+    `security-events: write` - the #306 defect shape.
+
+    No `permissions:` block at all (`{}`) is FINE: the job inherits whatever
+    the caller granted, which is exactly the fix applied to `sast-semgrep`
+    and `sast-codeql` in both reusable workflows. A job-level `permissions:`
+    block REPLACES the caller's grant rather than extending it, though, so a
+    block that narrows to e.g. `contents: read` without also listing
+    `security-events: write` leaves any `|| github.token` fallback on a
+    SARIF-upload step in that job permanently dead.
+    """
+    return bool(job_perms) and not has_security_events_write(job_perms)
+
+
+def _workflow_and_job(identifier: str) -> tuple[str, str]:
+    """Split a `discover_sarif_upload_steps` identifier into `(file, job)`.
+
+    Identifiers are `f"{path.name}::{job_name}::{step_label}"` - splitting
+    with `maxsplit=2` keeps a `::` that happens to appear inside a step
+    label from corrupting the file/job pair.
+    """
+    file_name, job_name, _label = identifier.split("::", 2)
+    return file_name, job_name
+
+
+# Ratchet, not a blanket assert (Task 3, #306 follow-up): each pair here is a
+# SARIF-upload job whose job-level `permissions:` block narrows away
+# `security-events: write` and is KNOWN remaining debt, not yet fixed. This
+# is an EXACT set match in the test below, so a brand-new narrowing block
+# anywhere fails (nothing new is free), re-adding a block to one of the three
+# jobs #306 already fixed (`sast-semgrep` / `sast-codeql` in both reusable
+# workflows) fails, and quietly fixing one of these without shrinking the set
+# fails too - the allowlist must be edited deliberately either way.
+NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = (
+    frozenset(
+        {
+            # `c-cpp-lint` authenticates its upload-sarif step via
+            # `with.token` (CI_BOT_TOKEN with a `|| github.token` fallback),
+            # not via job permissions - the missing `security-events: write`
+            # only kills the unused fallback half of that expression.
+            # `reusable-quality.yml`'s `c-cpp-lint` has no permissions block
+            # at all and is therefore NOT in this set.
+            ("reusable-ci.yml", "c-cpp-lint"),
+            # `scorecard`'s `permissions:` block exists for OpenSSF
+            # Scorecard's own Token-Permissions check (id-token / actions /
+            # contents), not for SARIF auth; its upload-sarif step
+            # authenticates via `with.token` the same way `c-cpp-lint` does.
+            ("reusable-ci.yml", "scorecard"),
+            ("reusable-security.yml", "scorecard"),
+        }
+    )
+)
+
+
 def sarif_relevant_action_files(directory: Path = ACTIONS_DIR) -> list[Path]:
     """Every `action.yml`/`action.yaml` under `directory`, RECURSIVELY.
 
@@ -476,3 +531,119 @@ def test_widened_corpus_still_exempts_analyze_with_upload_false():
         f"job (its upload-sarif step) but found {sast_codeql_sites} - the "
         "`upload: false` analyze exemption regressed when the corpus widened"
     )
+
+
+def test_every_narrowing_job_permissions_block_includes_security_events_write():
+    """Ratchet (#306 follow-up): a job-level `permissions:` block on a
+    SARIF-upload job must include `security-events: write`, or it silently
+    kills any `|| github.token` fallback on that job's upload step - see
+    `job_permissions_narrow_without_security_events_write`.
+
+    Asserted as an EXACT set match against
+    `NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST`, not a subset check,
+    so three things all fail this test: a brand-new narrowing block anywhere
+    in the corpus, re-adding a block to one of the three jobs #306 already
+    fixed (`sast-semgrep` / `sast-codeql`), and silently fixing one of the
+    allowlisted jobs without shrinking the constant to match.
+    """
+    violations = {
+        _workflow_and_job(identifier)
+        for identifier, _step, perms, _workflow_perms in all_sarif_relevant_steps()
+        if job_permissions_narrow_without_security_events_write(perms)
+    }
+    assert violations == NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST, (
+        "the set of SARIF-upload jobs whose permissions: block narrows away "
+        "security-events: write changed - update "
+        "NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST in this file to "
+        f"match (found: {sorted(violations)})"
+    )
+
+
+def test_classifier_flags_narrow_permissions_on_a_job_with_upload_sarif_step():
+    """Self-test: `permissions: {contents: read}` on a job with an
+    upload-sarif step IS flagged."""
+    doc = {
+        "jobs": {
+            "synthetic-job": {
+                "permissions": {"contents": "read"},
+                "steps": [
+                    {
+                        "uses": "github/codeql-action/upload-sarif@v4",
+                        "with": {"sarif_file": "x.sarif"},
+                    }
+                ],
+            }
+        }
+    }
+    path = WORKFLOWS_DIR / "synthetic-fixture.yml"
+    sites = discover_sarif_upload_steps(path, doc)
+    assert len(sites) == 1
+    _, _step, perms, _workflow_perms = sites[0]
+    assert job_permissions_narrow_without_security_events_write(perms)
+
+
+def test_classifier_does_not_flag_job_with_security_events_write():
+    """Self-test: adding `security-events: write` to the job's permissions
+    clears the flag."""
+    doc = {
+        "jobs": {
+            "synthetic-job": {
+                "permissions": {"contents": "read", "security-events": "write"},
+                "steps": [
+                    {
+                        "uses": "github/codeql-action/upload-sarif@v4",
+                        "with": {"sarif_file": "x.sarif"},
+                    }
+                ],
+            }
+        }
+    }
+    path = WORKFLOWS_DIR / "synthetic-fixture.yml"
+    sites = discover_sarif_upload_steps(path, doc)
+    assert len(sites) == 1
+    _, _step, perms, _workflow_perms = sites[0]
+    assert not job_permissions_narrow_without_security_events_write(perms)
+
+
+def test_classifier_does_not_flag_job_with_no_permissions_block():
+    """Self-test: no `permissions:` block at all means the job inherits the
+    caller's grant, so it must NOT be flagged."""
+    doc = {
+        "jobs": {
+            "synthetic-job": {
+                "steps": [
+                    {
+                        "uses": "github/codeql-action/upload-sarif@v4",
+                        "with": {"sarif_file": "x.sarif"},
+                    }
+                ],
+            }
+        }
+    }
+    path = WORKFLOWS_DIR / "synthetic-fixture.yml"
+    sites = discover_sarif_upload_steps(path, doc)
+    assert len(sites) == 1
+    _, _step, perms, _workflow_perms = sites[0]
+    assert not job_permissions_narrow_without_security_events_write(perms)
+
+
+def test_classifier_ignores_narrow_job_whose_only_codeql_step_is_upload_false():
+    """Self-test: `permissions: {contents: read}` on a job whose only codeql
+    step is `analyze` with `upload: false` is NOT flagged - it is not a
+    SARIF-upload SITE at all (the analyze step writes to disk only), so it
+    must never reach the permissions check."""
+    doc = {
+        "jobs": {
+            "synthetic-job": {
+                "permissions": {"contents": "read"},
+                "steps": [
+                    {
+                        "uses": "github/codeql-action/analyze@v4",
+                        "with": {"upload": False, "category": "x"},
+                    }
+                ],
+            }
+        }
+    }
+    path = WORKFLOWS_DIR / "synthetic-fixture.yml"
+    assert discover_sarif_upload_steps(path, doc) == []

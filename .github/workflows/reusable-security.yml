@@ -286,8 +286,14 @@ jobs:
     needs: detect-languages
     if: needs.detect-languages.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # No job-level `permissions:` block on purpose. Such a block REPLACES the
+    # caller's grant instead of extending it, so pinning `contents: read` here
+    # stripped `security-events: write` from a caller that had granted it and
+    # left the `|| github.token` fallback below unable to authenticate.
+    # Requesting the permission here instead would be worse: a workflow_call
+    # job asking for more than the caller granted fails the whole run at
+    # startup. Inheriting leaves consumers who omit the permission exactly as
+    # they were, while letting those who grant it upload without a PAT. See #306.
     strategy:
       fail-fast: false
       matrix:
@@ -305,10 +311,11 @@ jobs:
       - if: matrix.language != 'c-cpp'
         uses: github/codeql-action/autobuild@v4
       # upload: true uses the native code-scanning path so the aggregate `CodeQL`
-      # check reports success instead of `neutral` (issue #222). The upload is
-      # performed with CI_BOT_TOKEN (a PAT with the security_events scope), so the
-      # caller's GITHUB_TOKEN still does NOT need security-events: write — keeping
-      # OpenSSF Scorecard Token-Permissions clean.
+      # check reports success instead of `neutral` (issue #222). The upload
+      # authenticates via CI_BOT_TOKEN (a PAT with the security_events scope)
+      # when set, or falls back to github.token — which now actually reaches
+      # this job when the caller grants security-events: write, since the
+      # job no longer narrows permissions itself (#306).
       - uses: github/codeql-action/analyze@v4
         continue-on-error: true
         with:

@@ -194,10 +194,12 @@ jobs:
           CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
         run: |
           # Identity and signing are configured by the gpg-signing-setup step above.
-
-          # Configure git to use the bot token for authentication
-          git_token_url="https://x-access-token:$CI_BOT_TOKEN@github.com/"
-          git config --global url."${git_token_url}".insteadOf "https://github.com/"
+          # `git push` authenticates with the token actions/checkout persisted
+          # (persist-credentials: true), which is already CI_BOT_TOKEN when the
+          # secret is set. Do not add a `url.<token>.insteadOf` rewrite here,
+          # and never at --global scope: this is a reusable workflow, and on a
+          # self-hosted runner ~/.gitconfig outlives the job, handing the token
+          # to every later job on that runner (#345).
 
           # Configure GitHub CLI token
           export GH_TOKEN="$CI_BOT_TOKEN"

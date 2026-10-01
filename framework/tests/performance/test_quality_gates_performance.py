@@ -421,22 +421,22 @@ lint = "ruff check"
             # Test concurrent execution
             start_time = time.time()
 
-            # Patch once, from the main thread. A per-thread patch() of the same
-            # global races: overlapping enter/exit pairs restore out of order and
-            # leave one thread's Mock installed as subprocess.run for every later
+            # No subprocess patch: execute_tier(dry_run=True) returns before any
+            # subprocess call (quality_gates.py, the `if dry_run:` early return),
+            # and the real path uses Popen, not run. The old per-thread
+            # patch("subprocess.run") was dead code, and racing it across
+            # threads left a Mock installed as subprocess.run for every later
             # test in the session.
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = Mock(returncode=0, stdout="success", stderr="")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = [
-                        executor.submit(execute_quality_gates, project_dir, "essential")
-                        for project_dir in projects
-                    ]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [
+                    executor.submit(execute_quality_gates, project_dir, "essential")
+                    for project_dir in projects
+                ]
 
-                    results = [
-                        future.result()
-                        for future in concurrent.futures.as_completed(futures)
-                    ]
+                results = [
+                    future.result()
+                    for future in concurrent.futures.as_completed(futures)
+                ]
 
             concurrent_time = time.time() - start_time
 

@@ -13,7 +13,10 @@ known to be affected today.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -284,6 +287,39 @@ class TestWideScopeCredentialClassifier:
         assert Path(".github/workflows/cleanup-dev-files.yml") in files
 
 
+def _isolated_env(cwd: Path, home: Path, scope: str) -> dict[str, str]:
+    """Environment that cannot read or write the developer's real git config."""
+    return {
+        "PATH": os.environ["PATH"],
+        "HOME": str(home),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CEILING_DIRECTORIES": str(cwd.parent),
+        "GITHUB_OUTPUT": str(home / "github_output"),
+        "GPG_PRIVATE_KEY": "",
+        "GPG_KEY_ID": "ABCDEF",
+        "GIT_USER_NAME": "Test Bot",
+        "GIT_USER_EMAIL": "bot@example.invalid",
+        "CONFIG_SCOPE": scope,
+    }
+
+
+def _run_gpg_step(cwd: Path, home: Path, scope: str) -> subprocess.CompletedProcess:
+    """Execute the action's run script under bash with HOME pointed at a tmp dir.
+
+    An empty GPG_PRIVATE_KEY makes the script skip the import and exit 0 after
+    configuring identity, so no real key or keyring is involved.
+    """
+    script = yaml.safe_load(GPG_ACTION.read_text())["runs"]["steps"][0]["run"]
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=cwd,
+        env=_isolated_env(cwd, home, scope),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 class TestGpgSigningSetupAction:
     """The composite action #258 consolidates GPG handling into.
 
@@ -295,6 +331,12 @@ class TestGpgSigningSetupAction:
     def test_action_file_exists_and_parses(self):
         assert GPG_ACTION.is_file(), f"{GPG_ACTION} is missing"
         assert yaml.safe_load(GPG_ACTION.read_text()), "action.yml parsed as empty"
+
+    def test_config_scope_defaults_to_local(self):
+        """'global' leaks bot identity and commit.gpgsign into later jobs on
+        persistent runners (#348), so the safe scope must be the default."""
+        doc = yaml.safe_load(GPG_ACTION.read_text())
+        assert doc["inputs"]["config-scope"]["default"] == "local"
 
     def test_is_a_composite_action_with_expected_interface(self):
         doc = yaml.safe_load(GPG_ACTION.read_text())
@@ -318,3 +360,57 @@ class TestGpgSigningSetupAction:
         assert "${{ inputs.gpg-private-key }}" not in step["run"], (
             "the private key must not be interpolated into the script body"
         )
+
+    @pytest.mark.skipif(
+        shutil.which("git") is None or shutil.which("bash") is None,
+        reason="git and bash are required to execute the step",
+    )
+    class TestScopeBehavior:
+        """Run the real script; HOME is always a tmp dir, never the user's."""
+
+        def test_local_scope_fails_clearly_outside_a_work_tree(self, tmp_path):
+            """Without a repo, 'local' would fail obscurely on the first git
+            config write; it must instead say what to do, before writing."""
+            home, work = tmp_path / "home", tmp_path / "work"
+            home.mkdir()
+            work.mkdir()
+            result = _run_gpg_step(work, home, "local")
+            assert result.returncode != 0
+            assert "needs a git work tree" in result.stdout
+            assert not (home / ".gitconfig").exists()
+
+        def test_local_scope_writes_repo_config_only(self, tmp_path):
+            """The point of #348: 'local' must leave ~/.gitconfig untouched."""
+            home, work = tmp_path / "home", tmp_path / "work"
+            home.mkdir()
+            work.mkdir()
+            env = _isolated_env(work, home, "local")
+            subprocess.run(
+                ["git", "init", "-q"],
+                cwd=work,
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+            result = _run_gpg_step(work, home, "local")
+            assert result.returncode == 0, result.stderr
+            name = subprocess.run(
+                ["git", "config", "--local", "user.name"],
+                cwd=work,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            assert name.stdout.strip() == "Test Bot"
+            assert not (home / ".gitconfig").exists()
+            assert "signing-enabled=false" in (home / "github_output").read_text()
+
+        def test_global_scope_writes_home_gitconfig(self, tmp_path):
+            """'global' stays available as an explicit opt-in, outside a repo."""
+            home, work = tmp_path / "home", tmp_path / "work"
+            home.mkdir()
+            work.mkdir()
+            result = _run_gpg_step(work, home, "global")
+            assert result.returncode == 0, result.stderr
+            assert "Test Bot" in (home / ".gitconfig").read_text()

@@ -396,11 +396,9 @@ class Class_{j}:
         import threading
 
         def execute_quality_gates(project_dir, tier):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = Mock(returncode=0, stdout="success", stderr="")
-                return quality_gates_action.execute_tier(
-                    project_dir=project_dir, tier=tier, dry_run=True
-                )
+            return quality_gates_action.execute_tier(
+                project_dir=project_dir, tier=tier, dry_run=True
+            )
 
         # Create multiple mock projects
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -423,16 +421,22 @@ lint = "ruff check"
             # Test concurrent execution
             start_time = time.time()
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [
-                    executor.submit(execute_quality_gates, project_dir, "essential")
-                    for project_dir in projects
-                ]
+            # Patch once, from the main thread. A per-thread patch() of the same
+            # global races: overlapping enter/exit pairs restore out of order and
+            # leave one thread's Mock installed as subprocess.run for every later
+            # test in the session.
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = Mock(returncode=0, stdout="success", stderr="")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = [
+                        executor.submit(execute_quality_gates, project_dir, "essential")
+                        for project_dir in projects
+                    ]
 
-                results = [
-                    future.result()
-                    for future in concurrent.futures.as_completed(futures)
-                ]
+                    results = [
+                        future.result()
+                        for future in concurrent.futures.as_completed(futures)
+                    ]
 
             concurrent_time = time.time() - start_time
 

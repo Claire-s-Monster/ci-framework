@@ -19,19 +19,13 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      # gpg-signing-setup is a local composite action, so the repository must be
-      # checked out before it can be resolved. release-please-action itself works
-      # over the API, which is why this workflow had no checkout step before.
-      - uses: actions/checkout@v7
-
-      - name: Import GPG key and configure Git
-        uses: ./.github/actions/gpg-signing-setup
-        with:
-          gpg-private-key: ${{ secrets.CI_BOT_GPG_KEY }}
-          gpg-key-id: ${{ secrets.CI_BOT_GPG_KEY_ID }}
-          git-user-name: CIFrameworkBot
-          git-user-email: 223036950+CIFrameworkBot@users.noreply.github.com
-
+      # No checkout and no GPG setup, on purpose. release-please-action works
+      # entirely over the GitHub API: it reads files from the branch and creates
+      # the release branch, tree, commit and PR server-side, so it never touches
+      # a local working tree or the local git/GPG config. Release commits on main
+      # are signed by GitHub's web-flow key when the release PR is merged.
+      # Importing the bot's GPG key here only exposed the private key on a
+      # runner holding contents: write and CI_BOT_TOKEN, for no effect.
       - name: Release Please
         id: release
         uses: googleapis/release-please-action@v5

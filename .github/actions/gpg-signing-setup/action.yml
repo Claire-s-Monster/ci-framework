@@ -35,10 +35,15 @@ inputs:
     required: true
   config-scope:
     description: >
-      Write git config globally ('global') or to the current repository only
-      ('local'). Call sites differ, so this is explicit rather than assumed.
+      Where to write git config. 'local' (default) writes to the current
+      repository only, so the action must run after actions/checkout and from
+      inside that work tree. 'global' writes to the runner user's ~/.gitconfig,
+      which on self-hosted/persistent runners outlives the job and leaks the bot
+      identity and commit.gpgsign into later jobs. The GPG key itself is
+      imported into ~/.gnupg regardless, so this scope limits the git config,
+      not the keyring. The default changed from 'global' in #348.
     required: false
-    default: 'global'
+    default: 'local'
 
 outputs:
   signing-enabled:
@@ -67,7 +72,13 @@ runs:
         # an empty "$scope_flag" would need an SC2086 suppression to expand.
         case "$CONFIG_SCOPE" in
           global) git_config=(git config --global) ;;
-          local) git_config=(git config) ;;
+          local)
+            if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              echo "::error::config-scope 'local' needs a git work tree, but $(pwd) is not inside one. Run actions/checkout first, or pass config-scope: global."
+              exit 1
+            fi
+            git_config=(git config)
+            ;;
           *)
             echo "::error::config-scope must be 'global' or 'local', got '$CONFIG_SCOPE'"
             exit 1

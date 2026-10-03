@@ -66,12 +66,13 @@ SARIF_UPLOAD_MARKER = "upload-sarif"
 # only when `with.upload` is not `false` - see `analyze_step_uploads` below.
 CODEQL_ANALYZE_MARKER = "codeql-action/analyze"
 
-# The 11 auth-requiring SARIF sites in this repo today, re-enumerated for
-# #306's follow-up (widening the corpus to `actions/**/action.yml`):
-#   8 upload-sarif sites:
-#     reusable-quality.yml:233
+# The 9 auth-requiring SARIF sites in this repo today, re-enumerated for
+# #306's follow-up (widening the corpus to `actions/**/action.yml`) and
+# reduced by #354 (both `c-cpp-lint` upload steps deleted: cpp-linter-action
+# writes no SARIF file, so they uploaded nothing):
+#   6 upload-sarif sites:
 #     reusable-security.yml:274, :357
-#     reusable-ci.yml:485, :652, :694, :739
+#     reusable-ci.yml:652, :694, :739
 #     actions/security-scan/action.yml:803
 #   3 codeql-action/analyze sites that upload implicitly (no `upload: false`):
 #     standalone-ci.yml:297      job=security       (security-events: write)
@@ -88,14 +89,14 @@ CODEQL_ANALYZE_MARKER = "codeql-action/analyze"
 # was uploading a file nothing produced. `actions/security-scan/action.yml`
 # is a NEW site in this inventory - it was invisible to this guard before the
 # corpus widened to cover `actions/**/action.yml`, which is exactly the gap
-# that let it ship unauthenticated (now fixed with `token:`). The count is
-# unchanged at 11 only because one removal offset one addition.
+# that let it ship unauthenticated (now fixed with `token:`). That removal
+# offset that addition (11); #354 then removed the two `c-cpp-lint` sites.
 #
 # This floor EQUALS the current count, so removing a site fails this test on
 # purpose: consolidating one is a deliberate act that should update this
 # constant in the same commit. The floor's real job is to fail loudly if the
 # glob or the `uses:` matcher breaks and the walk silently finds near zero.
-MINIMUM_EXPECTED_SITES = 11
+MINIMUM_EXPECTED_SITES = 9
 
 
 def sarif_relevant_workflow_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
@@ -320,24 +321,17 @@ def _workflow_and_job(identifier: str) -> tuple[str, str]:
 # SARIF-upload job whose job-level `permissions:` block narrows away
 # `security-events: write` and is KNOWN remaining debt, not yet fixed. This
 # is an EXACT set match in the test below, so a brand-new narrowing block
-# anywhere fails (nothing new is free), re-adding a block to one of the three
+# anywhere fails (nothing new is free), re-adding a block to one of the
 # jobs #306 already fixed (`sast-semgrep` / `sast-codeql` in both reusable
 # workflows) fails, and quietly fixing one of these without shrinking the set
 # fails too - the allowlist must be edited deliberately either way.
 NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = (
     frozenset(
         {
-            # `c-cpp-lint` authenticates its upload-sarif step via
-            # `with.token` (CI_BOT_TOKEN with a `|| github.token` fallback),
-            # not via job permissions - the missing `security-events: write`
-            # only kills the unused fallback half of that expression.
-            # `reusable-quality.yml`'s `c-cpp-lint` has no permissions block
-            # at all and is therefore NOT in this set.
-            ("reusable-ci.yml", "c-cpp-lint"),
             # `scorecard`'s `permissions:` block exists for OpenSSF
             # Scorecard's own Token-Permissions check (id-token / actions /
             # contents), not for SARIF auth; its upload-sarif step
-            # authenticates via `with.token` the same way `c-cpp-lint` does.
+            # authenticates via `with.token` (CI_BOT_TOKEN).
             ("reusable-ci.yml", "scorecard"),
             ("reusable-security.yml", "scorecard"),
         }
@@ -348,12 +342,10 @@ NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = 
 # Sites whose ONLY working SARIF auth is a secret/PAT (#352): the job's own
 # `permissions:` block strips `security-events: write` from GITHUB_TOKEN, so
 # the `|| github.token` fallback is dead. `scorecard` is kept this way for
-# OpenSSF Token-Permissions (decision tracked in #353); `c-cpp-lint` is to be
-# fixed by removing its narrowing block (#354), after which it leaves this set.
+# OpenSSF Token-Permissions (decision tracked in #353).
 # Exact set match in the test below, like the narrowing ratchet.
 PAT_DEPENDENT_SITES_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
     {
-        ("reusable-ci.yml", "c-cpp-lint"),
         ("reusable-ci.yml", "scorecard"),
         ("reusable-security.yml", "scorecard"),
     }
@@ -494,7 +486,7 @@ def test_walk_includes_template_files():
 def test_walk_finds_a_non_trivial_number_of_upload_sarif_sites():
     """Anti-vacuity: the walk must actually find upload-sarif steps.
 
-    There are 11 such sites in this repo as of #306's follow-up audit
+    There are 9 such sites in this repo as of #354
     (workflows, templates, AND composite actions combined), and the floor is
     set to exactly that. Its job is to fail loudly if the glob or the `uses:`
     matcher silently breaks and the walk finds near zero - the same vacuity

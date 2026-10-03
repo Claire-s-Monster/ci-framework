@@ -89,7 +89,9 @@ on:
           `sast-semgrep` and `sast-codeql`, which inherit the caller's
           grant and fall back to github.token when the caller grants
           security-events: write. Keep it valid: an expired PAT is still
-          non-empty, so it is used and fails instead of falling back (#355).
+          non-empty, so it is used instead of falling back. Each consuming
+          job therefore verifies it first and fails with an actionable
+          error on HTTP 401 (#355).
         # Not required: true - that would break callers who skip Scorecard SARIF.
         required: false
 
@@ -273,6 +275,34 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            exit 0
+          fi
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
       - uses: actions/checkout@v7
       - name: Run Semgrep
         id: semgrep
@@ -310,6 +340,34 @@ jobs:
       matrix:
         language: ${{ fromJSON(needs.detect-languages.outputs.codeql_matrix) }}
     steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            exit 0
+          fi
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
       - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v4
         with:
@@ -363,6 +421,34 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            exit 0
+          fi
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
       - uses: actions/checkout@v7
         with:
           persist-credentials: false

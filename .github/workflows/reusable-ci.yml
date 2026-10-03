@@ -19,7 +19,7 @@
 #                                   # omit only if CI_BOT_TOKEN is supplied
 #                                   # (clean Scorecard Token-Permissions).
 #                                   # CI_BOT_TOKEN is REQUIRED for the
-#                                   # scorecard + c-cpp-lint uploads (#352)
+#                                   # scorecard upload (#352)
 #        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@<sha>  # <version>
 #        with:
 #          pixi-environment: 'ci'
@@ -210,11 +210,10 @@ on:
       CI_BOT_TOKEN:
         description: >-
           PAT with security_events scope for SARIF uploads. REQUIRED for
-          the `scorecard` and `c-cpp-lint` jobs' uploads: their permissions
-          blocks omit security-events: write, which strips it from
-          GITHUB_TOKEN, so the github.token fallback cannot upload there
-          (verified by a consumer run, #352; c-cpp-lint until #354 removes
-          its narrowing block). Optional for `sast-semgrep` and
+          the `scorecard` job's upload: its permissions block omits
+          security-events: write, which strips it from GITHUB_TOKEN, so the
+          github.token fallback cannot upload there (verified by a consumer
+          run, #352). Optional for `sast-semgrep` and
           `sast-codeql`, which inherit the caller's grant and fall back to
           github.token when the caller grants security-events: write. Keep
           it valid: an expired PAT is still non-empty, so it is used and
@@ -475,8 +474,9 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.c_cpp == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # No permissions block on purpose: the job inherits the caller's grant.
+    # A job-level block replaces that grant and would strip the write
+    # permission `thread-comments` needs to post (#354). Do not re-add one.
     steps:
       - uses: actions/checkout@v7
       - uses: cpp-linter/cpp-linter-action@v2
@@ -489,14 +489,7 @@ jobs:
           version: 17
           files-changed-only: true
           thread-comments: true
-      - name: Upload SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: cpp-linter.sarif
-          category: cpp-linter
-          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
-        continue-on-error: true
+      # cpp-linter-action writes no SARIF file, so there is nothing to upload (#354).
       - name: Fail on lint
         if: inputs.fail-on-lint && steps.linter.outputs.checks-failed > 0
         run: exit 1

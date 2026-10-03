@@ -15,9 +15,11 @@
 #          contents: read
 #          actions: read
 #          id-token: write          # OpenSSF Scorecard
-#          # security-events: write — NOT NEEDED when CI_BOT_TOKEN is
-#          # provided (see secrets below).  Omit for clean Scorecard
-#          # Token-Permissions score.
+#          security-events: write   # SAST jobs upload SARIF with GITHUB_TOKEN;
+#                                   # omit only if CI_BOT_TOKEN is supplied
+#                                   # (clean Scorecard Token-Permissions).
+#                                   # CI_BOT_TOKEN is REQUIRED for the
+#                                   # scorecard + c-cpp-lint uploads (#352)
 #        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@<sha>  # <version>
 #        with:
 #          pixi-environment: 'ci'
@@ -207,10 +209,17 @@ on:
         required: false
       CI_BOT_TOKEN:
         description: >-
-          PAT with security_events scope for SARIF uploads (CodeQL,
-          Semgrep, Scorecard).  When provided, callers do NOT need
-          security-events: write on GITHUB_TOKEN, keeping Scorecard
-          Token-Permissions clean.  Falls back to github.token.
+          PAT with security_events scope for SARIF uploads. REQUIRED for
+          the `scorecard` and `c-cpp-lint` jobs' uploads: their permissions
+          blocks omit security-events: write, which strips it from
+          GITHUB_TOKEN, so the github.token fallback cannot upload there
+          (verified by a consumer run, #352; c-cpp-lint until #354 removes
+          its narrowing block). Optional for `sast-semgrep` and
+          `sast-codeql`, which inherit the caller's grant and fall back to
+          github.token when the caller grants security-events: write. Keep
+          it valid: an expired PAT is still non-empty, so it is used and
+          fails instead of falling back (#355).
+        # Not required: true - that would break callers who skip Scorecard SARIF.
         required: false
 
 # NOTE: No top-level permissions block. For workflow_call, the CALLER
@@ -642,7 +651,7 @@ jobs:
     # Requesting the permission here instead would be worse: a workflow_call
     # job asking for more than the caller granted fails the whole run at
     # startup. Inheriting leaves consumers who omit the permission exactly as
-    # they were, while letting those who grant it upload without a PAT. See #306.
+    # they were, while letting those who grant it upload without a PAT. See #306, #352.
     container:
       image: semgrep/semgrep
     steps:
@@ -680,7 +689,7 @@ jobs:
     # Requesting the permission here instead would be worse: a workflow_call
     # job asking for more than the caller granted fails the whole run at
     # startup. Inheriting leaves consumers who omit the permission exactly as
-    # they were, while letting those who grant it upload without a PAT. See #306.
+    # they were, while letting those who grant it upload without a PAT. See #306, #352.
     strategy:
       fail-fast: false
       matrix:

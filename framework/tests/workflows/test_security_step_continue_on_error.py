@@ -52,9 +52,11 @@ changing it.
 
 SARIF upload steps are classified as non-scanner infrastructure and are not
 gated at all: an upload failing is a permissions or API problem, not a finding.
-That classification is only honest while #306 - which suspects those uploads
-have been failing silently in every job whose `permissions:` block omits
-`security-events: write` - stays open and visible.
+#352 confirmed with a consumer run that uploads in jobs whose `permissions:`
+block omits `security-events: write` do fail silently without `CI_BOT_TOKEN`.
+That classification stays honest because `test_sarif_upload_auth.py` pins
+those PAT-dependent sites to an exact allowlist and requires each workflow's
+`CI_BOT_TOKEN` description to name them as REQUIRED.
 
 The two exemption maps below (`_KNOWN_UNGATED`, `_GATE_DEFAULTS_OFF`) are the
 DOCUMENTED, tracked mechanism inherited from #290/#292/#301: every entry must

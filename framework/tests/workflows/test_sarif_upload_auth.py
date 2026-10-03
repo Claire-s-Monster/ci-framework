@@ -1,6 +1,6 @@
 """Guard: every SARIF-uploading step in a shipped workflow can authenticate.
 
-Issue #306. `github/codeql-action/upload-sarif` needs authorization to reach
+Issues #306 and #352. `github/codeql-action/upload-sarif` needs authorization to reach
 the code-scanning API - and so does `github/codeql-action/analyze`, which
 uploads SARIF *implicitly* unless the step sets `with.upload: false`. When
 `upload: false` is set, `analyze` only writes SARIF to disk and a separate
@@ -17,6 +17,12 @@ requirement in one of two legitimate ways, documented at
   (b) the job (or the workflow) declares `security-events: write` in a
       `permissions:` block - correct for a standalone / consumer-owned
       workflow whose `GITHUB_TOKEN` is not capped by anyone else.
+
+Option (a)'s `|| github.token` fallback only works where the job's effective
+permissions include `security-events: write` or inherit the caller's grant.
+In jobs whose own `permissions:` block omits it, the block REPLACES the
+caller's grant and the fallback is dead (verified by a consumer run, #352), so
+those sites are PAT-dependent and pinned by `PAT_DEPENDENT_SITES_ALLOWLIST`.
 
 A site with NEITHER is broken and fails at upload time, silently, because
 every upload-sarif step carries `continue-on-error: true` - see
@@ -40,6 +46,7 @@ this guard must cover templates too.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -167,24 +174,120 @@ def has_security_events_write(permissions: dict) -> bool:
     return permissions.get("security-events") in ("write", "write-all")
 
 
-def has_token_auth(step: dict) -> bool:
-    """True when `step` passes a non-empty `with.token` (option a)."""
+def token_expression(step: dict) -> str | None:
+    """The stripped, non-empty `with.token` string of `step`, else None."""
     with_block = step.get("with")
     if not isinstance(with_block, dict):
-        return False
+        return None
     token = with_block.get("token")
-    return isinstance(token, str) and token.strip() != ""
+    if isinstance(token, str) and token.strip() != "":
+        return token.strip()
+    return None
+
+
+def has_token_auth(step: dict) -> bool:
+    """True when `step` passes a non-empty `with.token` (presence only).
+
+    This says nothing about whether the token can actually authenticate: a
+    `github.token` in a job with narrowed permissions is present but dead
+    (#352). Capability is decided in `sarif_upload_is_authorized`.
+    """
+    return token_expression(step) is not None
+
+
+# Any `secrets.<NAME>` other than GITHUB_TOKEN, or any `inputs.` reference
+# (a caller-supplied token; composite actions use `inputs.github-token`).
+_NON_GITHUB_TOKEN_SOURCE = re.compile(
+    r"secrets\.(?!GITHUB_TOKEN\b)\w+|\binputs\.", re.IGNORECASE
+)
+
+
+def references_github_token(expr: str) -> bool:
+    """True when `expr` references `github.token` or `secrets.GITHUB_TOKEN`."""
+    return "github.token" in expr or "secrets.github_token" in expr.lower()
+
+
+def references_non_github_token_source(expr: str) -> bool:
+    """True when `expr` can resolve to a token that is NOT the job's GITHUB_TOKEN.
+
+    `secrets.GITHUB_TOKEN` is the same token as `github.token`, so it is not a
+    PAT and does not count here; any other secret or an `inputs.` reference
+    (caller-supplied) does.
+    """
+    return _NON_GITHUB_TOKEN_SOURCE.search(expr) is not None
+
+
+def effective_permissions(job_perms: dict, workflow_perms: dict) -> dict:
+    """The permissions block that actually applies to a job.
+
+    A job-level block REPLACES the workflow-level one rather than extending it.
+    `{}` means no block anywhere, i.e. the job inherits the caller's / default
+    grant.
+    """
+    return job_perms if job_perms else workflow_perms
+
+
+def github_token_can_upload(job_perms: dict, workflow_perms: dict) -> bool:
+    """True when GITHUB_TOKEN can plausibly upload SARIF in this job.
+
+    Either there is no permissions block (inherits the caller's grant, which
+    works iff the caller grants `security-events: write`) or the effective
+    block grants it.
+    """
+    effective = effective_permissions(job_perms, workflow_perms)
+    return not effective or has_security_events_write(effective)
+
+
+def token_fallback_is_dead(step: dict, job_perms: dict, workflow_perms: dict) -> bool:
+    """True when `step` relies on github.token in a job where it cannot upload.
+
+    VERIFIED by a consumer run (#352), not inferred: in a `workflow_call`
+    workflow, a job-level `permissions:` block omitting `security-events:
+    write` strips it from GITHUB_TOKEN and the upload gets 403 "Resource not
+    accessible by integration", masked green by `continue-on-error`.
+    """
+    expr = token_expression(step)
+    if expr is None or not references_github_token(expr):
+        return False
+    return not github_token_can_upload(job_perms, workflow_perms)
+
+
+def is_pat_dependent(step: dict, job_perms: dict, workflow_perms: dict) -> bool:
+    """True when the ONLY working auth for `step` is a secret/PAT (#352).
+
+    The token names a non-GITHUB_TOKEN source and GITHUB_TOKEN cannot upload in
+    this job (its effective permissions narrow away `security-events: write`).
+    Covers both `secrets.X || github.token` with a dead fallback (verified by a
+    consumer run, #352) and a bare `secrets.X`.
+    """
+    expr = token_expression(step)
+    if expr is None:
+        return False
+    return references_non_github_token_source(expr) and not github_token_can_upload(
+        job_perms, workflow_perms
+    )
 
 
 def sarif_upload_is_authorized(
     step: dict, job_perms: dict, workflow_perms: dict
 ) -> bool:
-    """True when `step` satisfies option (a) or (b) from the module docstring."""
-    return (
-        has_token_auth(step)
-        or has_security_events_write(job_perms)
-        or has_security_events_write(workflow_perms)
-    )
+    """True when `step` satisfies option (a) or (b) from the module docstring.
+
+    Option (a) is a capability check (#352): a token must be present AND either
+    not rely on a dead github.token fallback or name a non-GITHUB_TOKEN source.
+    PAT-dependent sites count as authorized (they work when the documented
+    secret is supplied); `PAT_DEPENDENT_SITES_ALLOWLIST` constrains them.
+    """
+    if has_security_events_write(job_perms) or has_security_events_write(
+        workflow_perms
+    ):
+        return True
+    expr = token_expression(step)
+    if expr is None:
+        return False
+    return not token_fallback_is_dead(
+        step, job_perms, workflow_perms
+    ) or references_non_github_token_source(expr)
 
 
 def job_permissions_narrow_without_security_events_write(job_perms: dict) -> bool:
@@ -239,6 +342,21 @@ NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = 
             ("reusable-security.yml", "scorecard"),
         }
     )
+)
+
+
+# Sites whose ONLY working SARIF auth is a secret/PAT (#352): the job's own
+# `permissions:` block strips `security-events: write` from GITHUB_TOKEN, so
+# the `|| github.token` fallback is dead. `scorecard` is kept this way for
+# OpenSSF Token-Permissions (decision tracked in #353); `c-cpp-lint` is to be
+# fixed by removing its narrowing block (#354), after which it leaves this set.
+# Exact set match in the test below, like the narrowing ratchet.
+PAT_DEPENDENT_SITES_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("reusable-ci.yml", "c-cpp-lint"),
+        ("reusable-ci.yml", "scorecard"),
+        ("reusable-security.yml", "scorecard"),
+    }
 )
 
 
@@ -557,6 +675,122 @@ def test_every_narrowing_job_permissions_block_includes_security_events_write():
         "NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST in this file to "
         f"match (found: {sorted(violations)})"
     )
+
+
+def _pat_dependent_sites() -> set[tuple[str, str]]:
+    """`(file, job)` pairs for every upload site that is PAT-dependent."""
+    return {
+        _workflow_and_job(identifier)
+        for identifier, step, perms, workflow_perms in all_sarif_relevant_steps()
+        if is_pat_dependent(step, perms, workflow_perms)
+    }
+
+
+def test_pat_dependent_sites_match_allowlist():
+    """Ratchet (#352): the PAT-dependent SARIF sites equal the allowlist exactly.
+
+    A new site whose github.token fallback is dead, or fixing one without
+    shrinking `PAT_DEPENDENT_SITES_ALLOWLIST`, both fail - the set must be
+    edited deliberately.
+    """
+    found = _pat_dependent_sites()
+    assert found == PAT_DEPENDENT_SITES_ALLOWLIST, (
+        "the set of PAT-dependent SARIF-upload jobs changed - update "
+        "PAT_DEPENDENT_SITES_ALLOWLIST and the CI_BOT_TOKEN descriptions "
+        f"(#352); found: {sorted(found)}"
+    )
+
+
+def test_pat_dependent_jobs_are_documented_in_ci_bot_token_description():
+    """Each PAT-dependent job must be named as REQUIRED in its workflow's
+    `CI_BOT_TOKEN` description (#352), so docs cannot drift from the guard."""
+    jobs_by_file: dict[str, set[str]] = {}
+    for file_name, job_name in _pat_dependent_sites():
+        jobs_by_file.setdefault(file_name, set()).add(job_name)
+    assert jobs_by_file, "no PAT-dependent sites found - the walk is broken"
+    problems: list[str] = []
+    for file_name, jobs in sorted(jobs_by_file.items()):
+        doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text())
+        # yaml.safe_load parses the bare key `on` as Python True.
+        triggers = doc.get("on") or doc.get(True) or {}
+        secrets = (triggers.get("workflow_call") or {}).get("secrets") or {}
+        description = (secrets.get("CI_BOT_TOKEN") or {}).get("description") or ""
+        if "REQUIRED" not in description:
+            problems.append(f"{file_name}: description lacks the word REQUIRED")
+        problems.extend(
+            f"{file_name}: description does not name `{job}`"
+            for job in sorted(jobs)
+            if job not in description
+        )
+    assert not problems, (
+        "docs and guard drifted (#352): CI_BOT_TOKEN descriptions must say "
+        f"REQUIRED and name every PAT-dependent job: {problems}"
+    )
+
+
+_PAT_STEP = {
+    "uses": "github/codeql-action/upload-sarif@v4",
+    "with": {"token": "${{ secrets.CI_BOT_TOKEN || github.token }}"},
+}
+
+
+def _bare_step(token: str) -> dict:
+    return {
+        "uses": "github/codeql-action/upload-sarif@v4",
+        "with": {"token": token},
+    }
+
+
+def test_classifier_rejects_bare_github_token_in_narrowed_job():
+    """Self-test: github.token alone, job block lacks security-events: write."""
+    step = _bare_step("${{ github.token }}")
+    assert not sarif_upload_is_authorized(step, {"contents": "read"}, {})
+
+
+def test_classifier_accepts_bare_github_token_when_inheriting():
+    """Self-test: no permissions block anywhere means the caller's grant applies."""
+    step = _bare_step("${{ github.token }}")
+    assert sarif_upload_is_authorized(step, {}, {})
+
+
+def test_classifier_rejects_bare_github_token_under_narrow_workflow_block():
+    """Self-test: a workflow-level block applies when the job has none."""
+    step = _bare_step("${{ github.token }}")
+    assert not sarif_upload_is_authorized(step, {}, {"contents": "read"})
+
+
+def test_classifier_marks_pat_fallback_in_narrowed_job_as_pat_dependent():
+    """Self-test: PAT || github.token in a narrowed job is authorized but PAT-dependent."""
+    perms = {"contents": "read"}
+    assert sarif_upload_is_authorized(_PAT_STEP, perms, {})
+    assert is_pat_dependent(_PAT_STEP, perms, {})
+
+
+def test_classifier_marks_pat_fallback_when_inheriting_as_not_pat_dependent():
+    """Self-test: PAT || github.token with no block can fall back, so not PAT-dependent."""
+    assert sarif_upload_is_authorized(_PAT_STEP, {}, {})
+    assert not is_pat_dependent(_PAT_STEP, {}, {})
+
+
+def test_classifier_marks_bare_secret_in_narrowed_job_as_pat_dependent():
+    """Self-test: a bare `secrets.X` token in a narrowed job is PAT-dependent too."""
+    step = _bare_step("${{ secrets.CI_BOT_TOKEN }}")
+    perms = {"contents": "read"}
+    assert sarif_upload_is_authorized(step, perms, {})
+    assert is_pat_dependent(step, perms, {})
+
+
+def test_classifier_rejects_secrets_github_token_in_narrowed_job():
+    """Self-test: secrets.GITHUB_TOKEN is the same dead token, not a PAT."""
+    step = _bare_step("${{ secrets.GITHUB_TOKEN }}")
+    assert not sarif_upload_is_authorized(step, {"contents": "read"}, {})
+
+
+def test_classifier_accepts_inputs_token_and_is_not_pat_dependent():
+    """Self-test: a caller-supplied `inputs.github-token` is authorized."""
+    step = _bare_step("${{ inputs.github-token }}")
+    assert sarif_upload_is_authorized(step, {}, {})
+    assert not is_pat_dependent(step, {}, {})
 
 
 def test_classifier_flags_narrow_permissions_on_a_job_with_upload_sarif_step():

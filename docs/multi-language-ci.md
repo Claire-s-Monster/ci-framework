@@ -166,7 +166,7 @@ jobs:
 
 - `contents: write` — Create/update releases and badges
 - `pull-requests: write` — Post coverage reports to PRs
-- `security-events: write` (OPTIONAL) — Upload SARIF to Security tab. Omit for clean Scorecard Token-Permissions score.
+- `security-events: write` (OPTIONAL) — Upload SARIF to Security tab. Does not lower your Scorecard Token-Permissions score (verified, #353).
 - `id-token: write` — For CodeQL and PyPI token exchange
 - `checks: write` — Annotations in workflow summary
 - `secrets: inherit` — Access repository secrets for publishing

@@ -17,12 +17,11 @@
 #          contents: read
 #          actions: read
 #          id-token: write          # scorecard publish_results
-#          security-events: write   # SAST jobs upload SARIF with
-#                                   # GITHUB_TOKEN. May be omitted only when
-#                                   # CI_BOT_TOKEN is supplied (cleaner
-#                                   # Scorecard Token-Permissions score).
-#        secrets: inherit           # passes CI_BOT_TOKEN - REQUIRED for the
-#                                   # scorecard SARIF upload (#352)
+#          security-events: write   # SAST + Scorecard jobs upload SARIF with
+#                                   # GITHUB_TOKEN. A job-level write here
+#                                   # does not lower your Scorecard
+#                                   # Token-Permissions score (verified, #353)
+#        secrets: inherit           # optional: passes CI_BOT_TOKEN (PAT)
 #    ```
 #
 # See docs/security-scanning.md for full documentation.
@@ -81,27 +80,23 @@ on:
     secrets:
       CI_BOT_TOKEN:
         description: >-
-          PAT with security_events scope for SARIF uploads. REQUIRED for
-          the `scorecard` job's upload: that job's permissions block omits
-          security-events: write (for OpenSSF Token-Permissions), which
-          strips it from GITHUB_TOKEN, so the github.token fallback cannot
-          upload there (verified by a consumer run, #352). Optional for
-          `sast-semgrep` and `sast-codeql`, which inherit the caller's
-          grant and fall back to github.token when the caller grants
+          Optional PAT with security_events scope for SARIF uploads. The SARIF
+          jobs (`sast-semgrep`, `sast-codeql`, `scorecard`) inherit the
+          caller's grant and fall back to github.token when the caller grants
           security-events: write. Keep it valid: an expired PAT is still
           non-empty, so it is used instead of falling back. Each consuming
-          job therefore verifies it first and fails with an actionable
-          error on HTTP 401 (#355).
-        # Not required: true - that would break callers who skip Scorecard SARIF.
+          job therefore verifies it first and fails with an actionable error
+          on HTTP 401 (#355).
+        # Not required: true - the github.token fallback covers callers who
+        # grant security-events: write.
         required: false
 
 # NOTE: No top-level permissions block. For workflow_call the CALLER
 # controls GITHUB_TOKEN permissions. Jobs WITHOUT their own block inherit
 # the caller's grant; a job-level block REPLACES it. SARIF uploads use
-# `CI_BOT_TOKEN || github.token`: the fallback works only in jobs that
-# inherit and only when the caller grants security-events: write. In
-# `scorecard`, whose block omits it, CI_BOT_TOKEN is the only working
-# path (#352).
+# `CI_BOT_TOKEN || github.token`: the fallback works when the caller grants
+# security-events: write. No SARIF job (sast-semgrep, sast-codeql, scorecard)
+# has its own block, so all inherit that grant (#352, #353).
 
 jobs:
   detect-languages:
@@ -416,10 +411,13 @@ jobs:
     name: "📊 OpenSSF Scorecard"
     if: inputs.scorecard
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      actions: read
-      contents: read
+    # No job-level `permissions:` block on purpose. This job inherits the
+    # caller's grant (security-events: write for the SARIF upload, id-token:
+    # write for publish_results). A job-level block REPLACES that grant, so
+    # pinning one here stripped security-events: write from GITHUB_TOKEN and
+    # made CI_BOT_TOKEN the only working upload path (#352). Scorecard never
+    # scores a remote reusable workflow, so the block bought consumers nothing
+    # on Token-Permissions (#353). Do not re-add.
     steps:
       # No CI_BOT_TOKEN preflight here on purpose: publish_results verification
       # allows only allowlisted `uses:` steps in this job (no `run:`), so the

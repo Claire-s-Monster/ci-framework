@@ -41,21 +41,35 @@ PREFLIGHT_STEP_NAME = "Verify CI_BOT_TOKEN is valid"
 TOKEN_REFERENCE = re.compile(r"secrets\.CI_BOT_TOKEN\b")
 EXPECTED_ENV_VALUE = "${{ secrets.CI_BOT_TOKEN }}"
 
+# Jobs that consume the token but must NOT carry the preflight. The Scorecard
+# job runs `ossf/scorecard-action` with `publish_results: true`, and the
+# scorecard webapp verifies the workflow file itself: the job may only have
+# allowlisted `uses:` steps (no `run:`). A preflight there would make the
+# verification reject the job. The SAST jobs of the same workflow consume the
+# same token and perform the check. See test_scorecard_publish_restrictions.py.
+PREFLIGHT_EXEMPT_JOBS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("reusable-ci.yml", "scorecard"),
+        ("reusable-security.yml", "scorecard"),
+    }
+)
+
 # The 11 jobs that consume secrets.CI_BOT_TOKEN today (c-cpp-lint no longer
 # does once its dead SARIF upload is removed, #354):
-#   reusable-ci.yml          sast-semgrep, sast-codeql, scorecard
-#   reusable-security.yml    sast-semgrep, sast-codeql, scorecard
+#   reusable-ci.yml          sast-semgrep, sast-codeql, scorecard (exempt)
+#   reusable-security.yml    sast-semgrep, sast-codeql, scorecard (exempt)
 #   release-please.yml       release-please
 #   cleanup-dev-files.yml    cleanup-dev-files
 #   self-healing.yml         self-healing
 #   auto-merge-release.yml   auto-merge-release
 #   sync-main-to-development.yml  sync-to-development
 #
-# This floor EQUALS the live count by design (same convention as
-# MINIMUM_EXPECTED_SITES in test_sarif_upload_auth.py): removing a consuming
-# job is a deliberate act that should update this constant in the same commit,
-# and the floor fails loudly if the walk or the matcher silently finds ~zero.
-MINIMUM_EXPECTED_CONSUMING_JOBS = 11
+# This floor EQUALS the live count of consuming jobs that carry a preflight
+# (11 - 2 exempt = 9) by design (same convention as MINIMUM_EXPECTED_SITES in
+# test_sarif_upload_auth.py): removing a consuming job is a deliberate act that
+# should update this constant in the same commit, and the floor fails loudly if
+# the walk or the matcher silently finds ~zero.
+MINIMUM_EXPECTED_CONSUMING_JOBS = 9
 
 
 def workflow_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
@@ -129,7 +143,7 @@ def preflight_problems(step: dict) -> list[str]:
         problems.append(f"env.CI_BOT_TOKEN must be {EXPECTED_ENV_VALUE!r}")
     run = step.get("run")
     run = run if isinstance(run, str) else ""
-    for needle in ("/rate_limit", "401", "exit 1", "command -v curl"):
+    for needle in ("/rate_limit", "401", "exit 1", "command -v curl", "--max-time"):
         if needle not in run:
             problems.append(f"run must contain {needle!r}")
     if "${{" in run:
@@ -159,6 +173,19 @@ def job_problems(job: object) -> list[str]:
     return preflight_problems(first)
 
 
+def exempt_aware_problems(file_name: str, job_id: str, job: object) -> list[str]:
+    """Problems with a job, honouring PREFLIGHT_EXEMPT_JOBS.
+
+    An exempt job must NOT carry the preflight (re-adding it breaks Scorecard
+    `publish_results` verification); every other job goes through `job_problems`.
+    """
+    if (file_name, job_id) in PREFLIGHT_EXEMPT_JOBS:
+        if job_has_preflight(job):
+            return ["exempt job must not carry the preflight (breaks publish_results)"]
+        return []
+    return job_problems(job)
+
+
 def load_jobs(path: Path) -> dict:
     """The `jobs:` mapping of a workflow file (empty if absent or unparsable shape)."""
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -179,10 +206,14 @@ def all_jobs() -> list[tuple[str, str, object]]:
 
 
 def test_walk_finds_the_expected_number_of_consuming_jobs():
-    found = [job for _, _, job in all_jobs() if job_references_token(job)]
+    found = [
+        job
+        for _, _, job in all_jobs()
+        if job_references_token(job) and job_has_preflight(job)
+    ]
     assert len(found) >= MINIMUM_EXPECTED_CONSUMING_JOBS, (
-        f"walk found {len(found)} consuming jobs, expected at least "
-        f"{MINIMUM_EXPECTED_CONSUMING_JOBS}; the glob or matcher may be broken"
+        f"walk found {len(found)} consuming jobs with a preflight, expected at "
+        f"least {MINIMUM_EXPECTED_CONSUMING_JOBS}; the glob or matcher may be broken"
     )
 
 
@@ -190,9 +221,21 @@ def test_every_consuming_job_starts_with_a_sound_preflight_and_none_is_stale():
     failures = [
         f"{file_name}:{job_id}: {problem}"
         for file_name, job_id, job in all_jobs()
-        for problem in job_problems(job)
+        for problem in exempt_aware_problems(file_name, job_id, job)
     ]
     assert not failures, "\n".join(failures)
+
+
+def test_exempt_jobs_are_exactly_the_consumers_without_a_preflight():
+    unprotected = {
+        (file_name, job_id)
+        for file_name, job_id, job in all_jobs()
+        if job_references_token(job) and not job_has_preflight(job)
+    }
+    assert unprotected == PREFLIGHT_EXEMPT_JOBS, (
+        f"consuming jobs without a preflight: {sorted(unprotected)}; "
+        f"exemptions: {sorted(PREFLIGHT_EXEMPT_JOBS)} (stale or missing exemption)"
+    )
 
 
 # --- Classifier self-tests (guard against a vacuously passing walk) ----------
@@ -203,7 +246,7 @@ def _preflight(**overrides: object) -> dict:
         "name": PREFLIGHT_STEP_NAME,
         "env": {"CI_BOT_TOKEN": EXPECTED_ENV_VALUE},
         "run": (
-            "command -v curl; curl https://api.github.com/rate_limit; "
+            "command -v curl; curl --max-time 15 https://api.github.com/rate_limit; "
             'case "$s" in 401) exit 1;; esac'
         ),
     }
@@ -262,7 +305,16 @@ def test_selftest_if_on_preflight_is_flagged():
 def test_selftest_wrong_env_and_missing_markers_are_flagged():
     step = _preflight(env={"CI_BOT_TOKEN": "x"}, run="true")
     problems = job_problems({"steps": [step, _consumer_step()]})
-    assert len(problems) == 5  # env + /rate_limit + 401 + exit 1 + curl check
+    assert len(problems) == 6  # env + 5 run markers
+
+
+def test_selftest_curl_without_max_time_is_flagged():
+    step = _preflight(
+        run="command -v curl; curl https://api.github.com/rate_limit; "
+        'case "$s" in 401) exit 1;; esac'
+    )
+    problems = job_problems({"steps": [step, _consumer_step()]})
+    assert any("--max-time" in problem for problem in problems)
 
 
 def test_selftest_stale_preflight_without_consumer_is_flagged():
@@ -278,6 +330,25 @@ def test_selftest_detector_excludes_the_preflight_step_itself():
 def test_selftest_job_not_referencing_token_is_not_flagged():
     job = {"steps": [{"run": "echo hi", "env": {"GH_TOKEN": "${{ github.token }}"}}]}
     assert job_problems(job) == []
+
+
+def test_selftest_exempt_job_without_preflight_passes():
+    pair = next(iter(PREFLIGHT_EXEMPT_JOBS))
+    assert exempt_aware_problems(*pair, {"steps": [_consumer_step()]}) == []
+
+
+def test_selftest_exempt_job_with_preflight_fails():
+    pair = next(iter(PREFLIGHT_EXEMPT_JOBS))
+    job = {"steps": [_preflight(), _consumer_step()]}
+    problems = exempt_aware_problems(*pair, job)
+    assert problems and "exempt job" in problems[0]
+
+
+def test_selftest_non_exempt_job_without_preflight_fails():
+    problems = exempt_aware_problems(
+        "other.yml", "some-job", {"steps": [_consumer_step()]}
+    )
+    assert problems and "first step" in problems[0]
 
 
 def test_selftest_reference_detector_finds_token_in_every_location():

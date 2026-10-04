@@ -104,7 +104,7 @@ jobs:
             echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
             exit 0
           fi
-          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+          status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
             https://api.github.com/rate_limit) || status="000"
           case "${status}" in

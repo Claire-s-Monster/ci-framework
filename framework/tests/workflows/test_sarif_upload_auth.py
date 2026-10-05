@@ -317,39 +317,24 @@ def _workflow_and_job(identifier: str) -> tuple[str, str]:
     return file_name, job_name
 
 
-# Ratchet, not a blanket assert (Task 3, #306 follow-up): each pair here is a
-# SARIF-upload job whose job-level `permissions:` block narrows away
-# `security-events: write` and is KNOWN remaining debt, not yet fixed. This
-# is an EXACT set match in the test below, so a brand-new narrowing block
-# anywhere fails (nothing new is free), re-adding a block to one of the
-# jobs #306 already fixed (`sast-semgrep` / `sast-codeql` in both reusable
-# workflows) fails, and quietly fixing one of these without shrinking the set
-# fails too - the allowlist must be edited deliberately either way.
+# Ratchet, not a blanket assert (Task 3, #306 follow-up): each pair here would
+# be a SARIF-upload job whose job-level `permissions:` block narrows away
+# `security-events: write`. The debt is fully paid: #344 (sast-semgrep /
+# sast-codeql), #354 (c-cpp-lint upload steps deleted) and #353 (scorecard
+# now inherits the caller's grant). The set is EMPTY and stays an EXACT set
+# match in the test below, so any NEW narrowing block fails (nothing new is
+# free) and the allowlist must be edited deliberately to admit one.
 NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = (
-    frozenset(
-        {
-            # `scorecard`'s `permissions:` block exists for OpenSSF
-            # Scorecard's own Token-Permissions check (id-token / actions /
-            # contents), not for SARIF auth; its upload-sarif step
-            # authenticates via `with.token` (CI_BOT_TOKEN).
-            ("reusable-ci.yml", "scorecard"),
-            ("reusable-security.yml", "scorecard"),
-        }
-    )
+    frozenset()
 )
 
 
 # Sites whose ONLY working SARIF auth is a secret/PAT (#352): the job's own
-# `permissions:` block strips `security-events: write` from GITHUB_TOKEN, so
-# the `|| github.token` fallback is dead. `scorecard` is kept this way for
-# OpenSSF Token-Permissions (decision tracked in #353).
-# Exact set match in the test below, like the narrowing ratchet.
-PAT_DEPENDENT_SITES_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("reusable-ci.yml", "scorecard"),
-        ("reusable-security.yml", "scorecard"),
-    }
-)
+# `permissions:` block would strip `security-events: write` from GITHUB_TOKEN,
+# making the `|| github.token` fallback dead. Empty since #353 removed the
+# `scorecard` blocks. Exact set match in the test below, like the narrowing
+# ratchet, so any NEW PAT-only site fails.
+PAT_DEPENDENT_SITES_ALLOWLIST: frozenset[tuple[str, str]] = frozenset()
 
 
 def sarif_relevant_action_files(directory: Path = ACTIONS_DIR) -> list[Path]:
@@ -652,9 +637,8 @@ def test_every_narrowing_job_permissions_block_includes_security_events_write():
     Asserted as an EXACT set match against
     `NARROWING_WITHOUT_SECURITY_EVENTS_WRITE_ALLOWLIST`, not a subset check,
     so three things all fail this test: a brand-new narrowing block anywhere
-    in the corpus, re-adding a block to one of the three jobs #306 already
-    fixed (`sast-semgrep` / `sast-codeql`), and silently fixing one of the
-    allowlisted jobs without shrinking the constant to match.
+    in the corpus, and re-adding a block to a job already fixed
+    (`sast-semgrep` / `sast-codeql` / `scorecard` in both reusable workflows).
     """
     violations = {
         _workflow_and_job(identifier)
@@ -693,31 +677,39 @@ def test_pat_dependent_sites_match_allowlist():
     )
 
 
-def test_pat_dependent_jobs_are_documented_in_ci_bot_token_description():
-    """Each PAT-dependent job must be named as REQUIRED in its workflow's
-    `CI_BOT_TOKEN` description (#352), so docs cannot drift from the guard."""
-    jobs_by_file: dict[str, set[str]] = {}
-    for file_name, job_name in _pat_dependent_sites():
-        jobs_by_file.setdefault(file_name, set()).add(job_name)
-    assert jobs_by_file, "no PAT-dependent sites found - the walk is broken"
+def _ci_bot_token_description(file_name: str) -> str:
+    """The `CI_BOT_TOKEN` secret description of a reusable workflow, or ''."""
+    doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text())
+    # yaml.safe_load parses the bare key `on` as Python True.
+    triggers = doc.get("on") or doc.get(True) or {}
+    secrets = (triggers.get("workflow_call") or {}).get("secrets") or {}
+    return (secrets.get("CI_BOT_TOKEN") or {}).get("description") or ""
+
+
+def test_ci_bot_token_description_matches_allowlist():
+    """The `CI_BOT_TOKEN` description cannot drift from the guard (#352, #353).
+
+    While `PAT_DEPENDENT_SITES_ALLOWLIST` is empty the secret is optional
+    everywhere, so its description must not say REQUIRED. Should a PAT-only
+    site ever be admitted, the description must say REQUIRED and name it.
+    """
     problems: list[str] = []
-    for file_name, jobs in sorted(jobs_by_file.items()):
-        doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text())
-        # yaml.safe_load parses the bare key `on` as Python True.
-        triggers = doc.get("on") or doc.get(True) or {}
-        secrets = (triggers.get("workflow_call") or {}).get("secrets") or {}
-        description = (secrets.get("CI_BOT_TOKEN") or {}).get("description") or ""
-        if "REQUIRED" not in description:
+    for file_name in ("reusable-ci.yml", "reusable-security.yml"):
+        description = _ci_bot_token_description(file_name)
+        if not description:
+            problems.append(f"{file_name}: CI_BOT_TOKEN has no description")
+            continue
+        jobs = sorted(job for f, job in PAT_DEPENDENT_SITES_ALLOWLIST if f == file_name)
+        if not jobs and "REQUIRED" in description:
+            problems.append(f"{file_name}: says REQUIRED but no job is PAT-dependent")
+        if jobs and "REQUIRED" not in description:
             problems.append(f"{file_name}: description lacks the word REQUIRED")
         problems.extend(
             f"{file_name}: description does not name `{job}`"
-            for job in sorted(jobs)
+            for job in jobs
             if job not in description
         )
-    assert not problems, (
-        "docs and guard drifted (#352): CI_BOT_TOKEN descriptions must say "
-        f"REQUIRED and name every PAT-dependent job: {problems}"
-    )
+    assert not problems, f"docs and guard drifted: {problems}"
 
 
 _PAT_STEP = {

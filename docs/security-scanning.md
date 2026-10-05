@@ -21,16 +21,16 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    secrets: inherit  # CI_BOT_TOKEN: required for Scorecard SARIF
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 **Required permissions:**
 - `contents: read` — Read source code
 - `actions: read` — Read workflow metadata
 - `id-token: write` — Lets OpenSSF Scorecard publish results (`publish_results`)
-- `security-events: write` — Lets the Semgrep and CodeQL jobs upload SARIF to the Security tab with `GITHUB_TOKEN`. You may omit it only if you supply `CI_BOT_TOKEN` (cleaner Scorecard Token-Permissions score).
+- `security-events: write` — Grant it and every SARIF upload (Semgrep, CodeQL, Scorecard) reaches the Security tab with `GITHUB_TOKEN`. It costs nothing on Scorecard's Token-Permissions check: a job-level write under a read-only top-level `permissions:` only produces a warning, and Scorecard never reads the remote reusable workflow (verified in #353). If you cannot grant it, supply `CI_BOT_TOKEN` instead.
 
-**`CI_BOT_TOKEN` (secret, pass via `secrets: inherit`):** a PAT with the `security_events` scope. It is **required** for the OpenSSF Scorecard SARIF upload: the `scorecard` job declares its own `permissions:` block without `security-events: write`, and a job-level block replaces the caller's grant, so `GITHUB_TOKEN` cannot upload there no matter what you grant (verified in #352). Without it, Scorecard still runs and its job stays green, but its SARIF never reaches the Security tab. Keep the PAT valid: an expired or revoked token is still non-empty, so it wins `CI_BOT_TOKEN || github.token` and is rejected with HTTP 401 instead of falling back (#355). To catch this, every job that consumes `CI_BOT_TOKEN` starts with a "Verify CI_BOT_TOKEN is valid" step, except the Scorecard job, whose `publish_results` verification forbids extra steps (the SAST jobs in the same run perform the check). The step calls `GET /rate_limit` with the token. It fails the job with an actionable error on HTTP 401 (including the SARIF jobs, whose upload steps would otherwise fail silently), does nothing when the secret is unset, and only warns on other or transient responses. Either rotate the token or delete the secret to fall back to `github.token`.
+**`CI_BOT_TOKEN` (secret, pass via `secrets: inherit`):** an optional PAT with the `security_events` scope, an alternative for when you cannot grant `security-events: write`. The SARIF jobs (Semgrep, CodeQL, Scorecard) declare no `permissions:` block of their own, so they inherit your grant and fall back to `github.token` when it is set (a job-level block would replace the caller's grant, #352; the Scorecard block was removed in #353). Without either the grant or the PAT, the jobs still run and stay green, but their SARIF never reaches the Security tab. Keep the PAT valid: an expired or revoked token is still non-empty, so it wins `CI_BOT_TOKEN || github.token` and is rejected with HTTP 401 instead of falling back (#355). To catch this, every job that consumes `CI_BOT_TOKEN` starts with a "Verify CI_BOT_TOKEN is valid" step, except the Scorecard job, whose `publish_results` verification forbids extra steps (the SAST jobs in the same run perform the check). The step calls `GET /rate_limit` with the token. It fails the job with an actionable error on HTTP 401 (including the SARIF jobs, whose upload steps would otherwise fail silently), does nothing when the secret is unset, and only warns on other or transient responses. Either rotate the token or delete the secret to fall back to `github.token`.
 
 All inputs are optional. The workflow will auto-detect your languages and use sensible defaults.
 
@@ -95,7 +95,7 @@ Several tools upload results to GitHub's Security tab:
 | pip-audit | No | Workflow run summary only |
 | cargo-audit | No | Workflow run summary only |
 | npm audit | No | Workflow run summary only |
-| OpenSSF Scorecard | Yes (requires CI_BOT_TOKEN) | Security → Code scanning |
+| OpenSSF Scorecard | Yes (needs `security-events: write` or CI_BOT_TOKEN) | Security → Code scanning |
 
 Uploads run with `continue-on-error: true`, so a failed upload leaves the job green; check the upload step's log for `Resource not accessible by integration`.
 
@@ -112,7 +112,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    secrets: inherit  # CI_BOT_TOKEN: required for Scorecard SARIF
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Detects languages, blocks on CVEs and secrets, warns on SAST, runs Scorecard.
@@ -130,7 +130,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    secrets: inherit  # CI_BOT_TOKEN: required for Scorecard SARIF
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Fails workflow on any SAST findings (use if your repository has strict security requirements).
@@ -148,7 +148,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    secrets: inherit  # CI_BOT_TOKEN: required for Scorecard SARIF
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Skips JavaScript, C/C++, and Cython checks even if present.
@@ -168,7 +168,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    secrets: inherit  # CI_BOT_TOKEN: required for Scorecard SARIF
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 All findings appear as workflow annotations only; none block merge. Useful for initial rollout on existing codebases.
@@ -241,7 +241,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    secrets: inherit  # CI_BOT_TOKEN: required for Scorecard SARIF
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Both run independently and report together in the PR.

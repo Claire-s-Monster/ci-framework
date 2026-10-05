@@ -68,14 +68,17 @@ on:
           - master
           - development
 
+# Top level grants no write (OpenSSF Token-Permissions, #359); writes are job-scoped.
 permissions:
-  contents: write  # Allow pushing commits
-  pull-requests: write  # Allow creating PRs
-  issues: write  # Allow creating issues (required for PR creation)
+  contents: read
 
 jobs:
   cleanup-dev-files:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Allow pushing commits
+      pull-requests: write  # Allow creating PRs
+      issues: write  # Allow creating issues (required for PR creation)
     strategy:
       matrix:
         # Use inputs for workflow_call, current branch for push, all branches for schedule/dispatch

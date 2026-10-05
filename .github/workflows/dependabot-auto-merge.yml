@@ -5,14 +5,17 @@ name: Dependabot Auto-Merge
 
 on: pull_request
 
+# Top level grants no write (OpenSSF Token-Permissions, #359); writes are job-scoped.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
     if: github.actor == 'dependabot[bot]'
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Fetch Dependabot metadata
         id: metadata

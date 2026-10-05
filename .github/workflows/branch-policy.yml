@@ -18,6 +18,10 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
 
+# Top level grants no write (OpenSSF Token-Permissions, #359); writes are job-scoped.
+permissions:
+  contents: read
+
 jobs:
   check-source-branch:
     name: "🔒 Validate PR Source"

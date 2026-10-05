@@ -170,6 +170,8 @@ def test_inherit_exemptions_are_exact():
         ({"permissions": {"contents": "read"}}, False),
         ({"permissions": {"contents": "write"}}, True),
         ({"permissions": {"security-events": "write"}}, True),
+        # `id-token` is a scope name that trips detect-secrets' keyword heuristic.
+        # pragma: allowlist nextline secret
         ({"permissions": {"pages": "write", "id-token": "write"}}, False),
         ({"permissions": {"issues": "write", "pull-requests": "write"}}, False),
         ({"permissions": {"contents": "read", "statuses": "write"}}, True),

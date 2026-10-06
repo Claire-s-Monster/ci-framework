@@ -5,6 +5,38 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0](https://github.com/Claire-s-Monster/ci-framework/compare/v3.0.0...v4.0.0) (2026-10-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gpg-signing-setup:** gpg-signing-setup's config-scope now defaults to 'local'. Callers that run it before actions/checkout, or that commit from a different repository than the current directory, must pass
+
+### Bug Fixes
+
+* **ci:** document CI_BOT_TOKEN as required where SARIF auth needs it ([d2501eb](https://github.com/Claire-s-Monster/ci-framework/commit/d2501ebe88af27c844a334db76696c2475e18f1b))
+* **ci:** document CI_BOT_TOKEN as required where SARIF auth needs it ([71c324f](https://github.com/Claire-s-Monster/ci-framework/commit/71c324f80b59895fb79d0c033098a8ac7e7d42d9)), closes [#352](https://github.com/Claire-s-Monster/ci-framework/issues/352)
+* **ci:** drop dead c-cpp-lint SARIF upload and its narrowing block ([fa8bd22](https://github.com/Claire-s-Monster/ci-framework/commit/fa8bd22d9baa632910b8c45e565ddd54da5454d7))
+* **ci:** drop dead c-cpp-lint SARIF upload and its narrowing block ([8a04645](https://github.com/Claire-s-Monster/ci-framework/commit/8a046456dcb1e798965e0faf377b3c00481848d3)), closes [#354](https://github.com/Claire-s-Monster/ci-framework/issues/354)
+* **ci:** drop matrix vars from job names so skipped jobs read correctly ([4f49a50](https://github.com/Claire-s-Monster/ci-framework/commit/4f49a5003f6f8092bef235e71611185742626c28))
+* **ci:** drop matrix vars from job names so skipped jobs read correctly ([061b1d6](https://github.com/Claire-s-Monster/ci-framework/commit/061b1d69526e6f6b6dc00e89cbd3011da238762b)), closes [#339](https://github.com/Claire-s-Monster/ci-framework/issues/339)
+* **ci:** drop unused GPG setup and checkout from release-please ([10f47cb](https://github.com/Claire-s-Monster/ci-framework/commit/10f47cbe3b1e179948b7c8bd37a091add0ac6f5b))
+* **ci:** drop unused GPG setup and checkout from release-please ([e030abd](https://github.com/Claire-s-Monster/ci-framework/commit/e030abd40022d1c98dbc5d9a7372ffb75b0f6ac5)), closes [#348](https://github.com/Claire-s-Monster/ci-framework/issues/348)
+* **ci:** fail fast when CI_BOT_TOKEN is set but invalid ([7062ea4](https://github.com/Claire-s-Monster/ci-framework/commit/7062ea4a49b770b9d4ab1952a6fd5af2ef28aa4d))
+* **ci:** fail fast when CI_BOT_TOKEN is set but invalid ([f9bd956](https://github.com/Claire-s-Monster/ci-framework/commit/f9bd956e6eaf920b0738212430f3076ca8e4bd9b)), closes [#355](https://github.com/Claire-s-Monster/ci-framework/issues/355)
+* **ci:** keep scorecard jobs publishable; time-limit the token check ([b90d280](https://github.com/Claire-s-Monster/ci-framework/commit/b90d280c0960df949044a76bc8ca9003f11be74c)), closes [#355](https://github.com/Claire-s-Monster/ci-framework/issues/355)
+* **ci:** let scorecard inherit the caller's grant; CI_BOT_TOKEN optional ([769417e](https://github.com/Claire-s-Monster/ci-framework/commit/769417e51387a3d6b86a48a06f2f6ceb88c41af0))
+* **ci:** let scorecard inherit the caller's grant; CI_BOT_TOKEN optional ([c746746](https://github.com/Claire-s-Monster/ci-framework/commit/c7467464dbea1c4a11d068134e1be205b0b6d062)), closes [#353](https://github.com/Claire-s-Monster/ci-framework/issues/353)
+* **ci:** let the 3 SAST jobs inherit the caller's SARIF permission ([df4e552](https://github.com/Claire-s-Monster/ci-framework/commit/df4e552be9b29a1ccb6da0fcd18309c644424c75))
+* **ci:** let the 3 SAST jobs inherit the caller's SARIF permission ([6494239](https://github.com/Claire-s-Monster/ci-framework/commit/64942390998cd890a3513e8ab08c98942dbedcab)), closes [#306](https://github.com/Claire-s-Monster/ci-framework/issues/306)
+* **ci:** scope write tokens to jobs; guard top-level permissions ([#359](https://github.com/Claire-s-Monster/ci-framework/issues/359)) ([11ec293](https://github.com/Claire-s-Monster/ci-framework/commit/11ec2938f25ea64922d58c16bab986b3714267ee))
+* **ci:** scope write tokens to jobs; guard top-level permissions ([#359](https://github.com/Claire-s-Monster/ci-framework/issues/359)) ([e878c9c](https://github.com/Claire-s-Monster/ci-framework/commit/e878c9c49c9a35bce1d2eac19b36ddd5f8129157))
+* **ci:** stop writing CI_BOT_TOKEN into --global git config ([c04f801](https://github.com/Claire-s-Monster/ci-framework/commit/c04f801db3a4f9d848feb43b800663460dd58e4b))
+* **ci:** stop writing CI_BOT_TOKEN into --global git config ([929f5a4](https://github.com/Claire-s-Monster/ci-framework/commit/929f5a419470daeaa568e210e278d17699c995eb)), closes [#345](https://github.com/Claire-s-Monster/ci-framework/issues/345)
+* **deps:** raise urllib3 and virtualenv floors past new advisories ([293567f](https://github.com/Claire-s-Monster/ci-framework/commit/293567fad78f7fe6a82e9099a4ea6ea814b2ff99))
+* **deps:** raise urllib3 and virtualenv floors past new advisories ([ceec921](https://github.com/Claire-s-Monster/ci-framework/commit/ceec92195475328d63814ee978700c925d6623b5))
+* **gpg-signing-setup:** default config-scope to local ([a1a4b26](https://github.com/Claire-s-Monster/ci-framework/commit/a1a4b26e17c4785d0388d39dd3ed794d5a40833f)), closes [#348](https://github.com/Claire-s-Monster/ci-framework/issues/348)
+
 ## [3.0.0](https://github.com/Claire-s-Monster/ci-framework/compare/v2.9.9...v3.0.0) (2026-09-23)
 
 

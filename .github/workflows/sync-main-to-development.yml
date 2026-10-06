@@ -16,14 +16,17 @@ on:
     branches:
       - main
 
+# Top level grants no write (OpenSSF Token-Permissions, #359); writes are job-scoped.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   sync-to-development:
     name: "🔄 Sync Main → Development"
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Verify CI_BOT_TOKEN is valid
         # An expired or revoked PAT is still non-empty, so it wins

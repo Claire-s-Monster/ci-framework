@@ -2,11 +2,9 @@
 name: Repository Cleanup
 # Example caller workflow - copy this to any repository that needs cleanup
 
-# Required permissions for the reusable workflow
+# Top level grants no write (OpenSSF Token-Permissions, #359); writes are job-scoped.
 permissions:
-  contents: write        # Allow pushing commits and creating branches
-  pull-requests: write   # Allow creating and managing PRs
-  issues: write         # Allow creating issues (required for PR creation)
+  contents: read
 
 on:
   # Trigger cleanup on pushes to protected branches
@@ -37,6 +35,11 @@ jobs:
   cleanup:
     # Call the centralized reusable workflow
     uses: Claire-s-Monster/ci-framework/.github/workflows/cleanup-dev-files.yml@main
+    # Required by the reusable workflow
+    permissions:
+      contents: write        # Allow pushing commits and creating branches
+      pull-requests: write   # Allow creating and managing PRs
+      issues: write          # Allow creating issues (required for PR creation)
     with:
       # Optional: customize cleanup patterns for this repo
       cleanup_patterns: >

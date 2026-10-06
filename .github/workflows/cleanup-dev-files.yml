@@ -34,6 +34,10 @@ on:
         default: '0 2 * * *'
     secrets:
       CI_BOT_TOKEN:
+        description: >-
+          Bot PAT. Keep it valid: an expired PAT is still non-empty, so it
+          is used instead of falling back. The job verifies it first and
+          fails with an actionable error on HTTP 401 (#355).
         required: true
       CI_BOT_GPG_KEY:
         required: true
@@ -64,14 +68,17 @@ on:
           - master
           - development
 
+# Top level grants no write (OpenSSF Token-Permissions, #359); writes are job-scoped.
 permissions:
-  contents: write  # Allow pushing commits
-  pull-requests: write  # Allow creating PRs
-  issues: write  # Allow creating issues (required for PR creation)
+  contents: read
 
 jobs:
   cleanup-dev-files:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Allow pushing commits
+      pull-requests: write  # Allow creating PRs
+      issues: write  # Allow creating issues (required for PR creation)
     strategy:
       matrix:
         # Use inputs for workflow_call, current branch for push, all branches for schedule/dispatch
@@ -85,6 +92,35 @@ jobs:
           }}
 
     steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            exit 0
+          fi
+          status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
+
       - name: Debug secrets availability
         run: |
           echo "Checking secret availability..."
@@ -180,56 +216,26 @@ jobs:
 
       - name: Setup GPG for signing
         if: steps.branch-check.outputs.exists == 'true'
-        # Secrets arrive via env:, not interpolated into the script body, which
-        # would render the private key into the executed script text. Not yet
-        # switched to .github/actions/gpg-signing-setup because this is a
-        # reusable workflow: a ./-relative action resolves against the caller's
-        # checkout, and the pinned remote form would dangle until a release cuts
-        # (.release-please-config.json does not track this file). See #258.
-        env:
-          CI_BOT_GPG_KEY: ${{ secrets.CI_BOT_GPG_KEY }}
-          CI_BOT_GPG_KEY_ID: ${{ secrets.CI_BOT_GPG_KEY_ID }}
-        run: |
-          # Import bot GPG private key for commit signing (passphrase-less key)
-          printf '%s\n' "$CI_BOT_GPG_KEY" | gpg --import --batch --yes
-          gpg --list-secret-keys  # Verify import worked
-
-          # Configure GPG for non-interactive CI environment
-          mkdir -p ~/.gnupg
-          chmod 700 ~/.gnupg
-
-          # GPG configuration for non-interactive operation
-          cat > ~/.gnupg/gpg.conf << 'EOF'
-          use-agent
-          pinentry-mode loopback
-          batch
-          no-tty
-          EOF
-
-          # Set proper permissions
-          chmod 600 ~/.gnupg/gpg.conf
-
-          # Set ultimate trust for the bot key
-          printf '%s:6:\n' "$CI_BOT_GPG_KEY_ID" | gpg --import-ownertrust
-
-          echo "Bot GPG key imported and configured for CI signing"
+        uses: Claire-s-Monster/ci-framework/.github/actions/gpg-signing-setup@v3.0.0  # x-release-please-version
+        with:
+          gpg-private-key: ${{ secrets.CI_BOT_GPG_KEY }}
+          gpg-key-id: ${{ secrets.CI_BOT_GPG_KEY_ID }}
+          git-user-name: "CIFrameworkBot"
+          git-user-email: "223036950+CIFrameworkBot@users.noreply.github.com"
+          config-scope: local
 
       - name: Commit cleanup if files were removed
         if: steps.branch-check.outputs.exists == 'true'
         env:
-          CI_BOT_GPG_KEY_ID: ${{ secrets.CI_BOT_GPG_KEY_ID }}
           CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
         run: |
-          # Use CI bot account with GPG signing capability
-          git config user.name "ci-framework-bot"
-          git config user.email "223036950+CIFrameworkBot@users.noreply.github.com"
-          git config user.signingkey "$CI_BOT_GPG_KEY_ID"
-          git config commit.gpgsign true
-          git config gpg.program gpg
-
-          # Configure git to use the bot token for authentication
-          git_token_url="https://x-access-token:$CI_BOT_TOKEN@github.com/"
-          git config --global url."${git_token_url}".insteadOf "https://github.com/"
+          # Identity and signing are configured by the gpg-signing-setup step above.
+          # `git push` authenticates with the token actions/checkout persisted
+          # (persist-credentials: true), which is already CI_BOT_TOKEN when the
+          # secret is set. Do not add a `url.<token>.insteadOf` rewrite here,
+          # and never at --global scope: this is a reusable workflow, and on a
+          # self-hosted runner ~/.gitconfig outlives the job, handing the token
+          # to every later job on that runner (#345).
 
           # Configure GitHub CLI token
           export GH_TOKEN="$CI_BOT_TOKEN"
@@ -245,7 +251,7 @@ jobs:
             git checkout -b "$cleanup_branch"
 
             git add -A
-            git commit -S -m "chore: automated cleanup of development artifacts
+            git commit -m "chore: automated cleanup of development artifacts
 
               Comprehensive cleanup of development files from ${{ matrix.branch }} branch.
 
@@ -258,7 +264,7 @@ jobs:
 
               Files removed: ${removed_files}
 
-              🤖 Automated cleanup by ci-framework-bot with verified signature"
+              🤖 Automated cleanup by CIFrameworkBot with verified signature"
 
             # Push cleanup branch
             git push origin "$cleanup_branch"

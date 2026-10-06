@@ -127,7 +127,7 @@ runs:
 
     - name: Add cleanup comment to PR
       if: inputs.skip_comment != 'true'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         github-token: ${{ inputs.github_token }}
         script: |

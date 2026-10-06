@@ -15,9 +15,10 @@
 #          contents: read
 #          actions: read
 #          id-token: write          # OpenSSF Scorecard
-#          # security-events: write — NOT NEEDED when CI_BOT_TOKEN is
-#          # provided (see secrets below).  Omit for clean Scorecard
-#          # Token-Permissions score.
+#          security-events: write   # SAST + Scorecard jobs upload SARIF with
+#                                   # GITHUB_TOKEN. A job-level write here
+#                                   # does not lower your Scorecard
+#                                   # Token-Permissions score (verified, #353)
 #        uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@<sha>  # <version>
 #        with:
 #          pixi-environment: 'ci'
@@ -207,10 +208,15 @@ on:
         required: false
       CI_BOT_TOKEN:
         description: >-
-          PAT with security_events scope for SARIF uploads (CodeQL,
-          Semgrep, Scorecard).  When provided, callers do NOT need
-          security-events: write on GITHUB_TOKEN, keeping Scorecard
-          Token-Permissions clean.  Falls back to github.token.
+          Optional PAT with security_events scope for SARIF uploads. The SARIF
+          jobs (`sast-semgrep`, `sast-codeql`, `scorecard`) inherit the
+          caller's grant and fall back to github.token when the caller grants
+          security-events: write. Keep it valid: an expired PAT is still
+          non-empty, so it is used instead of falling back. Each consuming
+          job therefore verifies it first and fails with an actionable error
+          on HTTP 401 (#355).
+        # Not required: true - the github.token fallback covers callers who
+        # grant security-events: write.
         required: false
 
 # NOTE: No top-level permissions block. For workflow_call, the CALLER
@@ -222,9 +228,9 @@ on:
 #   contents: read, actions: read, id-token: write
 #
 # SARIF uploads (CodeQL, Semgrep, Scorecard) use CI_BOT_TOKEN when
-# available, falling back to github.token.  This avoids needing
-# security-events: write on GITHUB_TOKEN.  All upload steps use
-# continue-on-error as a safety net.
+# available, falling back to github.token (which works when the caller grants
+# security-events: write).  All upload steps use continue-on-error as a
+# safety net.
 
 jobs:
   detect-changes:
@@ -320,7 +326,7 @@ jobs:
       # pinned to an older workflow tag (issue #230); release-please keeps
       # this ref in lockstep via the x-release-please-version marker.
       - id: codeql-matrix
-        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v2.9.9  # x-release-please-version
+        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v3.0.0  # x-release-please-version
         with:
           codeql-languages: ${{ inputs.codeql-languages }}
           python: ${{ steps.detect.outputs.python }}
@@ -466,8 +472,9 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.c_cpp == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # No permissions block on purpose: the job inherits the caller's grant.
+    # A job-level block replaces that grant and would strip the write
+    # permission `thread-comments` needs to post (#354). Do not re-add one.
     steps:
       - uses: actions/checkout@v7
       - uses: cpp-linter/cpp-linter-action@v2
@@ -480,14 +487,7 @@ jobs:
           version: 17
           files-changed-only: true
           thread-comments: true
-      - name: Upload SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: cpp-linter.sarif
-          category: cpp-linter
-          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
-        continue-on-error: true
+      # cpp-linter-action writes no SARIF file, so there is nothing to upload (#354).
       - name: Fail on lint
         if: inputs.fail-on-lint && steps.linter.outputs.checks-failed > 0
         run: exit 1
@@ -635,11 +635,45 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # No job-level `permissions:` block on purpose. Such a block REPLACES the
+    # caller's grant instead of extending it, so pinning `contents: read` here
+    # stripped `security-events: write` from a caller that had granted it and
+    # left the `|| github.token` fallback below unable to authenticate.
+    # Requesting the permission here instead would be worse: a workflow_call
+    # job asking for more than the caller granted fails the whole run at
+    # startup. Inheriting leaves consumers who omit the permission exactly as
+    # they were, while letting those who grant it upload without a PAT. See #306, #352.
     container:
       image: semgrep/semgrep
     steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            exit 0
+          fi
+          status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
       - uses: actions/checkout@v7
       - name: Run Semgrep
         id: semgrep
@@ -667,13 +701,47 @@ jobs:
     # when using this workflow standalone (no reusable-security.yml).
     if: inputs.codeql && needs.detect-changes.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # No job-level `permissions:` block on purpose. Such a block REPLACES the
+    # caller's grant instead of extending it, so pinning `contents: read` here
+    # stripped `security-events: write` from a caller that had granted it and
+    # left the `|| github.token` fallback below unable to authenticate.
+    # Requesting the permission here instead would be worse: a workflow_call
+    # job asking for more than the caller granted fails the whole run at
+    # startup. Inheriting leaves consumers who omit the permission exactly as
+    # they were, while letting those who grant it upload without a PAT. See #306, #352.
     strategy:
       fail-fast: false
       matrix:
         language: ${{ fromJSON(needs.detect-changes.outputs.codeql_matrix) }}
     steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            exit 0
+          fi
+          status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
       - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v4
         with:
@@ -708,7 +776,7 @@ jobs:
           fetch-depth: 0
       - name: TruffleHog scan
         id: trufflehog
-        uses: trufflesecurity/trufflehog@v3.97.5
+        uses: trufflesecurity/trufflehog@v3.97.9
         with:
           extra_args: --only-verified
         continue-on-error: true
@@ -722,11 +790,18 @@ jobs:
     name: "📊 OpenSSF Scorecard"
     if: inputs.scorecard
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      actions: read
-      contents: read
+    # No job-level `permissions:` block on purpose. This job inherits the
+    # caller's grant (security-events: write for the SARIF upload, id-token:
+    # write for publish_results). A job-level block REPLACES that grant, so
+    # pinning one here stripped security-events: write from GITHUB_TOKEN and
+    # made CI_BOT_TOKEN the only working upload path (#352). Scorecard never
+    # scores a remote reusable workflow, so the block bought consumers nothing
+    # on Token-Permissions (#353). Do not re-add.
     steps:
+      # No CI_BOT_TOKEN preflight here on purpose: publish_results verification
+      # allows only allowlisted `uses:` steps in this job (no `run:`), so the
+      # check lives in the SAST jobs of the same workflow, which consume the
+      # same token (#355).
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
@@ -748,7 +823,11 @@ jobs:
   # ============================================================================
 
   test:
-    name: "🧪 Test Python ${{ matrix.python-version }} on ${{ matrix.os }}"
+    # Matrix vars deliberately omitted from `name:`: a job skipped by a
+    # false job-level `if:` has no matrix context, so the template would
+    # render literally in the check-run name. GitHub appends the leg
+    # suffix itself when the job actually runs. See #339.
+    name: "🧪 Test"
     runs-on: ${{ matrix.os }}
     needs: detect-changes
     if: >-
@@ -849,7 +928,11 @@ jobs:
           pixi run -e "$RESOLVED_PIXI_ENV" test
 
   test-postgres:
-    name: "🐘 Test+PG Python ${{ matrix.python-version }}"
+    # Matrix vars deliberately omitted from `name:`: a job skipped by a
+    # false job-level `if:` has no matrix context, so the template would
+    # render literally in the check-run name. GitHub appends the leg
+    # suffix itself when the job actually runs. See #339.
+    name: "🐘 Test+PG"
     runs-on: ubuntu-latest
     needs: detect-changes
     if: >-

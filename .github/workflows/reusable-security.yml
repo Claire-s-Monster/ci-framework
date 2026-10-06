@@ -16,11 +16,12 @@
 #        permissions:
 #          contents: read
 #          actions: read
-#          id-token: write
-#          # security-events: write — NOT NEEDED when CI_BOT_TOKEN is
-#          # provided via secrets: inherit.  Omit for clean Scorecard
-#          # Token-Permissions score.
-#        secrets: inherit           # passes CI_BOT_TOKEN for SARIF uploads
+#          id-token: write          # scorecard publish_results
+#          security-events: write   # SAST + Scorecard jobs upload SARIF with
+#                                   # GITHUB_TOKEN. A job-level write here
+#                                   # does not lower your Scorecard
+#                                   # Token-Permissions score (verified, #353)
+#        secrets: inherit           # optional: passes CI_BOT_TOKEN (PAT)
 #    ```
 #
 # See docs/security-scanning.md for full documentation.
@@ -79,16 +80,23 @@ on:
     secrets:
       CI_BOT_TOKEN:
         description: >-
-          PAT with security_events scope for SARIF uploads.  When
-          provided, callers do NOT need security-events: write on
-          GITHUB_TOKEN, keeping Scorecard Token-Permissions clean.
-          Falls back to github.token.
+          Optional PAT with security_events scope for SARIF uploads. The SARIF
+          jobs (`sast-semgrep`, `sast-codeql`, `scorecard`) inherit the
+          caller's grant and fall back to github.token when the caller grants
+          security-events: write. Keep it valid: an expired PAT is still
+          non-empty, so it is used instead of falling back. Each consuming
+          job therefore verifies it first and fails with an actionable error
+          on HTTP 401 (#355).
+        # Not required: true - the github.token fallback covers callers who
+        # grant security-events: write.
         required: false
 
 # NOTE: No top-level permissions block. For workflow_call the CALLER
-# controls GITHUB_TOKEN permissions.  Each job below declares its own
-# least-privilege set.  SARIF uploads use CI_BOT_TOKEN (PAT) so
-# callers never need security-events: write on GITHUB_TOKEN.
+# controls GITHUB_TOKEN permissions. Jobs WITHOUT their own block inherit
+# the caller's grant; a job-level block REPLACES it. SARIF uploads use
+# `CI_BOT_TOKEN || github.token`: the fallback works when the caller grants
+# security-events: write. No SARIF job (sast-semgrep, sast-codeql, scorecard)
+# has its own block, so all inherit that grant (#352, #353).
 
 jobs:
   detect-languages:
@@ -167,7 +175,7 @@ jobs:
       # pinned to an older workflow tag (issue #230); release-please keeps
       # this ref in lockstep via the x-release-please-version marker.
       - id: codeql-matrix
-        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v2.9.9  # x-release-please-version
+        uses: Claire-s-Monster/ci-framework/.github/actions/setup-codeql-matrix@v3.0.0  # x-release-please-version
         with:
           codeql-languages: ${{ inputs.codeql-languages }}
           python: ${{ steps.detect.outputs.python }}
@@ -262,6 +270,34 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            exit 0
+          fi
+          status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
       - uses: actions/checkout@v7
       - name: Run Semgrep
         id: semgrep
@@ -286,13 +322,47 @@ jobs:
     needs: detect-languages
     if: needs.detect-languages.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # No job-level `permissions:` block on purpose. Such a block REPLACES the
+    # caller's grant instead of extending it, so pinning `contents: read` here
+    # stripped `security-events: write` from a caller that had granted it and
+    # left the `|| github.token` fallback below unable to authenticate.
+    # Requesting the permission here instead would be worse: a workflow_call
+    # job asking for more than the caller granted fails the whole run at
+    # startup. Inheriting leaves consumers who omit the permission exactly as
+    # they were, while letting those who grant it upload without a PAT. See #306, #352.
     strategy:
       fail-fast: false
       matrix:
         language: ${{ fromJSON(needs.detect-languages.outputs.codeql_matrix) }}
     steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            exit 0
+          fi
+          status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
       - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v4
         with:
@@ -305,10 +375,11 @@ jobs:
       - if: matrix.language != 'c-cpp'
         uses: github/codeql-action/autobuild@v4
       # upload: true uses the native code-scanning path so the aggregate `CodeQL`
-      # check reports success instead of `neutral` (issue #222). The upload is
-      # performed with CI_BOT_TOKEN (a PAT with the security_events scope), so the
-      # caller's GITHUB_TOKEN still does NOT need security-events: write — keeping
-      # OpenSSF Scorecard Token-Permissions clean.
+      # check reports success instead of `neutral` (issue #222). The upload
+      # authenticates via CI_BOT_TOKEN (a PAT with the security_events scope)
+      # when set, or falls back to github.token — which now actually reaches
+      # this job when the caller grants security-events: write, since the
+      # job no longer narrows permissions itself (#306, #352).
       - uses: github/codeql-action/analyze@v4
         continue-on-error: true
         with:
@@ -326,7 +397,7 @@ jobs:
           fetch-depth: 0
       - name: TruffleHog scan
         id: trufflehog
-        uses: trufflesecurity/trufflehog@v3.97.5
+        uses: trufflesecurity/trufflehog@v3.97.9
         with:
           extra_args: --only-verified
         continue-on-error: true
@@ -340,11 +411,18 @@ jobs:
     name: "📊 OpenSSF Scorecard"
     if: inputs.scorecard
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      actions: read
-      contents: read
+    # No job-level `permissions:` block on purpose. This job inherits the
+    # caller's grant (security-events: write for the SARIF upload, id-token:
+    # write for publish_results). A job-level block REPLACES that grant, so
+    # pinning one here stripped security-events: write from GITHUB_TOKEN and
+    # made CI_BOT_TOKEN the only working upload path (#352). Scorecard never
+    # scores a remote reusable workflow, so the block bought consumers nothing
+    # on Token-Permissions (#353). Do not re-add.
     steps:
+      # No CI_BOT_TOKEN preflight here on purpose: publish_results verification
+      # allows only allowlisted `uses:` steps in this job (no `run:`), so the
+      # check lives in the SAST jobs of the same workflow, which consume the
+      # same token (#355).
       - uses: actions/checkout@v7
         with:
           persist-credentials: false

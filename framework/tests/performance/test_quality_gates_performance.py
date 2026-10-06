@@ -396,11 +396,9 @@ class Class_{j}:
         import threading
 
         def execute_quality_gates(project_dir, tier):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = Mock(returncode=0, stdout="success", stderr="")
-                return quality_gates_action.execute_tier(
-                    project_dir=project_dir, tier=tier, dry_run=True
-                )
+            return quality_gates_action.execute_tier(
+                project_dir=project_dir, tier=tier, dry_run=True
+            )
 
         # Create multiple mock projects
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -423,6 +421,12 @@ lint = "ruff check"
             # Test concurrent execution
             start_time = time.time()
 
+            # No subprocess patch: execute_tier(dry_run=True) returns before any
+            # subprocess call (quality_gates.py, the `if dry_run:` early return),
+            # and the real path uses Popen, not run. The old per-thread
+            # patch("subprocess.run") was dead code, and racing it across
+            # threads left a Mock installed as subprocess.run for every later
+            # test in the session.
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [
                     executor.submit(execute_quality_gates, project_dir, "essential")

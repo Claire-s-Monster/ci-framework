@@ -17,17 +17,20 @@ jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     permissions:
-      # security-events: write  # optional — enables SARIF upload to Security tab
+      security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
       actions: read
       id-token: write
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 **Required permissions:**
 - `contents: read` — Read source code
 - `actions: read` — Read workflow metadata
-- `id-token: write` — For CodeQL authentication
-- `security-events: write` (OPTIONAL) — Upload SARIF reports to GitHub Security tab. Omit for clean Scorecard Token-Permissions score.
+- `id-token: write` — Lets OpenSSF Scorecard publish results (`publish_results`)
+- `security-events: write` — Grant it and every SARIF upload (Semgrep, CodeQL, Scorecard) reaches the Security tab with `GITHUB_TOKEN`. It costs nothing on Scorecard's Token-Permissions check: a job-level write under a read-only top-level `permissions:` only produces a warning, and Scorecard never reads the remote reusable workflow (verified in #353). If you cannot grant it, supply `CI_BOT_TOKEN` instead.
+
+**`CI_BOT_TOKEN` (secret, pass via `secrets: inherit`):** an optional PAT with the `security_events` scope, an alternative for when you cannot grant `security-events: write`. The SARIF jobs (Semgrep, CodeQL, Scorecard) declare no `permissions:` block of their own, so they inherit your grant and fall back to `github.token` when it is set (a job-level block would replace the caller's grant, #352; the Scorecard block was removed in #353). Without either the grant or the PAT, the jobs still run and stay green, but their SARIF never reaches the Security tab. Keep the PAT valid: an expired or revoked token is still non-empty, so it wins `CI_BOT_TOKEN || github.token` and is rejected with HTTP 401 instead of falling back (#355). To catch this, every job that consumes `CI_BOT_TOKEN` starts with a "Verify CI_BOT_TOKEN is valid" step, except the Scorecard job, whose `publish_results` verification forbids extra steps (the SAST jobs in the same run perform the check). The step calls `GET /rate_limit` with the token. It fails the job with an actionable error on HTTP 401 (including the SARIF jobs, whose upload steps would otherwise fail silently), does nothing when the secret is unset, and only warns on other or transient responses. Either rotate the token or delete the secret to fall back to `github.token`.
 
 All inputs are optional. The workflow will auto-detect your languages and use sensible defaults.
 
@@ -88,11 +91,13 @@ Several tools upload results to GitHub's Security tab:
 |------|--------------|-----------|
 | CodeQL | Yes | Security → Code scanning |
 | Semgrep | Yes | Security → Code scanning |
-| TruffleHog | Yes | Security → Secret scanning |
+| TruffleHog | No | Workflow run summary only |
 | pip-audit | No | Workflow run summary only |
 | cargo-audit | No | Workflow run summary only |
 | npm audit | No | Workflow run summary only |
-| OpenSSF Scorecard | No | Workflow run summary only |
+| OpenSSF Scorecard | Yes (needs `security-events: write` or CI_BOT_TOKEN) | Security → Code scanning |
+
+Uploads run with `continue-on-error: true`, so a failed upload leaves the job green; check the upload step's log for `Resource not accessible by integration`.
 
 ## Example Configurations
 
@@ -103,10 +108,11 @@ jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     permissions:
-      # security-events: write  # optional — enables SARIF upload to Security tab
+      security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
       actions: read
       id-token: write
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Detects languages, blocks on CVEs and secrets, warns on SAST, runs Scorecard.
@@ -120,10 +126,11 @@ jobs:
     with:
       fail-on-sast: true
     permissions:
-      # security-events: write  # optional — enables SARIF upload to Security tab
+      security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
       actions: read
       id-token: write
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Fails workflow on any SAST findings (use if your repository has strict security requirements).
@@ -137,10 +144,11 @@ jobs:
     with:
       languages: 'python,rust'
     permissions:
-      # security-events: write  # optional — enables SARIF upload to Security tab
+      security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
       actions: read
       id-token: write
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Skips JavaScript, C/C++, and Cython checks even if present.
@@ -156,10 +164,11 @@ jobs:
       fail-on-secrets: false
       fail-on-sast: false
     permissions:
-      # security-events: write  # optional — enables SARIF upload to Security tab
+      security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
       actions: read
       id-token: write
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 All findings appear as workflow annotations only; none block merge. Useful for initial rollout on existing codebases.
@@ -173,10 +182,11 @@ jobs:
     with:
       scorecard: false
     permissions:
-      # security-events: write  # optional — enables SARIF upload to Security tab
+      security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
       actions: read
       id-token: write
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Skips OpenSSF Scorecard (which takes 1-2 minutes). Useful if you run security checks frequently.
@@ -195,9 +205,8 @@ Found 1 CVE in requirements.txt
 
 ### GitHub Security Tab
 
-SARIF-enabled tools (CodeQL, Semgrep, TruffleHog) upload findings to:
-- **Code scanning** (SAST): `/security/code-scanning`
-- **Secret scanning**: `/security/secret-scanning`
+SARIF-enabled tools (CodeQL, Semgrep, OpenSSF Scorecard) upload findings to:
+- **Code scanning**: `/security/code-scanning`
 
 ### Inline PR Comments
 
@@ -228,10 +237,11 @@ jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     permissions:
-      # security-events: write  # optional — enables SARIF upload to Security tab
+      security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
       actions: read
       id-token: write
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Both run independently and report together in the PR.

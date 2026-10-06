@@ -90,18 +90,18 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
 
     - name: Install pixi
-      uses: prefix-dev/setup-pixi@v0.8.13
+      uses: prefix-dev/setup-pixi@v0.10.2
       with:
         pixi-version: ${{ inputs.pixi-version }}
         cache: false
 
     - name: Cache Quality Gates Dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cache/pip
@@ -268,7 +268,7 @@ runs:
     # uploaded by actions/security-scan and the reusable-* workflows (#306).
 
     - name: Comment PR with Results
-      uses: actions/github-script@v6
+      uses: actions/github-script@v9
       if: always() && github.event_name == 'pull_request'
       with:
         script: |

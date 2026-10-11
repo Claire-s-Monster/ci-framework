@@ -643,8 +643,6 @@ jobs:
     # job asking for more than the caller granted fails the whole run at
     # startup. Inheriting leaves consumers who omit the permission exactly as
     # they were, while letting those who grant it upload without a PAT. See #306, #352.
-    container:
-      image: semgrep/semgrep
     steps:
       - name: Verify CI_BOT_TOKEN is valid
         # An expired or revoked PAT is still non-empty, so it wins
@@ -675,6 +673,14 @@ jobs:
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Semgrep
+        # Installed on the runner instead of the semgrep/semgrep Docker Hub
+        # container: its anonymous pull hit Docker Hub's rate limit and failed
+        # the job before any step ran (#366). Version pinned for reproducibility.
+        run: pip install "semgrep==1.180.0"
       - name: Run Semgrep
         id: semgrep
         run: semgrep ci --sarif --output=semgrep.sarif

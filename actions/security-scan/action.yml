@@ -189,7 +189,8 @@ runs:
         # Install Semgrep if enabled
         if [[ "${{ inputs.enable-semgrep }}" == "true" ]]; then
           echo "Installing Semgrep..."
-          pip install semgrep
+          # Pinned to match the sast-semgrep jobs in the reusable workflows (#366).
+          pip install "semgrep==1.180.0"
         fi
 
     - name: Cache Security Scan Dependencies

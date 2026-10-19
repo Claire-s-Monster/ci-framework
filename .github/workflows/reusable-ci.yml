@@ -401,7 +401,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: "Setup PIXI Environment"
-        uses: prefix-dev/setup-pixi@v0.11.0
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false
@@ -553,7 +553,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: "Setup PIXI Environment"
-        uses: prefix-dev/setup-pixi@v0.11.0
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false
@@ -849,7 +849,7 @@ jobs:
       # actions/setup-python removed here: `pixi run` uses the environment's
       # own interpreter, so the runner-installed one was never used (#251).
       - name: "Setup PIXI Environment"
-        uses: prefix-dev/setup-pixi@v0.11.0
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false
@@ -970,7 +970,7 @@ jobs:
       # actions/setup-python removed here: `pixi run` uses the environment's
       # own interpreter, so the runner-installed one was never used (#251).
       - name: "Setup PIXI Environment"
-        uses: prefix-dev/setup-pixi@v0.11.0
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false
@@ -1065,7 +1065,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: "Setup PIXI Environment"
-        uses: prefix-dev/setup-pixi@v0.11.0
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false
@@ -1105,7 +1105,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: "Setup PIXI Environment"
-        uses: prefix-dev/setup-pixi@v0.11.0
+        uses: prefix-dev/setup-pixi@v0.11.2
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false

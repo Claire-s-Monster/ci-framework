@@ -23,7 +23,7 @@ inputs:
   pixi-version:
     description: "Pixi CLI version for setup-pixi (binary version, not the action tag). Must support the consumer lockfile schema: pixi >= v0.68.0 is required for pixi.lock schema v7."
     required: false
-    default: "v0.74.0"
+    default: "v0.82.0"
 
 outputs:
   healed:

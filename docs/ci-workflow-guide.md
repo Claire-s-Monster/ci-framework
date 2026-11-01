@@ -214,6 +214,24 @@ added the environments as shown above, set `strict-python-matrix: true` to
 turn the mismatch into a hard failure and keep the matrix honest going
 forward.
 
+### Conda-First Dependencies (opt-in lock check)
+
+Policy (issue #386): a dependency may come from PyPI only when conda-forge has
+no package for it. `reusable-ci.yml` can check your committed `pixi.lock` for
+PyPI-sourced packages (every `pypi:` entry, including `git+` URLs):
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `conda-first-check` | string | `warn` | `off` skips the check, `warn` emits a `::warning` per offending package and passes, `enforce` emits `::error` and fails. Any other value is rejected. |
+| `conda-first-allow` | string | `hb-*` | Comma- or newline-separated `fnmatch` patterns on the package name. Names are compared case-insensitively with `_` and `.` treated as `-`. |
+
+If `pixi.lock` is absent the check emits a `::notice` and passes. The check
+runs in the `python-quality` job after "Install Dependencies".
+
+The `pixi-version` input should match the pixi you use locally: CI and local
+solves should use the same pixi version, otherwise a lock solved in CI can
+differ from one solved locally (#386).
+
 ### Adding Custom Jobs
 
 #### Database Testing Job

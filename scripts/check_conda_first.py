@@ -26,7 +26,9 @@ MODES = ("off", "warn", "enforce")
 
 # A package entry opens with `- conda: <url>` or `- pypi: <url>` (pixi >= 0.2x
 # lock v6/v7), or `- kind: pypi` in older locks.
-_ENTRY_RE = re.compile(r"^(?P<indent>\s*)- (?P<key>conda|pypi|kind):\s*(?P<value>.*?)\s*$")
+_ENTRY_RE = re.compile(
+    r"^(?P<indent>\s*)- (?P<key>conda|pypi|kind):\s*(?P<value>.*?)\s*$"
+)
 _NAME_RE = re.compile(r"^(?P<indent>\s*)name:\s*(?P<value>.+?)\s*$")
 
 
@@ -74,7 +76,9 @@ def parse_pypi_packages(text: str) -> list[str]:
         if not in_packages:
             continue
         start = _ENTRY_RE.match(line)
-        if start and (entry is None or len(start["indent"]) <= int(str(entry["indent"]))):
+        if start and (
+            entry is None or len(start["indent"]) <= int(str(entry["indent"]))
+        ):
             flush()
             key, value = start["key"], _unquote(start["value"])
             entry = {
@@ -85,7 +89,11 @@ def parse_pypi_packages(text: str) -> list[str]:
             }
             continue
         field = _NAME_RE.match(line)
-        if field and entry is not None and len(field["indent"]) == int(str(entry["indent"])) + 2:
+        if (
+            field
+            and entry is not None
+            and len(field["indent"]) == int(str(entry["indent"])) + 2
+        ):
             entry["name"] = _unquote(field["value"])
     flush()
     return names
@@ -117,7 +125,9 @@ def run(mode: str, allow: str, lock_file: str) -> int:
         return 0
     lock = Path(lock_file)
     if not lock.is_file():
-        print(f"::notice title=conda-first-check::No {lock_file} found; nothing to check.")
+        print(
+            f"::notice title=conda-first-check::No {lock_file} found; nothing to check."
+        )
         return 0
 
     patterns = parse_allow(allow)
@@ -125,7 +135,9 @@ def run(mode: str, allow: str, lock_file: str) -> int:
     unique: dict[str, str] = {}
     for name in parse_pypi_packages(lock.read_text(encoding="utf-8")):
         unique.setdefault(normalize(name), name)
-    offenders = [unique[key] for key in sorted(unique) if not is_allowed(unique[key], patterns)]
+    offenders = [
+        unique[key] for key in sorted(unique) if not is_allowed(unique[key], patterns)
+    ]
     level = "error" if mode == "enforce" else "warning"
     for name in offenders:
         print(

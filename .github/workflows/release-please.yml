@@ -71,6 +71,20 @@ jobs:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # Relabel fixed-in-development issues as released when this tag contains
+  # their fix (#394). Called in-line: a release created by a token does not
+  # reliably trigger `release: published` workflows.
+  release-tracking:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/reusable-release-tracking.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+
   # Create GitHub Pages deployment if release was created
   deploy-pages:
     needs: release-please

@@ -65,7 +65,9 @@ jobs:
           # the merge push triggers downstream on:push workflows.
           # Falls back to GITHUB_TOKEN if CI_BOT_TOKEN is not configured.
           token: ${{ secrets.CI_BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          release-type: python
+          # No release-type input: setting it makes the action ignore
+          # config-file, which silently dropped extra-files (the
+          # x-release-please-version refs) and changelog-sections (#390).
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 

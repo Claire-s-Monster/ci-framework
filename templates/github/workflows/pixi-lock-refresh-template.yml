@@ -1,0 +1,31 @@
+# Pixi Lock Refresh Template - CI Framework
+# Refreshes pixi.lock weekly and opens (or updates) a signed bot PR.
+# Until the first release containing reusable-pixi-lock-refresh.yml, replace the
+# ref below with @development. See docs/pixi-lock-refresh.md.
+
+name: Pixi Lock Refresh
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@v4.0.0  # x-release-please-version
+    # with:
+    #   target-branch: development
+    #   branch-name: chore/pixi-lock-refresh
+    #   environments: ''        # space-separated; empty updates all
+    #   auto-merge: false
+    #   pixi-version: v0.82.0
+    #   package-path: .
+    #   conda-first-check: enforce
+    #   conda-first-allow: 'hb-*'
+    secrets:
+      CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+      CI_BOT_GPG_KEY: ${{ secrets.CI_BOT_GPG_KEY }}
+      CI_BOT_GPG_KEY_ID: ${{ secrets.CI_BOT_GPG_KEY_ID }}

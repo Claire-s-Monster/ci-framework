@@ -42,6 +42,7 @@
 - **[GitHub Actions](api/actions/)** - All available actions
 - **[Reusable Workflows](api/workflows/)** - Workflow templates
 - **[Release Tracking](release-tracking.md)** - Label issues fixed-in-development, then released
+- **[Pixi Lock Refresh](pixi-lock-refresh.md)** - Scheduled pixi.lock refresh through a signed bot PR
 
 ---
 

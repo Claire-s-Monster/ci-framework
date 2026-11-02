@@ -12,11 +12,19 @@
       "type": "generic"
     },
     {
+      "path": ".github/workflows/reusable-pixi-lock-refresh.yml",
+      "type": "generic"
+    },
+    {
       "path": ".github/workflows/reusable-security.yml",
       "type": "generic"
     },
     {
       "path": ".github/workflows/self-healing.yml",
+      "type": "generic"
+    },
+    {
+      "path": "templates/github/workflows/pixi-lock-refresh-template.yml",
       "type": "generic"
     }
   ],

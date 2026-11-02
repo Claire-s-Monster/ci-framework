@@ -104,9 +104,10 @@ jobs:
             echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
             exit 0
           fi
+          # GITHUB_API_URL is set by the runner (GHES-safe); fall back to github.com.
           status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
-            https://api.github.com/rate_limit) || status="000"
+            "${GITHUB_API_URL:-https://api.github.com}/rate_limit") || status="000"
           case "${status}" in
             200) echo "CI_BOT_TOKEN is valid." ;;
             401)

@@ -198,7 +198,10 @@ on:
         type: boolean
         default: true
       fail-on-typecheck:
-        description: "Fail on type checking errors"
+        description: >-
+          Deprecated, has no effect. Type checking runs inside the consumer's
+          pixi 'quality' task and is gated by fail-on-lint. Kept so existing
+          callers that pass it do not break (issue #385).
         required: false
         type: boolean
         default: false
@@ -1398,6 +1401,21 @@ jobs:
     steps:
       - name: "Generate Run Summary"
         env:
+          DETECT_CHANGES_RESULT: ${{ needs.detect-changes.result }}
+          HYGIENE_EXPECTED: ${{ inputs.enable-hygiene-check }}
+          PYTHON_EXPECTED: ${{ needs.detect-changes.outputs.python == 'true' }}
+          RUST_EXPECTED: ${{ needs.detect-changes.outputs.rust == 'true' }}
+          C_CPP_EXPECTED: ${{ needs.detect-changes.outputs.c_cpp == 'true' }}
+          CYTHON_EXPECTED: ${{ needs.detect-changes.outputs.cython == 'true' }}
+          JS_TS_EXPECTED: ${{ needs.detect-changes.outputs.js_ts == 'true' }}
+          TEST_EXPECTED: >-
+            ${{ needs.detect-changes.outputs.src == 'true' ||
+            needs.detect-changes.outputs.tests == 'true' }}
+          TEST_POSTGRES_EXPECTED: >-
+            ${{ inputs.enable-postgres &&
+            (needs.detect-changes.outputs.src == 'true' ||
+            needs.detect-changes.outputs.tests == 'true') }}
+          FAIL_ON_TYPECHECK: ${{ inputs.fail-on-typecheck }}
           HYGIENE_RESULT: ${{ needs.hygiene.result }}
           PYTHON_QUALITY_RESULT: ${{ needs.python-quality.result }}
           RUST_LINT_RESULT: ${{ needs.rust-lint.result }}
@@ -1456,28 +1474,49 @@ jobs:
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # Determine overall status (skipped jobs are OK; warn-only jobs excluded)
+          if [[ "$FAIL_ON_TYPECHECK" == "true" ]]; then
+            echo "::warning title=fail-on-typecheck is deprecated::fail-on-typecheck has no effect. Type checking runs inside your pixi 'quality' task and is gated by fail-on-lint. See https://github.com/Claire-s-Monster/ci-framework/issues/385"
+          fi
+
+          # Determine overall status (warn-only jobs excluded). A green summary
+          # must prove the gated jobs ran (#385): failure and cancelled always
+          # fail, and skipped passes only when the job was not expected to run.
+          # Each *_EXPECTED value mirrors that job's own `if:` (enforced by
+          # framework/tests/workflows/test_ci_summary_strict.py). A job skipped
+          # while expected means an upstream job failed or was cancelled.
           FAILED=false
-          for result in \
-            "$HYGIENE_RESULT" \
-            "$PYTHON_QUALITY_RESULT" \
-            "$RUST_LINT_RESULT" \
-            "$RUST_FORMAT_RESULT" \
-            "$CPP_LINT_RESULT" \
-            "$CYTHON_LINT_RESULT" \
-            "$JS_LINT_RESULT" \
-            "$PYTHON_DEP_AUDIT_RESULT" \
-            "$RUST_DEP_AUDIT_RESULT" \
-            "$RUST_DENY_RESULT" \
-            "$JS_DEP_AUDIT_RESULT" \
-            "$SECRET_SCAN_RESULT" \
-            "$TEST_RESULT" \
-            "$TEST_POSTGRES_RESULT" \
-            "$BUILD_RESULT"; do
-            if [[ "$result" == "failure" ]]; then
-              FAILED=true
-            fi
-          done
+          check() {
+            local name="$1" result="$2" expected="$3"
+            case "$result" in
+              success) ;;
+              skipped)
+                if [[ "$expected" == "true" ]]; then
+                  echo "::error title=CI Summary::$name was skipped but was expected to run (an upstream job failed or was cancelled)."
+                  FAILED=true
+                fi
+                ;;
+              *)
+                echo "::error title=CI Summary::$name finished with result '$result'."
+                FAILED=true
+                ;;
+            esac
+          }
+          check "Detect Changes" "$DETECT_CHANGES_RESULT" "true"
+          check "Hygiene" "$HYGIENE_RESULT" "$HYGIENE_EXPECTED"
+          check "Python Quality" "$PYTHON_QUALITY_RESULT" "$PYTHON_EXPECTED"
+          check "Rust Lint" "$RUST_LINT_RESULT" "$RUST_EXPECTED"
+          check "Rust Format" "$RUST_FORMAT_RESULT" "$RUST_EXPECTED"
+          check "C/C++ Lint" "$CPP_LINT_RESULT" "$C_CPP_EXPECTED"
+          check "Cython Lint" "$CYTHON_LINT_RESULT" "$CYTHON_EXPECTED"
+          check "JS/TS Lint" "$JS_LINT_RESULT" "$JS_TS_EXPECTED"
+          check "Python Dep Audit" "$PYTHON_DEP_AUDIT_RESULT" "$PYTHON_EXPECTED"
+          check "Rust Dep Audit" "$RUST_DEP_AUDIT_RESULT" "$RUST_EXPECTED"
+          check "Rust Deny" "$RUST_DENY_RESULT" "$RUST_EXPECTED"
+          check "JS/TS Dep Audit" "$JS_DEP_AUDIT_RESULT" "$JS_TS_EXPECTED"
+          check "Secret Scan" "$SECRET_SCAN_RESULT" "true"
+          check "Test" "$TEST_RESULT" "$TEST_EXPECTED"
+          check "Test+PG" "$TEST_POSTGRES_RESULT" "$TEST_POSTGRES_EXPECTED"
+          check "Build" "$BUILD_RESULT" "$TEST_EXPECTED"
 
           if [[ "$FAILED" == "true" ]]; then
             echo "**Overall: Some checks failed.**" >> "$GITHUB_STEP_SUMMARY"

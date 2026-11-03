@@ -567,6 +567,10 @@ jobs:
           TMP="${BRANCH_NAME}-tmp-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$TMP" -f sha="$BASE_SHA" >/dev/null
           trap 'gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$TMP" >/dev/null 2>&1 || true' EXIT
+          # A cancelled run gets SIGINT/SIGTERM; convert them to an exit so the
+          # EXIT trap above still deletes the temp ref.
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
 
           # pixi.lock can be megabytes: build the request as a file, never argv.
           b64_file="$RUNNER_TEMP/pixi.lock.b64"

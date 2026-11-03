@@ -129,16 +129,33 @@ def uses_scorecard(job: object) -> bool:
     )
 
 
+REF_GATE = (
+    "(github.event_name == 'pull_request' || "
+    "github.ref == format('refs/heads/{0}', github.event.repository.default_branch))"
+)
+
+
 def ref_gate_problems(job: object) -> list[str]:
-    """Problems with the job's default-branch-or-PR `if:` gate (empty means gated)."""
+    """Problems with the job's default-branch-or-PR `if:` gate (empty means gated).
+
+    Matches the exact gate expression rather than loose substrings, so a negated
+    or OR-ed variant that merely mentions the right names does not pass. Whitespace
+    is collapsed first because a `>-` scalar keeps newlines on indented lines.
+    """
     condition = job.get("if") if isinstance(job, dict) else None
     if not isinstance(condition, str):
         return ["job has no `if:`, so it runs on non-default refs and fails there"]
-    return [
-        f"job `if:` does not reference {token}"
-        for token in ("github.event.repository.default_branch", "pull_request")
-        if token not in condition
-    ]
+    normalized = " ".join(condition.split())
+    if normalized == REF_GATE:
+        return []
+    prefix = normalized.removesuffix(REF_GATE)
+    if prefix == normalized:
+        return [f"job `if:` must end with the ref gate {REF_GATE}"]
+    if not prefix.endswith("&& ") or "||" in prefix:
+        return [
+            "job `if:` must AND the ref gate onto the condition, with no `||` outside it"
+        ]
+    return []
 
 
 def scorecard_jobs() -> list[tuple[str, str, object]]:
@@ -283,14 +300,21 @@ def test_selftest_scorecard_detection():
 
 
 def test_selftest_ref_gate():
-    gated = (
-        "inputs.scorecard && (github.event_name == 'pull_request' || "
-        "github.ref == format('refs/heads/{0}', github.event.repository.default_branch))"
-    )
-    assert ref_gate_problems({**_compliant_job(), "if": gated}) == []
+    def gate(condition: object) -> list[str]:
+        return ref_gate_problems({**_compliant_job(), "if": condition})
+
+    assert gate(f"inputs.scorecard && {REF_GATE}") == []
+    assert gate(REF_GATE) == []
+    # A `>-` scalar keeps the newline before a more-indented continuation line.
+    assert gate(REF_GATE.replace("|| ", "||\n       ")) == []
     assert ref_gate_problems(_compliant_job())
-    assert ref_gate_problems({**_compliant_job(), "if": "inputs.scorecard"})
+    assert gate("inputs.scorecard")
+    assert gate(
+        "github.event_name != 'pull_request' && !github.event.repository.default_branch"
+    )
+    assert gate(f"inputs.scorecard && !{REF_GATE}")
+    assert gate(f"always() || inputs.scorecard && {REF_GATE}")
     no_pr = (
         "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"
     )
-    assert ref_gate_problems({**_compliant_job(), "if": no_pr})
+    assert gate(f"inputs.scorecard && ({no_pr})")

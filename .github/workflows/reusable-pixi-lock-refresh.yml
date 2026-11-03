@@ -576,6 +576,8 @@ jobs:
             --arg repo "$GH_REPO" --arg branch "$TMP" --arg oid "$BASE_SHA" --arg path "$LOCK_PATH" \
             '{query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }", variables: {input: {branch: {repositoryNameWithOwner: $repo, branchName: $branch}, message: {headline: "chore(deps): refresh pixi.lock"}, expectedHeadOid: $oid, fileChanges: {additions: [{path: $path, contents: $contents}]}}}}' \
             > "$request_file"
+          # Sizes are logged so an oversized-request failure is easy to diagnose.
+          echo "pixi.lock: $(wc -c < "$LOCK_PATH") bytes; createCommitOnBranch request: $(wc -c < "$request_file") bytes"
           COMMIT_SHA=$(gh api graphql --input "$request_file" --jq '.data.createCommitOnBranch.commit.oid')
           if [ -z "$COMMIT_SHA" ]; then
             echo "::error title=Commit failed::createCommitOnBranch returned no commit oid."
@@ -633,7 +635,7 @@ jobs:
           BRANCH_NAME: ${{ inputs.branch-name }}
         run: |
           if ! gh workflow run "$CI_WORKFLOW" --ref "$BRANCH_NAME"; then
-            echo "::error title=CI dispatch failed::The CI workflow '$CI_WORKFLOW' must list 'workflow_dispatch:' under 'on:'."
+            echo "::error title=CI dispatch failed::Could not dispatch '$CI_WORKFLOW' on $BRANCH_NAME. Check that .github/workflows/$CI_WORKFLOW exists on that branch and lists 'workflow_dispatch:' under 'on:', or set the ci-workflow input to your CI workflow's file name."
             exit 1
           fi
 

@@ -60,6 +60,9 @@ checks are satisfied. Set `ci-workflow: ''` to disable the dispatch.
   branch on non-PR events. `pixi.lock` is in the `src` filter, so tests do run.
 - An auto-merge performed with `github.token` does not trigger push workflows
   on the target branch.
+- The lock is sent base64-encoded in a single GraphQL `createCommitOnBranch`
+  request (about 4/3 of the lock's size). The step logs both sizes, so a request
+  rejected for size is visible in the job log.
 
 ## Behavior
 

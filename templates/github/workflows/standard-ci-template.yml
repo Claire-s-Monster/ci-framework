@@ -9,6 +9,7 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:  # lets the pixi lock refresh PR get CI
 
 jobs:
   # Essential Quality Validation

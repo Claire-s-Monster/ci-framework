@@ -417,7 +417,15 @@ jobs:
 
   scorecard:
     name: "📊 OpenSSF Scorecard"
-    if: inputs.scorecard
+    # scorecard-action rejects every non-PR event on a non-default ref ("Only
+    # the default branch ... is supported"), so a workflow_dispatch on a
+    # feature branch, like the pixi-lock-refresh dispatch, failed CI (#387).
+    # Skip those runs; Scorecard results only mean anything on the default
+    # branch anyway.
+    if: >-
+      inputs.scorecard &&
+      (github.event_name == 'pull_request' ||
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-latest
     # No job-level `permissions:` block on purpose. This job inherits the
     # caller's grant (security-events: write for the SARIF upload, id-token:

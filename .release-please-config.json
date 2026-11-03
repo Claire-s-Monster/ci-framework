@@ -12,10 +12,6 @@
       "type": "generic"
     },
     {
-      "path": ".github/workflows/reusable-pixi-lock-refresh.yml",
-      "type": "generic"
-    },
-    {
       "path": ".github/workflows/reusable-security.yml",
       "type": "generic"
     },

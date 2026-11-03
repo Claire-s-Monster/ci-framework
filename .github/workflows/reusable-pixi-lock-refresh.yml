@@ -2,9 +2,13 @@
 name: Pixi Lock Refresh (Reusable)
 
 # Refreshes pixi.lock on a schedule and opens or updates a signed bot PR (#387).
-# The PR must trigger the consumer's CI, which a push made with the default
-# GITHUB_TOKEN never does, so this workflow needs CI_BOT_TOKEN and has no
-# github.token fallback: an empty or invalid token fails the preflight.
+# Zero secrets: only the built-in github.token is used. The commit is created
+# through the GraphQL createCommitOnBranch mutation, so GitHub signs it, and CI
+# is started with workflow_dispatch (the documented exception to "GITHUB_TOKEN
+# events do not trigger workflows"). Two one-time per-repo prerequisites:
+#   1. the consumer's CI workflow declares `workflow_dispatch:` under `on:`;
+#   2. Settings > Actions > General > "Allow GitHub Actions to create and
+#      approve pull requests" is enabled.
 # See docs/pixi-lock-refresh.md.
 
 on:
@@ -63,16 +67,13 @@ on:
         required: false
         type: string
         default: 'hb-*'
-    secrets:
-      CI_BOT_TOKEN:
-        description: "PAT used to push the branch and open the PR so the PR triggers CI"
-        required: true
-      CI_BOT_GPG_KEY:
-        description: "ASCII-armored, passphrase-less GPG private key for signed commits"
-        required: true
-      CI_BOT_GPG_KEY_ID:
-        description: "GPG key ID of CI_BOT_GPG_KEY"
-        required: true
+      ci-workflow:
+        description: >-
+          Workflow file dispatched on branch-name so CI runs on the PR head. It
+          must declare workflow_dispatch. Empty disables the dispatch.
+        required: false
+        type: string
+        default: 'ci.yml'
 
 # Top level grants nothing (OpenSSF Token-Permissions, #359); the job scopes writes.
 permissions: {}
@@ -89,34 +90,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write  # for the workflow_dispatch of the CI workflow
     steps:
-      - name: Verify CI_BOT_TOKEN is valid
-        # A PR opened with github.token does not trigger CI, so there is no
-        # fallback here: an empty token fails as hard as an expired one (#355).
-        env:
-          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
-        run: |
-          if [ -z "${CI_BOT_TOKEN}" ]; then
-            echo "::error title=CI_BOT_TOKEN missing::CI_BOT_TOKEN is empty. A pull request opened with github.token would not trigger CI, so pixi-lock-refresh requires the secret."
-            exit 1
-          fi
-          if ! command -v curl >/dev/null 2>&1; then
-            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
-            exit 0
-          fi
-          # GITHUB_API_URL is set by the runner (GHES-safe); fall back to github.com.
-          status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
-            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
-            "${GITHUB_API_URL:-https://api.github.com}/rate_limit") || status="000"
-          case "${status}" in
-            200) echo "CI_BOT_TOKEN is valid." ;;
-            401)
-              echo "::error title=CI_BOT_TOKEN invalid::CI_BOT_TOKEN is invalid or expired (HTTP 401). Rotate it; there is no github.token fallback."
-              exit 1
-              ;;
-            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
-          esac
-
       - name: Validate branch inputs
         env:
           BRANCH_NAME: ${{ inputs.branch-name }}
@@ -142,7 +117,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.target-branch }}
-          token: ${{ secrets.CI_BOT_TOKEN }}
+          persist-credentials: false
 
       - name: Setup PIXI Environment
         uses: prefix-dev/setup-pixi@v0.11.2
@@ -564,45 +539,74 @@ jobs:
               sys.exit(main())
           PY
 
-      - name: Setup GPG for signing
-        id: gpg
+      - name: Create signed commit on refresh branch
+        id: commit
         if: steps.changes.outputs.changed == 'true'
-        uses: Claire-s-Monster/ci-framework/.github/actions/gpg-signing-setup@v4.0.0  # x-release-please-version
-        with:
-          gpg-private-key: ${{ secrets.CI_BOT_GPG_KEY }}
-          gpg-key-id: ${{ secrets.CI_BOT_GPG_KEY_ID }}
-          git-user-name: "CIFrameworkBot"
-          git-user-email: "223036950+CIFrameworkBot@users.noreply.github.com"
-          config-scope: local
-
-      - name: Commit and push refresh branch
-        if: steps.changes.outputs.changed == 'true'
-        working-directory: ${{ inputs.package-path }}
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           BRANCH_NAME: ${{ inputs.branch-name }}
-          SIGNING_ENABLED: ${{ steps.gpg.outputs.signing-enabled }}
+          PACKAGE_PATH: ${{ inputs.package-path }}
         run: |
           set -euo pipefail
-          # The key secrets are required, but the action only warns when the key
-          # is empty; an unsigned bot commit is not what this workflow promises.
-          if [ "$SIGNING_ENABLED" != "true" ]; then
-            echo "::error title=Unsigned commit::CI_BOT_GPG_KEY did not enable commit signing; refusing to push an unsigned commit."
+          # The checked-out target-branch commit is the parent of the new commit.
+          BASE_SHA=$(git rev-parse HEAD)
+          pkg_dir="${PACKAGE_PATH#./}"
+          pkg_dir="${pkg_dir%/}"
+          if [ -z "$pkg_dir" ] || [ "$pkg_dir" = "." ]; then
+            LOCK_PATH="pixi.lock"
+          else
+            LOCK_PATH="${pkg_dir}/pixi.lock"
+          fi
+
+          # Why a temp branch: building the commit on BRANCH_NAME itself would
+          # first require resetting it to BASE_SHA, a commit already in the
+          # target branch, which GitHub can treat as merging/emptying an open PR.
+          # The temp ref lets BRANCH_NAME jump from the old refresh commit to the
+          # new one in a single force update.
+          TMP="${BRANCH_NAME}-tmp-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$TMP" -f sha="$BASE_SHA" >/dev/null
+          trap 'gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$TMP" >/dev/null 2>&1 || true' EXIT
+          # A cancelled run gets SIGINT/SIGTERM; convert them to an exit so the
+          # EXIT trap above still deletes the temp ref.
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          # pixi.lock can be megabytes: build the request as a file, never argv.
+          b64_file="$RUNNER_TEMP/pixi.lock.b64"
+          request_file="$RUNNER_TEMP/create-commit.json"
+          base64 -w0 "$LOCK_PATH" > "$b64_file"
+          jq -n --rawfile contents "$b64_file" \
+            --arg repo "$GH_REPO" --arg branch "$TMP" --arg oid "$BASE_SHA" --arg path "$LOCK_PATH" \
+            '{query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }", variables: {input: {branch: {repositoryNameWithOwner: $repo, branchName: $branch}, message: {headline: "chore(deps): refresh pixi.lock"}, expectedHeadOid: $oid, fileChanges: {additions: [{path: $path, contents: $contents}]}}}}' \
+            > "$request_file"
+          # Sizes are logged so an oversized-request failure is easy to diagnose.
+          echo "pixi.lock: $(wc -c < "$LOCK_PATH") bytes; createCommitOnBranch request: $(wc -c < "$request_file") bytes"
+          COMMIT_SHA=$(gh api graphql --input "$request_file" --jq '.data.createCommitOnBranch.commit.oid')
+          if [ -z "$COMMIT_SHA" ]; then
+            echo "::error title=Commit failed::createCommitOnBranch returned no commit oid."
             exit 1
           fi
-          # `git push` authenticates with the token actions/checkout persisted
-          # (CI_BOT_TOKEN). The branch is bot-owned, so it is force-pushed; the
-          # lease needs the remote-tracking ref, hence the fetch (a missing
-          # branch is fine: the lease then expects it not to exist).
-          git add -- pixi.lock
-          git commit -m "chore(deps): refresh pixi.lock"
-          git fetch --no-tags origin "+refs/heads/${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}" || true
-          git push --force-with-lease origin "HEAD:refs/heads/${BRANCH_NAME}"
+
+          verified=$(gh api "repos/$GH_REPO/commits/$COMMIT_SHA" --jq '.commit.verification.verified')
+          if [ "$verified" != "true" ]; then
+            echo "::error title=Unsigned commit::commit $COMMIT_SHA is not verified; refusing to publish an unsigned commit."
+            exit 1
+          fi
+
+          # The branch is bot-owned: move it straight to the new commit.
+          if gh api "repos/$GH_REPO/git/ref/heads/$BRANCH_NAME" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$BRANCH_NAME" -f sha="$COMMIT_SHA" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$BRANCH_NAME" -f sha="$COMMIT_SHA" >/dev/null
+          fi
+          echo "sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Open or update pull request
         id: pr
         if: steps.changes.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           BRANCH_NAME: ${{ inputs.branch-name }}
           TARGET_BRANCH: ${{ inputs.target-branch }}
@@ -614,16 +618,36 @@ jobs:
             gh pr edit "$number" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
             echo "Updated PR #${number}."
           else
-            gh pr create --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
+            if ! gh pr create --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"; then
+              echo "::error title=PR creation failed::Enable Settings > Actions > General > \"Allow GitHub Actions to create and approve pull requests\" for this repository."
+              exit 1
+            fi
             number=$(gh pr list --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --state open --json number --jq '.[0].number')
             echo "Created PR #${number}."
           fi
           echo "number=${number}" >> "$GITHUB_OUTPUT"
 
+      # PRs and pushes made with github.token do not start workflows, but
+      # workflow_dispatch is the documented exception. The dispatched check runs
+      # attach to the branch head commit, which is the PR head.
+      - name: Trigger CI on refresh branch
+        if: steps.changes.outputs.changed == 'true' && inputs.ci-workflow != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_WORKFLOW: ${{ inputs.ci-workflow }}
+          BRANCH_NAME: ${{ inputs.branch-name }}
+        run: |
+          if ! gh workflow run "$CI_WORKFLOW" --ref "$BRANCH_NAME"; then
+            echo "::error title=CI dispatch failed::Could not dispatch '$CI_WORKFLOW' on $BRANCH_NAME. Check that .github/workflows/$CI_WORKFLOW exists on that branch and lists 'workflow_dispatch:' under 'on:', or set the ci-workflow input to your CI workflow's file name."
+            exit 1
+          fi
+
       - name: Enable auto-merge
         if: steps.changes.outputs.changed == 'true' && inputs.auto-merge
+        # A merge done with github.token does not trigger push workflows on the target branch.
         env:
-          GH_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |

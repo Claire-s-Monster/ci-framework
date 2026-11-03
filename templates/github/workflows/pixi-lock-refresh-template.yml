@@ -1,5 +1,9 @@
 # Pixi Lock Refresh Template - CI Framework
-# Refreshes pixi.lock weekly and opens (or updates) a signed bot PR.
+# Refreshes pixi.lock weekly and opens (or updates) a signed bot PR, with zero secrets needed.
+# Two one-time per-repo prerequisites:
+#   1. your CI workflow (ci.yml) declares `workflow_dispatch:` under `on:`;
+#   2. Settings > Actions > General > "Allow GitHub Actions to create and
+#      approve pull requests" is enabled.
 # Until the first release containing reusable-pixi-lock-refresh.yml, replace the
 # ref below with @development. See docs/pixi-lock-refresh.md.
 
@@ -15,6 +19,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@v4.0.0  # x-release-please-version
     # with:
     #   target-branch: development
@@ -25,7 +30,4 @@ jobs:
     #   package-path: .
     #   conda-first-check: enforce
     #   conda-first-allow: 'hb-*'
-    secrets:
-      CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
-      CI_BOT_GPG_KEY: ${{ secrets.CI_BOT_GPG_KEY }}
-      CI_BOT_GPG_KEY_ID: ${{ secrets.CI_BOT_GPG_KEY_ID }}
+    #   ci-workflow: ci.yml     # dispatched on branch-name; '' disables

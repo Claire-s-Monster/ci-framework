@@ -54,8 +54,9 @@ PREFLIGHT_EXEMPT_JOBS: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
-# The 12 jobs that consume secrets.CI_BOT_TOKEN today (c-cpp-lint no longer
-# does once its dead SARIF upload is removed, #354):
+# The 11 jobs that consume secrets.CI_BOT_TOKEN today (c-cpp-lint no longer
+# does once its dead SARIF upload is removed, #354; the pixi lock refresh job
+# no longer does once it runs on github.token, #387):
 #   reusable-ci.yml          sast-semgrep, sast-codeql, scorecard (exempt)
 #   reusable-security.yml    sast-semgrep, sast-codeql, scorecard (exempt)
 #   release-please.yml       release-please
@@ -63,14 +64,13 @@ PREFLIGHT_EXEMPT_JOBS: frozenset[tuple[str, str]] = frozenset(
 #   self-healing.yml         self-healing
 #   auto-merge-release.yml   auto-merge-release
 #   sync-main-to-development.yml  sync-to-development
-#   reusable-pixi-lock-refresh.yml  refresh
 #
 # This floor EQUALS the live count of consuming jobs that carry a preflight
-# (12 - 2 exempt = 10) by design (same convention as MINIMUM_EXPECTED_SITES in
+# (11 - 2 exempt = 9) by design (same convention as MINIMUM_EXPECTED_SITES in
 # test_sarif_upload_auth.py): removing a consuming job is a deliberate act that
 # should update this constant in the same commit, and the floor fails loudly if
 # the walk or the matcher silently finds ~zero.
-MINIMUM_EXPECTED_CONSUMING_JOBS = 10
+MINIMUM_EXPECTED_CONSUMING_JOBS = 9
 
 
 def workflow_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:

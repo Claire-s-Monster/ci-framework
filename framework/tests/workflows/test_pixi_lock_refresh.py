@@ -5,9 +5,9 @@ markdown PR body. It is loaded here by path and driven with documented
 `pixi update --json` payloads, including a trimmed real sample recorded from
 this repository. reusable-pixi-lock-refresh.yml inlines it, and
 scripts/check_conda_first.py, as `python3 - <<'PY'` heredocs, so tests pin both
-heredocs to the standalone files. Structural tests cover secrets, permissions,
-the token preflight, the no-change path, the injection rule and the consumer
-template.
+heredocs to the standalone files. Structural tests cover the zero-secret
+design, permissions, the signed-commit and CI-dispatch steps, the no-change
+path, the injection rule and the consumer templates.
 
 Observed `pixi update --json` schema: {"version": 1, "environment": {<env>:
 {<platform>: [{"name", "before": <pkg>|null, "after": <pkg>|null, "type":
@@ -37,12 +37,16 @@ RELEASE_PLEASE_CONFIG = Path(".release-please-config.json")
 FIXTURE = Path("framework/tests/workflows/fixtures/pixi_update_sample.json")
 DIFF_STEP = "Build PR body"
 CONDA_FIRST_STEP = "Conda-first lock check"
-PREFLIGHT_STEP = "Verify CI_BOT_TOKEN is valid"
+COMMIT_STEP = "Create signed commit on refresh branch"
+DISPATCH_STEP = "Trigger CI on refresh branch"
+CI_TEMPLATES = (
+    Path("templates/github/workflows/standard-ci-template.yml"),
+    Path("templates/github/workflows/comprehensive-ci-template.yml"),
+)
 HEREDOC_OPEN = "python3 - <<'PY'\n"
 HEREDOC_CLOSE = "\nPY\n"
 # The diff step redirects the rendered body straight into the PR body file.
 DIFF_HEREDOC_OPEN = "python3 - <<'PY' > \"$RUNNER_TEMP/pr-body.md\"\n"
-SECRETS = ("CI_BOT_TOKEN", "CI_BOT_GPG_KEY", "CI_BOT_GPG_KEY_ID")
 GATE = "steps.changes.outputs.changed == 'true'"
 
 _spec = importlib.util.spec_from_file_location("pixi_lock_diff", SCRIPT)
@@ -394,11 +398,16 @@ def test_trigger_is_workflow_call_only():
     assert set(doc.get(True) or doc["on"]) == {"workflow_call"}
 
 
-def test_all_three_secrets_are_required():
-    secrets = _call()["secrets"]
-    assert set(secrets) == set(SECRETS)
-    for name in SECRETS:
-        assert secrets[name]["required"] is True, name
+def test_workflow_call_declares_no_secrets():
+    assert "secrets" not in _call()
+
+
+def test_no_ci_bot_reference_in_workflow_or_template():
+    for path in (REUSABLE, TEMPLATE):
+        text = path.read_text(encoding="utf-8")
+        assert "CI_BOT" not in text, path
+        assert "secrets." not in text, path
+        assert "gpg" not in text.lower(), path
 
 
 def test_inputs_and_defaults():
@@ -413,6 +422,7 @@ def test_inputs_and_defaults():
         "package-path": ".",
         "conda-first-check": "enforce",
         "conda-first-allow": "hb-*",
+        "ci-workflow": "ci.yml",
     }
     assert inputs["auto-merge"]["type"] == "boolean"
     reusable_ci = yaml.safe_load(
@@ -439,6 +449,7 @@ def test_permissions_are_empty_at_top_and_scoped_on_the_job():
     assert doc["jobs"]["refresh"]["permissions"] == {
         "contents": "write",
         "pull-requests": "write",
+        "actions": "write",
     }
 
 
@@ -449,32 +460,12 @@ def test_concurrency_is_per_repo_and_branch_and_never_cancels():
     assert concurrency["cancel-in-progress"] is False
 
 
-def test_preflight_is_first_and_has_no_fallback_to_github_token():
-    steps = _steps()
-    assert steps[0]["name"] == PREFLIGHT_STEP
-    assert "if" not in steps[0]
-    assert "continue-on-error" not in steps[0]
-    run = steps[0]["run"]
-    assert "/rate_limit" in run
-    assert "401" in run
-    assert "exit 1" in run
-    text = REUSABLE.read_text(encoding="utf-8")
-    assert not re.search(r"\$\{\{[^}]*github\.token", text)
-    assert not re.search(r"^\s*GITHUB_TOKEN:", text, re.MULTILINE)
-
-
-def test_empty_token_fails_the_preflight():
-    run = _steps()[0]["run"]
-    empty_branch = run.split('-z "${CI_BOT_TOKEN}"', 1)[1].split("fi", 1)[0]
-    assert "exit 1" in empty_branch
-    assert "::error" in empty_branch
-
-
-def test_checkout_uses_the_bot_token_and_target_branch():
+def test_checkout_is_target_branch_without_persisted_credentials():
     checkout = next(
         s for s in _steps() if str(s.get("uses", "")).startswith("actions/checkout")
     )
-    assert checkout["with"]["token"] == "${{ secrets.CI_BOT_TOKEN }}"
+    assert "token" not in checkout["with"]
+    assert checkout["with"]["persist-credentials"] is False
     assert checkout["with"]["ref"] == "${{ inputs.target-branch }}"
 
 
@@ -484,14 +475,10 @@ def test_setup_pixi_pins_version_input():
     assert step["with"]["pixi-version"] == "${{ inputs.pixi-version }}"
 
 
-def test_gpg_action_uses_remote_marker_form():
+def test_workflow_has_no_local_action_or_release_marker():
     text = REUSABLE.read_text(encoding="utf-8")
-    assert re.search(
-        r"uses: Claire-s-Monster/ci-framework/\.github/actions/gpg-signing-setup"
-        r"@v\d+\.\d+\.\d+\s+#\s*x-release-please-version",
-        text,
-    )
     assert "uses: ./" not in text
+    assert "x-release-please-version" not in text
 
 
 def test_no_change_path_gates_every_later_step():
@@ -515,7 +502,7 @@ def test_no_change_path_gates_every_later_step():
 def test_conda_first_runs_before_the_diff_and_any_pr_step():
     names = [s.get("name") for s in _steps()]
     assert names.index(CONDA_FIRST_STEP) < names.index(DIFF_STEP)
-    assert names.index(CONDA_FIRST_STEP) < names.index("Commit and push refresh branch")
+    assert names.index(CONDA_FIRST_STEP) < names.index(COMMIT_STEP)
     step = _step(CONDA_FIRST_STEP)
     assert step["env"]["CONDA_FIRST_MODE"] == "${{ inputs.conda-first-check }}"
     assert step["env"]["CONDA_FIRST_ALLOW"] == "${{ inputs.conda-first-allow }}"
@@ -530,11 +517,40 @@ def test_update_runs_with_json_into_runner_temp():
     assert step["working-directory"] == "${{ inputs.package-path }}"
 
 
-def test_push_is_force_with_lease_to_the_bot_branch():
-    run = _step("Commit and push refresh branch")["run"]
+def test_commit_step_creates_a_verified_commit_via_graphql():
+    step = _step(COMMIT_STEP)
+    assert step["id"] == "commit"
+    assert step["if"] == GATE
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    run = step["run"]
+    assert "set -euo pipefail" in run
+    assert "createCommitOnBranch" in run
     assert "chore(deps): refresh pixi.lock" in run
-    assert 'git push --force-with-lease origin "HEAD:refs/heads/${BRANCH_NAME}"' in run
-    assert "git add" in run
+    assert ".commit.verification.verified" in run
+    assert "refusing to publish an unsigned commit" in run
+    assert "git push" not in run
+    assert "git commit" not in run
+    assert 'gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$BRANCH_NAME"' in run
+    assert run.index("verification.verified") < run.index("-X PATCH")
+    assert '>> "$GITHUB_OUTPUT"' in run
+
+
+def test_dispatch_step_uses_ci_workflow_input_and_is_skipped_when_empty():
+    names = [s.get("name") for s in _steps()]
+    assert names.index("Open or update pull request") < names.index(DISPATCH_STEP)
+    step = _step(DISPATCH_STEP)
+    assert GATE in step["if"]
+    assert "inputs.ci-workflow != ''" in step["if"]
+    assert step["env"]["CI_WORKFLOW"] == "${{ inputs.ci-workflow }}"
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert 'gh workflow run "$CI_WORKFLOW" --ref "$BRANCH_NAME"' in step["run"]
+    assert "workflow_dispatch" in step["run"]
+
+
+@pytest.mark.parametrize("path", CI_TEMPLATES, ids=lambda p: p.name)
+def test_ci_templates_declare_workflow_dispatch(path):
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert "workflow_dispatch" in (doc.get(True) or doc["on"])
 
 
 def test_branch_name_may_never_equal_the_target_branch():
@@ -552,6 +568,10 @@ def test_pr_is_listed_then_edited_or_created():
     assert "gh pr create" in run
     assert run.index("gh pr edit") < run.index("gh pr create")
     assert '--body-file "$RUNNER_TEMP/pr-body.md"' in run
+    assert "Allow GitHub Actions to create and approve pull requests" in run
+    assert (
+        _step("Open or update pull request")["env"]["GH_TOKEN"] == "${{ github.token }}"
+    )
 
 
 def test_auto_merge_defaults_off_and_is_gated_on_the_input():
@@ -593,16 +613,18 @@ def test_template_calls_the_reusable_workflow_at_a_marked_ref():
     )
 
 
-def test_template_triggers_weekly_and_manually_and_passes_secrets():
+def test_template_triggers_weekly_and_manually_and_passes_no_secrets():
     doc = yaml.safe_load(TEMPLATE.read_text(encoding="utf-8"))
     on = doc.get(True) or doc["on"]
     assert on["schedule"] == [{"cron": "0 6 * * 1"}]
     assert "workflow_dispatch" in on
     job = next(iter(doc["jobs"].values()))
-    assert job["permissions"] == {"contents": "write", "pull-requests": "write"}
-    assert set(job["secrets"]) == set(SECRETS)
-    for name in SECRETS:
-        assert job["secrets"][name] == f"${{{{ secrets.{name} }}}}"
+    assert job["permissions"] == {
+        "contents": "write",
+        "pull-requests": "write",
+        "actions": "write",
+    }
+    assert "secrets" not in job
 
 
 def test_template_shows_inputs_commented_out():
@@ -612,8 +634,8 @@ def test_template_shows_inputs_commented_out():
     assert "with:" not in re.sub(r"^\s*#.*$", "", text, flags=re.MULTILINE)
 
 
-def test_new_marked_files_are_release_please_extra_files():
+def test_only_the_marked_template_is_a_release_please_extra_file():
     config = json.loads(RELEASE_PLEASE_CONFIG.read_text(encoding="utf-8"))
     extra = {entry["path"] for entry in config["extra-files"]}
-    assert REUSABLE.as_posix() in extra
     assert TEMPLATE.as_posix() in extra
+    assert REUSABLE.as_posix() not in extra

@@ -64,6 +64,39 @@ checks are satisfied. Set `ci-workflow: ''` to disable the dispatch.
   request (about 4/3 of the lock's size). The step logs both sizes, so a request
   rejected for size is visible in the job log.
 
+### Scorecard Token-Permissions alerts
+
+OpenSSF Scorecard (`TokenPermissionsID`) cannot see into a reusable workflow. It
+scores the caller's job-level permissions and raises two high alerts per
+consumer repository, both on the caller file (`pixi-lock-refresh.yml`):
+
+- `jobLevel 'contents' permission set to 'write'`
+- `jobLevel 'actions' permission set to 'write'`
+
+They are expected. Each scope backs one operation, all done with `github.token`:
+
+| Scope | Operation |
+|-------|-----------|
+| `contents: write` | API-signed commit (GraphQL `createCommitOnBranch`) |
+| `pull-requests: write` | open or update the PR and enable auto-merge |
+| `actions: write` | `gh workflow run` of the CI workflow on the refresh branch, because PRs and pushes made with `github.token` do not start workflows |
+
+Splitting the dispatch into a separate job does not help: Scorecard scores every
+job-level write. The template does set a top-level `permissions: {}`, which
+Scorecard also checks for. A design that removes the need (an optional GitHub
+App token) is tracked in #406.
+
+**Recommended action:** dismiss each alert as "Won't fix" with this comment
+(280 characters or fewer, GitHub's dismissal comment limit):
+
+```text
+Won't fix: pixi-lock-refresh needs job-level contents:write (API-signed commit), pull-requests:write (PR) and actions:write (dispatch CI; github.token PRs don't trigger workflows). Top-level permissions: {}. Tracked: Claire-s-Monster/ci-framework#406
+```
+
+If a repository's first Scorecard upload happens on a pull request, every
+pre-existing finding shows as new on that PR, because the target branch has no
+baseline yet. This is a one-time effect, not a regression.
+
 ## Behavior
 
 1. Check out `target-branch` (without persisted credentials). Its head commit
@@ -117,12 +150,17 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
+# Top level grants nothing (OpenSSF Token-Permissions); the job scopes writes.
+permissions: {}
+
 jobs:
   refresh:
+    # Scorecard flags the contents/actions writes; see docs/pixi-lock-refresh.md
+    # "Scorecard Token-Permissions alerts" and #406.
     permissions:
-      contents: write
-      pull-requests: write
-      actions: write
+      contents: write        # API-signed commit
+      pull-requests: write   # open the PR and enable auto-merge
+      actions: write         # dispatch CI on the refresh branch (github.token PRs don't trigger workflows)
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@<tag>
 ```
 

@@ -105,7 +105,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install radon vulture
+        run: pip install radon vulture  # pip-policy: allow (standalone analysis CLIs)
       - name: Run code policy check
         id: check
         run: |

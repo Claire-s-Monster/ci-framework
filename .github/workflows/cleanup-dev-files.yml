@@ -216,7 +216,7 @@ jobs:
 
       - name: Setup GPG for signing
         if: steps.branch-check.outputs.exists == 'true'
-        uses: Claire-s-Monster/ci-framework/.github/actions/gpg-signing-setup@v3.0.0  # x-release-please-version
+        uses: Claire-s-Monster/ci-framework/.github/actions/gpg-signing-setup@v4.0.0  # x-release-please-version
         with:
           gpg-private-key: ${{ secrets.CI_BOT_GPG_KEY }}
           gpg-key-id: ${{ secrets.CI_BOT_GPG_KEY_ID }}

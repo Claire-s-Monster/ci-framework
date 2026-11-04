@@ -1,0 +1,38 @@
+---
+name: Release Tracking
+
+# pull_request_target only to get a write token on fork and Dependabot PRs.
+# No checkout and no PR code runs: the script is the reusable workflow's
+# inline heredoc from the base branch (#394).
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [development]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Re-run released mode for this release tag"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  fixed:
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.merged == true
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/reusable-release-tracking.yml
+
+  released:
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/reusable-release-tracking.yml
+    with:
+      tag: ${{ inputs.tag }}

@@ -1,0 +1,654 @@
+---
+name: Pixi Lock Refresh (Reusable)
+
+# Refreshes pixi.lock on a schedule and opens or updates a signed bot PR (#387).
+# Zero secrets: only the built-in github.token is used. The commit is created
+# through the GraphQL createCommitOnBranch mutation, so GitHub signs it, and CI
+# is started with workflow_dispatch (the documented exception to "GITHUB_TOKEN
+# events do not trigger workflows"). Two one-time per-repo prerequisites:
+#   1. the consumer's CI workflow declares `workflow_dispatch:` under `on:`;
+#   2. Settings > Actions > General > "Allow GitHub Actions to create and
+#      approve pull requests" is enabled.
+# See docs/pixi-lock-refresh.md.
+
+on:
+  workflow_call:
+    inputs:
+      target-branch:
+        description: "Branch the refresh PR targets and is based on"
+        required: false
+        type: string
+        default: development
+      branch-name:
+        description: >-
+          Bot-owned branch the refresh is force-pushed to. It must differ from
+          target-branch and must not hold work you want to keep.
+        required: false
+        type: string
+        default: chore/pixi-lock-refresh
+      environments:
+        description: >-
+          Space-separated pixi environments to update. Empty updates all of them.
+        required: false
+        type: string
+        default: ''
+      auto-merge:
+        description: >-
+          Enable auto-merge (squash) on the PR once it exists. Needs "Allow
+          auto-merge" on the repository and required checks on the target branch.
+        required: false
+        type: boolean
+        default: false
+      pixi-version:
+        description: >-
+          Pixi CLI version passed to prefix-dev/setup-pixi. Keep it equal to the
+          version used by your CI, or the refreshed lock may differ from one
+          solved there (issues #250, #386).
+        required: false
+        type: string
+        default: 'v0.82.0'
+      package-path:
+        description: "Directory containing pixi.lock, relative to the repository root"
+        required: false
+        type: string
+        default: '.'
+      conda-first-check:
+        description: >-
+          Conda-first policy on the refreshed pixi.lock (issue #386): one of off,
+          warn, enforce. enforce fails the job before any PR is opened.
+        required: false
+        type: string
+        default: 'enforce'
+      conda-first-allow:
+        description: >-
+          Comma- or newline-separated fnmatch patterns on package NAME that are
+          exempt from conda-first-check. Defaults to hb-*, matching reusable-ci,
+          because hb-* sub-packages are not on conda-forge.
+        required: false
+        type: string
+        default: 'hb-*'
+      ci-workflow:
+        description: >-
+          Workflow file dispatched on branch-name so CI runs on the PR head. It
+          must declare workflow_dispatch. Empty disables the dispatch.
+        required: false
+        type: string
+        default: 'ci.yml'
+
+# Top level grants nothing (OpenSSF Token-Permissions, #359); the job scopes writes.
+permissions: {}
+
+concurrency:
+  group: pixi-lock-refresh-${{ github.repository }}-${{ inputs.branch-name }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: "🔄 Pixi Lock Refresh"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write  # for the workflow_dispatch of the CI workflow
+    steps:
+      - name: Validate branch inputs
+        env:
+          BRANCH_NAME: ${{ inputs.branch-name }}
+          TARGET_BRANCH: ${{ inputs.target-branch }}
+        run: |
+          # branch-name is force-pushed: it must never be the target branch.
+          if [ "$BRANCH_NAME" = "$TARGET_BRANCH" ]; then
+            echo "::error title=branch-name invalid::branch-name must differ from target-branch; it is force-pushed."
+            exit 1
+          fi
+          case "$BRANCH_NAME" in
+            -* | "")
+              echo "::error title=branch-name invalid::branch-name must be a non-empty branch name that does not start with '-'."
+              exit 1
+              ;;
+          esac
+          if ! git check-ref-format --branch "$BRANCH_NAME" >/dev/null 2>&1; then
+            echo "::error title=branch-name invalid::'$BRANCH_NAME' is not a valid git branch name."
+            exit 1
+          fi
+
+      - name: Checkout target branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target-branch }}
+          persist-credentials: false
+
+      - name: Setup PIXI Environment
+        uses: prefix-dev/setup-pixi@v0.11.2
+        with:
+          pixi-version: ${{ inputs.pixi-version }}
+          run-install: false
+          cache: false
+
+      - name: Refresh pixi.lock
+        working-directory: ${{ inputs.package-path }}
+        env:
+          ENVIRONMENTS: ${{ inputs.environments }}
+        run: |
+          set -euo pipefail
+          read -ra env_names <<< "$ENVIRONMENTS"
+          args=()
+          for env_name in "${env_names[@]}"; do
+            args+=(-e "$env_name")
+          done
+          pixi update --json "${args[@]}" > "$RUNNER_TEMP/update.json"
+
+      - name: Detect lock changes
+        id: changes
+        working-directory: ${{ inputs.package-path }}
+        run: |
+          rc=0
+          git diff --quiet -- pixi.lock || rc=$?
+          case "$rc" in
+            0)
+              echo "::notice title=pixi-lock-refresh::pixi.lock is already up to date; no pull request needed."
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              ;;
+            1)
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error title=pixi-lock-refresh::git diff failed (exit $rc)."
+              exit 1
+              ;;
+          esac
+
+      # Fails/warns on PyPI-sourced packages in the refreshed lock (#386), before
+      # any PR exists. Inlined rather than shipped as a pinned composite action:
+      # a newly added action does not exist at the release-please-pinned ref until
+      # a release bumps the marker. The heredoc body must stay byte-identical to
+      # scripts/check_conda_first.py (enforced by
+      # framework/tests/workflows/test_pixi_lock_refresh.py).
+      - name: Conda-first lock check
+        if: steps.changes.outputs.changed == 'true'
+        working-directory: ${{ inputs.package-path }}
+        env:
+          CONDA_FIRST_MODE: ${{ inputs.conda-first-check }}
+          CONDA_FIRST_ALLOW: ${{ inputs.conda-first-allow }}
+        run: |
+          python3 - <<'PY'
+          """Conda-first lock check (issue #386).
+
+          Policy: a dependency may come from PyPI only when conda-forge has no package
+          for it. This script scans a pixi.lock for PyPI-sourced packages and reports
+          those not matching an allowlist pattern.
+
+          Stdlib only, with a line-based parser instead of PyYAML: the runner's system
+          python3 is not guaranteed to ship PyYAML, and this runs before/outside any
+          pixi environment.
+
+          All inputs arrive via environment variables (never interpolated into code):
+            CONDA_FIRST_MODE   off | warn | enforce
+            CONDA_FIRST_ALLOW  comma/newline-separated fnmatch patterns on package name
+            LOCK_FILE          path to pixi.lock (default: pixi.lock)
+          """
+
+          from __future__ import annotations
+
+          import fnmatch
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          MODES = ("off", "warn", "enforce")
+
+          # A package entry opens with `- conda: <url>` or `- pypi: <url>` (pixi >= 0.2x
+          # lock v6/v7), or `- kind: pypi` in older locks.
+          _ENTRY_RE = re.compile(
+              r"^(?P<indent>\s*)- (?P<key>conda|pypi|kind):\s*(?P<value>.*?)\s*$"
+          )
+          _NAME_RE = re.compile(r"^(?P<indent>\s*)name:\s*(?P<value>.+?)\s*$")
+
+
+          def normalize(name: str) -> str:
+              """Case-insensitive; `_` and `.` are equivalent to `-`."""
+              return re.sub(r"[_.]", "-", name.strip().lower())
+
+
+          def _unquote(value: str) -> str:
+              if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                  return value[1:-1]
+              return value
+
+
+          def _name_from_url(url: str) -> str:
+              """Best-effort package name when an entry has no `name:` field."""
+              last = url.rstrip("/").rsplit("/", 1)[-1].split("@", 1)[0]
+              last = re.sub(r"\.git$", "", last)
+              return last.split("-", 1)[0] if re.search(r"\.(whl|tar\.gz|zip)$", last) else last
+
+
+          def parse_pypi_packages(text: str) -> list[str]:
+              """Return the names of PyPI-sourced entries in the top-level `packages:`.
+
+              Only the top-level `packages:` list is read: `environments:` also holds
+              `- pypi: <url>` references that must not be counted twice.
+              """
+              names: list[str] = []
+              in_packages = False
+              entry: dict[str, object] | None = None
+
+              def flush() -> None:
+                  if entry and entry["pypi"]:
+                      names.append(str(entry["name"] or _name_from_url(str(entry["url"]))))
+
+              for line in text.splitlines():
+                  if not line.strip() or line.lstrip().startswith("#"):
+                      continue
+                  if not line[0].isspace() and not line.startswith("-"):
+                      # Top-level key: either opens or closes the `packages:` section.
+                      flush()
+                      entry = None
+                      in_packages = line.split(":", 1)[0] == "packages"
+                      continue
+                  if not in_packages:
+                      continue
+                  start = _ENTRY_RE.match(line)
+                  if start and (
+                      entry is None or len(start["indent"]) <= int(str(entry["indent"]))
+                  ):
+                      flush()
+                      key, value = start["key"], _unquote(start["value"])
+                      entry = {
+                          "indent": len(start["indent"]),
+                          "pypi": key == "pypi" or (key == "kind" and value == "pypi"),
+                          "url": value,
+                          "name": None,
+                      }
+                      continue
+                  field = _NAME_RE.match(line)
+                  if (
+                      field
+                      and entry is not None
+                      and len(field["indent"]) == int(str(entry["indent"])) + 2
+                  ):
+                      entry["name"] = _unquote(field["value"])
+              flush()
+              return names
+
+
+          def parse_allow(raw: str) -> list[str]:
+              return [normalize(p) for p in re.split(r"[,\n]", raw) if p.strip()]
+
+
+          def is_allowed(name: str, patterns: list[str]) -> bool:
+              norm = normalize(name)
+              return any(fnmatch.fnmatchcase(norm, pattern) for pattern in patterns)
+
+
+          def _escape(value: str) -> str:
+              """Escape a value for a GitHub workflow-command message."""
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+          def run(mode: str, allow: str, lock_file: str) -> int:
+              if mode not in MODES:
+                  print(
+                      f"::error title=conda-first-check invalid::'{_escape(mode)}' is not a valid "
+                      f"conda-first-check value; use one of: {', '.join(MODES)}."
+                  )
+                  return 1
+              if mode == "off":
+                  print("conda-first-check is off; skipping.")
+                  return 0
+              lock = Path(lock_file)
+              if not lock.is_file():
+                  print(
+                      f"::notice title=conda-first-check::No {lock_file} found; nothing to check."
+                  )
+                  return 0
+
+              patterns = parse_allow(allow)
+              # pixi.lock has one entry per platform wheel: dedupe by normalized name (first spelling wins).
+              unique: dict[str, str] = {}
+              for name in parse_pypi_packages(lock.read_text(encoding="utf-8")):
+                  unique.setdefault(normalize(name), name)
+              offenders = [
+                  unique[key] for key in sorted(unique) if not is_allowed(unique[key], patterns)
+              ]
+              level = "error" if mode == "enforce" else "warning"
+              for name in offenders:
+                  print(
+                      f"::{level} title=PyPI package in lock::'{_escape(name)}' is sourced from PyPI in "
+                      f"{lock_file}. Prefer the conda-forge package; if none exists, add its name to "
+                      "'conda-first-allow'. See https://github.com/Claire-s-Monster/ci-framework/issues/386"
+                  )
+              if offenders and mode == "enforce":
+                  return 1
+              print(f"conda-first-check: {len(offenders)} PyPI package(s) outside the allowlist.")
+              return 0
+
+
+          def main() -> int:
+              return run(
+                  os.environ.get("CONDA_FIRST_MODE", "warn"),
+                  os.environ.get("CONDA_FIRST_ALLOW", "hb-*"),
+                  os.environ.get("LOCK_FILE", "pixi.lock"),
+              )
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PY
+
+      # The heredoc body must stay byte-identical to scripts/pixi_lock_diff.py
+      # (enforced by framework/tests/workflows/test_pixi_lock_refresh.py).
+      - name: Build PR body
+        # detect-secrets flags the inlined script (reported at the run: line). scripts/pixi_lock_diff.py is scanned without this pragma and is kept byte-identical by test_pixi_lock_refresh.py, so nothing is hidden.
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          UPDATE_JSON: ${{ runner.temp }}/update.json
+        run: |  # pragma: allowlist secret
+          python3 - <<'PY' > "$RUNNER_TEMP/pr-body.md"
+          #!/usr/bin/env python3
+          """Render the package changes of a ``pixi update --json`` run as a PR body (#387).
+
+          Reads the JSON that ``pixi update --json`` wrote (path in UPDATE_JSON) and prints
+          markdown: a summary line, then one table per environment with the columns
+          package | platform(s) | old -> new | conda/pypi. Identical changes across
+          platforms collapse into one row listing the platforms. With nothing to report it
+          prints a single ``No package changes.`` line.
+
+          Schema, as observed from ``pixi update --json --dry-run``:
+
+              {"version": 1,
+               "environment": {<env>: {<platform>: [
+                   {"name": ..., "before": <package>|null, "after": <package>|null,
+                    "type": "conda"|"pypi"}]}}}
+
+          ``before`` is null for an added package and ``after`` is null for a removed one.
+          A conda package carries its location in ``conda`` (a channel URL whose filename
+          is ``name-version-build``); a version is never a separate field. A pypi package
+          is read from an explicit ``version`` field, else from its ``pypi`` URL filename.
+
+          Standard library only, so the reusable workflow can run this as an inline
+          heredoc without checking out ci-framework. The heredoc in
+          .github/workflows/reusable-pixi-lock-refresh.yml must stay byte-identical to
+          this file (enforced by framework/tests/workflows/test_pixi_lock_refresh.py).
+          """
+
+          from __future__ import annotations
+
+          import json
+          import os
+          import re
+          import sys
+          from typing import Any
+
+          EMPTY = "No package changes."
+          DASH = "—"
+          ARROW = "→"
+          KINDS = ("added", "removed", "upgraded", "downgraded", "rebuilt")
+          _CONDA_SUFFIXES = (".conda", ".tar.bz2")
+          _SDIST_SUFFIXES = (".tar.gz", ".tar.bz2", ".tar.xz", ".zip")
+          _TOKEN_RE = re.compile(r"\d+|[A-Za-z]+")
+
+
+          def _filename(url: str) -> str:
+              return url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+
+
+          def _strip_suffix(name: str, suffixes: tuple[str, ...]) -> str:
+              for suffix in suffixes:
+                  if name.endswith(suffix):
+                      return name[: -len(suffix)]
+              return name
+
+
+          def _conda_version(url: str) -> tuple[str, str]:
+              """(version, build) from a conda URL filename ``name-version-build.ext``."""
+              stem = _strip_suffix(_filename(url), _CONDA_SUFFIXES)
+              parts = stem.rsplit("-", 2)
+              return (parts[1], parts[2]) if len(parts) == 3 else (stem, "")
+
+
+          def _pypi_version(url: str) -> str:
+              """Version from a wheel (``name-version-tags.whl``) or sdist filename."""
+              name = _filename(url)
+              if name.endswith(".whl"):
+                  parts = name.split("-")
+                  return parts[1] if len(parts) > 1 else name
+              stem = _strip_suffix(name, _SDIST_SUFFIXES)
+              return stem.rsplit("-", 1)[1] if "-" in stem else stem
+
+
+          def describe(package: dict[str, Any]) -> tuple[str, str]:
+              """(version, build) of one side of a change; build is empty for pypi."""
+              if "conda" in package:
+                  version, build = _conda_version(str(package["conda"]))
+                  return str(package.get("version") or version), build
+              if package.get("version"):
+                  return str(package["version"]), ""
+              return _pypi_version(str(package.get("pypi") or "")), ""
+
+
+          def _version_key(version: str) -> list[tuple[int, int, str]]:
+              return [
+                  (0, int(token), "") if token.isdigit() else (-1, 0, token.lower())
+                  for token in _TOKEN_RE.findall(version)
+              ]
+
+
+          def compare(old: str, new: str) -> int:
+              """-1, 0 or 1. Numeric-aware; a missing trailing part counts as zero."""
+              a, b = _version_key(old), _version_key(new)
+              pad = (0, 0, "")
+              size = max(len(a), len(b))
+              a += [pad] * (size - len(a))
+              b += [pad] * (size - len(b))
+              return (a > b) - (a < b)
+
+
+          def _label(version: str, build: str, show_build: bool) -> str:
+              return f"{version} ({build})" if show_build and build else version
+
+
+          def _source(entry: dict[str, Any]) -> str:
+              kind = entry.get("type")
+              if kind in ("conda", "pypi"):
+                  return str(kind)
+              side = entry.get("after") or entry.get("before") or {}
+              return "conda" if "conda" in side else "pypi"
+
+
+          def classify(entry: dict[str, Any]) -> tuple[str, str, str] | None:
+              """(kind, old label, new label) for one change, or None when nothing changed."""
+              before, after = entry.get("before"), entry.get("after")
+              if before == after:
+                  return None
+              if before is None:
+                  return "added", DASH, describe(after)[0]
+              if after is None:
+                  return "removed", describe(before)[0], DASH
+              (old_v, old_b), (new_v, new_b) = describe(before), describe(after)
+              order = compare(old_v, new_v)
+              kind = "rebuilt" if order == 0 else ("upgraded" if order < 0 else "downgraded")
+              same = order == 0
+              return kind, _label(old_v, old_b, same), _label(new_v, new_b, same)
+
+
+          def collect(
+              data: dict[str, Any],
+          ) -> dict[str, dict[tuple[str, str, str, str, str], set[str]]]:
+              """Per environment, map (name, source, old, new, kind) -> platforms."""
+              result: dict[str, dict[tuple[str, str, str, str, str], set[str]]] = {}
+              environments = data.get("environment") or {}
+              for env, platforms in environments.items():
+                  grouped: dict[tuple[str, str, str, str, str], set[str]] = {}
+                  for platform, entries in (platforms or {}).items():
+                      for entry in entries or []:
+                          outcome = classify(entry)
+                          if outcome is None:
+                              continue
+                          kind, old, new = outcome
+                          key = (str(entry["name"]), _source(entry), old, new, kind)
+                          grouped.setdefault(key, set()).add(platform)
+                  if grouped:
+                      result[env] = grouped
+              return result
+
+
+          def render(data: dict[str, Any]) -> str:
+              """Markdown PR body for a parsed ``pixi update --json`` payload."""
+              changes = collect(data)
+              if not changes:
+                  return EMPTY + "\n"
+              counts = dict.fromkeys(KINDS, 0)
+              for grouped in changes.values():
+                  for key in grouped:
+                      counts[key[4]] += 1
+              lines = [
+                  "Refreshes `pixi.lock` with `pixi update`. Rows: "
+                  + ", ".join(f"{counts[kind]} {kind}" for kind in KINDS)
+                  + ".",
+              ]
+              for env in sorted(changes):
+                  lines += ["", f"### {env}", ""]
+                  lines += ["| Package | Platform(s) | Old " + ARROW + " New | Source |"]
+                  lines += ["|---|---|---|---|"]
+                  for key in sorted(
+                      changes[env], key=lambda k: (k[0].lower(), sorted(changes[env][k]), k)
+                  ):
+                      name, source, old, new, _ = key
+                      platforms = ", ".join(sorted(changes[env][key]))
+                      lines.append(f"| `{name}` | {platforms} | {old} {ARROW} {new} | {source} |")
+              return "\n".join(lines) + "\n"
+
+
+          def main() -> int:
+              path = os.environ.get("UPDATE_JSON", "")
+              try:
+                  with open(path, encoding="utf-8") as fh:
+                      text = fh.read()
+                  data = json.loads(text) if text.strip() else {}
+              except (OSError, ValueError) as err:
+                  print(f"::error title=pixi-lock-diff::cannot read UPDATE_JSON '{path}': {err}")
+                  return 1
+              sys.stdout.write(render(data if isinstance(data, dict) else {}))
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PY
+
+      - name: Create signed commit on refresh branch
+        id: commit
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH_NAME: ${{ inputs.branch-name }}
+          PACKAGE_PATH: ${{ inputs.package-path }}
+        run: |
+          set -euo pipefail
+          # The checked-out target-branch commit is the parent of the new commit.
+          BASE_SHA=$(git rev-parse HEAD)
+          pkg_dir="${PACKAGE_PATH#./}"
+          pkg_dir="${pkg_dir%/}"
+          if [ -z "$pkg_dir" ] || [ "$pkg_dir" = "." ]; then
+            LOCK_PATH="pixi.lock"
+          else
+            LOCK_PATH="${pkg_dir}/pixi.lock"
+          fi
+
+          # Why a temp branch: building the commit on BRANCH_NAME itself would
+          # first require resetting it to BASE_SHA, a commit already in the
+          # target branch, which GitHub can treat as merging/emptying an open PR.
+          # The temp ref lets BRANCH_NAME jump from the old refresh commit to the
+          # new one in a single force update.
+          TMP="${BRANCH_NAME}-tmp-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$TMP" -f sha="$BASE_SHA" >/dev/null
+          trap 'gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$TMP" >/dev/null 2>&1 || true' EXIT
+          # A cancelled run gets SIGINT/SIGTERM; convert them to an exit so the
+          # EXIT trap above still deletes the temp ref.
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          # pixi.lock can be megabytes: build the request as a file, never argv.
+          b64_file="$RUNNER_TEMP/pixi.lock.b64"
+          request_file="$RUNNER_TEMP/create-commit.json"
+          base64 -w0 "$LOCK_PATH" > "$b64_file"
+          jq -n --rawfile contents "$b64_file" \
+            --arg repo "$GH_REPO" --arg branch "$TMP" --arg oid "$BASE_SHA" --arg path "$LOCK_PATH" \
+            '{query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }", variables: {input: {branch: {repositoryNameWithOwner: $repo, branchName: $branch}, message: {headline: "chore(deps): refresh pixi.lock"}, expectedHeadOid: $oid, fileChanges: {additions: [{path: $path, contents: $contents}]}}}}' \
+            > "$request_file"
+          # Sizes are logged so an oversized-request failure is easy to diagnose.
+          echo "pixi.lock: $(wc -c < "$LOCK_PATH") bytes; createCommitOnBranch request: $(wc -c < "$request_file") bytes"
+          COMMIT_SHA=$(gh api graphql --input "$request_file" --jq '.data.createCommitOnBranch.commit.oid')
+          if [ -z "$COMMIT_SHA" ]; then
+            echo "::error title=Commit failed::createCommitOnBranch returned no commit oid."
+            exit 1
+          fi
+
+          verified=$(gh api "repos/$GH_REPO/commits/$COMMIT_SHA" --jq '.commit.verification.verified')
+          if [ "$verified" != "true" ]; then
+            echo "::error title=Unsigned commit::commit $COMMIT_SHA is not verified; refusing to publish an unsigned commit."
+            exit 1
+          fi
+
+          # The branch is bot-owned: move it straight to the new commit.
+          if gh api "repos/$GH_REPO/git/ref/heads/$BRANCH_NAME" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$BRANCH_NAME" -f sha="$COMMIT_SHA" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$BRANCH_NAME" -f sha="$COMMIT_SHA" >/dev/null
+          fi
+          echo "sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update pull request
+        id: pr
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH_NAME: ${{ inputs.branch-name }}
+          TARGET_BRANCH: ${{ inputs.target-branch }}
+        run: |
+          set -euo pipefail
+          title="chore(deps): refresh pixi.lock"
+          number=$(gh pr list --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
+            echo "Updated PR #${number}."
+          else
+            if ! gh pr create --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"; then
+              echo "::error title=PR creation failed::Enable Settings > Actions > General > \"Allow GitHub Actions to create and approve pull requests\" for this repository."
+              exit 1
+            fi
+            number=$(gh pr list --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --state open --json number --jq '.[0].number')
+            echo "Created PR #${number}."
+          fi
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+
+      # PRs and pushes made with github.token do not start workflows, but
+      # workflow_dispatch is the documented exception. The dispatched check runs
+      # attach to the branch head commit, which is the PR head.
+      - name: Trigger CI on refresh branch
+        if: steps.changes.outputs.changed == 'true' && inputs.ci-workflow != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_WORKFLOW: ${{ inputs.ci-workflow }}
+          BRANCH_NAME: ${{ inputs.branch-name }}
+        run: |
+          if ! gh workflow run "$CI_WORKFLOW" --ref "$BRANCH_NAME"; then
+            echo "::error title=CI dispatch failed::Could not dispatch '$CI_WORKFLOW' on $BRANCH_NAME. Check that .github/workflows/$CI_WORKFLOW exists on that branch and lists 'workflow_dispatch:' under 'on:', or set the ci-workflow input to your CI workflow's file name."
+            exit 1
+          fi
+
+      - name: Enable auto-merge
+        if: steps.changes.outputs.changed == 'true' && inputs.auto-merge
+        # A merge done with github.token does not trigger push workflows on the target branch.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          gh pr merge "$PR_NUMBER" --auto --squash

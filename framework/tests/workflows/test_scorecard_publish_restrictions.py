@@ -19,6 +19,11 @@ Restrictions". The restrictions enforced here:
 This is why the CI_BOT_TOKEN preflight (#355) is deliberately absent from the
 Scorecard job. The helpers are pure so the self-tests exercise the exact code
 the real test uses; the floor below stops the walk passing vacuously.
+
+Separately, scorecard-action itself refuses any non-PR event on a non-default
+ref ("Only the default branch ... is supported"), so a workflow_dispatch on a
+feature branch failed the whole CI run (#387). Every scorecard-action job must
+carry a job-level `if:` that limits it to pull_request or the default branch.
 """
 
 from __future__ import annotations
@@ -115,6 +120,60 @@ def workflow_problems(doc: object) -> list[str]:
     return problems
 
 
+def uses_scorecard(job: object) -> bool:
+    """True if any step of the job uses scorecard-action."""
+    return any(
+        isinstance(step.get("uses"), str)
+        and strip_ref(step["uses"]) == SCORECARD_ACTION
+        for step in job_steps(job)
+    )
+
+
+REF_GATE = (
+    "(github.event_name == 'pull_request' || "
+    "github.ref == format('refs/heads/{0}', github.event.repository.default_branch))"
+)
+
+
+def ref_gate_problems(job: object) -> list[str]:
+    """Problems with the job's default-branch-or-PR `if:` gate (empty means gated).
+
+    Matches the exact gate expression rather than loose substrings, so a negated
+    or OR-ed variant that merely mentions the right names does not pass. Whitespace
+    is collapsed first because a `>-` scalar keeps newlines on indented lines.
+    """
+    condition = job.get("if") if isinstance(job, dict) else None
+    if not isinstance(condition, str):
+        return ["job has no `if:`, so it runs on non-default refs and fails there"]
+    normalized = " ".join(condition.split())
+    if normalized == REF_GATE:
+        return []
+    prefix = normalized.removesuffix(REF_GATE)
+    if prefix == normalized:
+        return [f"job `if:` must end with the ref gate {REF_GATE}"]
+    if not prefix.endswith("&& ") or "||" in prefix:
+        return [
+            "job `if:` must AND the ref gate onto the condition, with no `||` outside it"
+        ]
+    return []
+
+
+def scorecard_jobs() -> list[tuple[str, str, object]]:
+    """(file name, job id, job) for every job that runs scorecard-action."""
+    found: list[tuple[str, str, object]] = []
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        jobs = doc.get("jobs") if isinstance(doc, dict) else None
+        if not isinstance(jobs, dict):
+            continue
+        found.extend(
+            (path.name, job_id, job)
+            for job_id, job in jobs.items()
+            if uses_scorecard(job)
+        )
+    return found
+
+
 def publishing_jobs() -> list[tuple[str, str, dict, object]]:
     """(file name, job id, workflow doc, job) for every publishing Scorecard job."""
     found: list[tuple[str, str, dict, object]] = []
@@ -147,6 +206,20 @@ def test_publishing_scorecard_jobs_meet_the_webapp_restrictions():
         f"{file_name}:{job_id}: {problem}"
         for file_name, job_id, doc, job in publishing_jobs()
         for problem in [*job_problems(job), *workflow_problems(doc)]
+    ]
+    assert not failures, "\n".join(failures)
+
+
+def test_scorecard_jobs_are_gated_to_default_branch_or_pr():
+    found = scorecard_jobs()
+    assert len(found) >= MINIMUM_EXPECTED_PUBLISHING_JOBS, (
+        f"walk found {len(found)} scorecard-action jobs, expected at least "
+        f"{MINIMUM_EXPECTED_PUBLISHING_JOBS}; the glob or matcher may be broken"
+    )
+    failures = [
+        f"{file_name}:{job_id}: {problem}"
+        for file_name, job_id, job in found
+        for problem in ref_gate_problems(job)
     ]
     assert not failures, "\n".join(failures)
 
@@ -218,3 +291,30 @@ def test_selftest_publish_detection():
     assert not publishes_results(job(False))
     assert not publishes_results(job("false"))
     assert not publishes_results({"steps": [{"uses": "ossf/scorecard-action@v2"}]})
+
+
+def test_selftest_scorecard_detection():
+    assert uses_scorecard(_compliant_job())
+    assert not uses_scorecard({"steps": [{"uses": "actions/checkout@v7"}]})
+    assert not uses_scorecard({"uses": "./.github/workflows/reusable-ci.yml"})
+
+
+def test_selftest_ref_gate():
+    def gate(condition: object) -> list[str]:
+        return ref_gate_problems({**_compliant_job(), "if": condition})
+
+    assert gate(f"inputs.scorecard && {REF_GATE}") == []
+    assert gate(REF_GATE) == []
+    # A `>-` scalar keeps the newline before a more-indented continuation line.
+    assert gate(REF_GATE.replace("|| ", "||\n       ")) == []
+    assert ref_gate_problems(_compliant_job())
+    assert gate("inputs.scorecard")
+    assert gate(
+        "github.event_name != 'pull_request' && !github.event.repository.default_branch"
+    )
+    assert gate(f"inputs.scorecard && !{REF_GATE}")
+    assert gate(f"always() || inputs.scorecard && {REF_GATE}")
+    no_pr = (
+        "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"
+    )
+    assert gate(f"inputs.scorecard && ({no_pr})")

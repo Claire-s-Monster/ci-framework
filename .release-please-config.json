@@ -18,6 +18,10 @@
     {
       "path": ".github/workflows/self-healing.yml",
       "type": "generic"
+    },
+    {
+      "path": "templates/github/workflows/pixi-lock-refresh-template.yml",
+      "type": "generic"
     }
   ],
   "include-component-in-tag": false,

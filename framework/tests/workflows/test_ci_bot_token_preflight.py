@@ -55,7 +55,8 @@ PREFLIGHT_EXEMPT_JOBS: frozenset[tuple[str, str]] = frozenset(
 )
 
 # The 11 jobs that consume secrets.CI_BOT_TOKEN today (c-cpp-lint no longer
-# does once its dead SARIF upload is removed, #354):
+# does once its dead SARIF upload is removed, #354; the pixi lock refresh job
+# no longer does once it runs on github.token, #387):
 #   reusable-ci.yml          sast-semgrep, sast-codeql, scorecard (exempt)
 #   reusable-security.yml    sast-semgrep, sast-codeql, scorecard (exempt)
 #   release-please.yml       release-please

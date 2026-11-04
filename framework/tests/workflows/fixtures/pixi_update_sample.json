@@ -1,0 +1,102 @@
+{
+  "environment": {
+    "default": {
+      "linux-64": [
+        {
+          "after": null,
+          "before": {
+            "conda": "https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2",
+            "license": "None",
+            "size": 2562,
+            "timestamp": 1578324546067
+          },
+          "name": "_libgcc_mutex",
+          "type": "conda"
+        },
+        {
+          "after": {
+            "conda": "https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda",
+            "license": "MIT",
+            "size": 8144,
+            "timestamp": 1784221492234
+          },
+          "before": null,
+          "name": "_python_abi3_support",
+          "type": "conda"
+        }
+      ]
+    },
+    "quality": {
+      "linux-64": [
+        {
+          "after": null,
+          "before": {
+            "conda": "https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2",
+            "license": "None",
+            "size": 2562,
+            "timestamp": 1578324546067
+          },
+          "name": "_libgcc_mutex",
+          "type": "conda"
+        },
+        {
+          "after": {
+            "build_number": 20,
+            "conda": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda",
+            "size": 28948,
+            "timestamp": 1770939786096
+          },
+          "before": {
+            "build_number": 16,
+            "conda": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-2_gnu.tar.bz2",
+            "size": 23621,
+            "timestamp": 1650670423406
+          },
+          "name": "_openmp_mutex",
+          "type": "conda"
+        },
+        {
+          "after": {
+            "conda": "https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda",
+            "license": "MIT",
+            "size": 8144,
+            "timestamp": 1784221492234
+          },
+          "before": null,
+          "name": "_python_abi3_support",
+          "type": "conda"
+        },
+        {
+          "after": {
+            "conda": "https://conda.anaconda.org/conda-forge/linux-64/mypy-2.4.1-py312h1b36aeb_0.conda",
+            "run_exports": {},
+            "size": 23690049,
+            "timestamp": 1793239997149
+          },
+          "before": {
+            "conda": "https://conda.anaconda.org/conda-forge/linux-64/mypy-1.17.0-py312h4c3975b_0.conda",
+            "size": 18931157,
+            "timestamp": 1752534887158
+          },
+          "explicit": true,
+          "name": "mypy",
+          "type": "conda"
+        },
+        {
+          "after": {
+            "conda": "https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.6-hdb14827_1.conda",
+            "timestamp": 1793239997149
+          },
+          "before": {
+            "conda": "https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.5-h2d0b736_3.conda",
+            "size": 891641,
+            "timestamp": 1738195959188
+          },
+          "name": "ncurses",
+          "type": "conda"
+        }
+      ]
+    }
+  },
+  "version": 1
+}

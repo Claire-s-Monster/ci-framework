@@ -128,7 +128,15 @@ def _extras_violations(pyproject: str, level: str) -> int:
         )
         return 0
     try:
-        extras = find_extras(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(
+            f"::{level} title=pip-policy-check unreadable pyproject::Cannot read "
+            f"{_escape(pyproject)}: {_escape(str(exc))}"
+        )
+        return 1
+    try:
+        extras = find_extras(text)
     except tomllib.TOMLDecodeError as exc:
         print(
             f"::{level} title=pip-policy-check invalid toml::Cannot parse "

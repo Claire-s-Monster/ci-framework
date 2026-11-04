@@ -79,6 +79,19 @@ def test_invalid_toml_is_a_violation_not_a_crash(tmp_path, capsys):
     assert "::warning title=pip-policy-check invalid toml" in out
 
 
+def test_unreadable_pyproject_is_a_violation_not_a_crash(tmp_path, capsys):
+    py = tmp_path / "pyproject.toml"
+    py.write_bytes(b'[project]\nname = "\xff"\n')
+    code = check.run("enforce", str(py), str(tmp_path))
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "::error title=pip-policy-check unreadable pyproject" in out
+    code = check.run("warn", str(py), str(tmp_path))
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "::warning title=pip-policy-check unreadable pyproject" in out
+
+
 # --- pip regex -----------------------------------------------------------------
 
 

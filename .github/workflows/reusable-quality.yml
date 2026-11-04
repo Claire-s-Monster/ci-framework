@@ -126,7 +126,7 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff  # pip-policy: allow (standalone lint CLI)
       - name: Ruff check
         id: lint
         run: ruff check . --output-format=github
@@ -146,7 +146,7 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff  # pip-policy: allow (standalone lint CLI)
       - name: Ruff format check
         id: format
         run: ruff format --check .
@@ -166,7 +166,7 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
       - name: Install mypy
-        run: pip install mypy
+        run: pip install mypy  # pip-policy: allow (standalone lint CLI)
       - name: Run mypy
         id: typecheck
         run: mypy . --ignore-missing-imports
@@ -244,7 +244,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install cython-lint
-        run: pip install cython-lint
+        run: pip install cython-lint  # pip-policy: allow (standalone lint CLI)
       - name: Run cython-lint
         id: lint
         run: |

@@ -306,7 +306,7 @@ jobs:
         # Installed on the runner instead of the semgrep/semgrep Docker Hub
         # container: its anonymous pull hit Docker Hub's rate limit and failed
         # the job before any step ran (#366). Version pinned for reproducibility.
-        run: pip install "semgrep==1.180.0"
+        run: pip install "semgrep==1.180.0"  # pip-policy: allow (pinned CLI tool)
       - name: Run Semgrep
         id: semgrep
         run: semgrep ci --sarif --output=semgrep.sarif

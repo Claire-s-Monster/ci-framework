@@ -88,7 +88,9 @@ def _escape(value: str) -> str:
 def _extras_violations(pyproject: str, level: str) -> int:
     path = Path(pyproject)
     if not path.is_file():
-        print(f"::notice title=pip-policy-check::No {pyproject} found; skipping extras rule.")
+        print(
+            f"::notice title=pip-policy-check::No {pyproject} found; skipping extras rule."
+        )
         return 0
     try:
         extras = find_extras(path.read_text(encoding="utf-8"))
@@ -140,7 +142,9 @@ def run(mode: str, pyproject: str, repo_root: str) -> int:
         print("pip-policy-check is off; skipping.")
         return 0
     level = "error" if mode == "enforce" else "warning"
-    total = _extras_violations(pyproject, level) + _pip_violation_count(repo_root, level)
+    total = _extras_violations(pyproject, level) + _pip_violation_count(
+        repo_root, level
+    )
     if total and mode == "enforce":
         return 1
     print(f"pip-policy-check: {total} violation(s).")

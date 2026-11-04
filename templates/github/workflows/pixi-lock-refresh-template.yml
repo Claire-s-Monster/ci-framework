@@ -20,7 +20,7 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
-    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@v4.0.0  # x-release-please-version
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@v4.1.0  # x-release-please-version
     # with:
     #   target-branch: development
     #   branch-name: chore/pixi-lock-refresh

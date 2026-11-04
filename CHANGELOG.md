@@ -5,6 +5,79 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.0.0...v4.1.0) (2026-11-04)
+
+
+### 🚀 Features
+
+* **deps:** reusable scheduled pixi.lock refresh workflow ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([22f228b](https://github.com/Claire-s-Monster/ci-framework/commit/22f228bc88e9ec689dff2e49e750d5f522a2a4c4))
+* **deps:** reusable scheduled pixi.lock refresh workflow ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([3f2450f](https://github.com/Claire-s-Monster/ci-framework/commit/3f2450f23d8481c85a2bea0a6cee22427341724f))
+* **pixi-lock-refresh:** run on github.token with zero secrets ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([1e9665a](https://github.com/Claire-s-Monster/ci-framework/commit/1e9665a7c462dcbf5c9ab7a9957aff262bd48c2d))
+* **pixi-lock-refresh:** run on github.token with zero secrets ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([c3015c9](https://github.com/Claire-s-Monster/ci-framework/commit/c3015c9b4ffa1f718500bfb1fd64be1085ee03f0))
+* **release:** track fixed-in-development issues across releases ([#394](https://github.com/Claire-s-Monster/ci-framework/issues/394)) ([9a8871b](https://github.com/Claire-s-Monster/ci-framework/commit/9a8871b9c372b933e174f08f03ee05f52389f040))
+* **release:** track fixed-in-development issues across releases ([#394](https://github.com/Claire-s-Monster/ci-framework/issues/394)) ([13b6f61](https://github.com/Claire-s-Monster/ci-framework/commit/13b6f6132bce2987025b7100acd6660433750cdc))
+* **reusable-ci:** opt-in pip-policy check for extras and bare pip install ([#399](https://github.com/Claire-s-Monster/ci-framework/issues/399)) ([63e76e0](https://github.com/Claire-s-Monster/ci-framework/commit/63e76e0abaf85b803e35f86181e3cc628111fac3))
+* **reusable-ci:** opt-in pip-policy check for extras and bare pip install ([#399](https://github.com/Claire-s-Monster/ci-framework/issues/399)) ([a0dc109](https://github.com/Claire-s-Monster/ci-framework/commit/a0dc109e81e933e22e8e9bdcff380e1f62d47720))
+
+
+### 🐛 Bug Fixes
+
+* **ci:** install Semgrep via pip instead of Docker Hub container ([#366](https://github.com/Claire-s-Monster/ci-framework/issues/366)) ([a09e3ba](https://github.com/Claire-s-Monster/ci-framework/commit/a09e3bad732da9c13c3d5df1c645bd6c3540c149))
+* **ci:** install Semgrep via pip instead of Docker Hub container ([#366](https://github.com/Claire-s-Monster/ci-framework/issues/366)) ([ade9575](https://github.com/Claire-s-Monster/ci-framework/commit/ade9575f24d8b72e4119a92e7ca748c5c2d8b4f0))
+* **deps:** raise security floors to clear 34 pip-audit findings ([5c835f7](https://github.com/Claire-s-Monster/ci-framework/commit/5c835f702e30dfd98000747bf73ca641c1518259))
+* **deps:** raise security floors to clear 34 pip-audit findings ([ee55930](https://github.com/Claire-s-Monster/ci-framework/commit/ee5593010a168674dcd91565ea29f91107e7ed20))
+* **gemini:** skip AI analysis on quota/billing errors instead of failing ([cd67d67](https://github.com/Claire-s-Monster/ci-framework/commit/cd67d671a8839abe97f67aa566e161024919f85b))
+* **gemini:** skip AI analysis on quota/billing errors instead of failing ([1516a8a](https://github.com/Claire-s-Monster/ci-framework/commit/1516a8a0e5c47b7c16a47ffa26f864e4c7ea49de))
+* **pip-policy:** address [#400](https://github.com/Claire-s-Monster/ci-framework/issues/400) review: flags before -e, continuations, property escaping, python guard ([1d39599](https://github.com/Claire-s-Monster/ci-framework/commit/1d3959948ed23044e2c347d82629111dd02d8e97))
+* **pip-policy:** ignore pip mentions in trailing shell comments ([#400](https://github.com/Claire-s-Monster/ci-framework/issues/400) review) ([e983ff7](https://github.com/Claire-s-Monster/ci-framework/commit/e983ff759959e1b16b825b2edd318a69b9279f2f))
+* **pip-policy:** report an unreadable pyproject instead of crashing ([#400](https://github.com/Claire-s-Monster/ci-framework/issues/400) review) ([3fe82c1](https://github.com/Claire-s-Monster/ci-framework/commit/3fe82c1955086426074a00d4779dc7e44c39a7ae))
+* **pixi-lock-refresh:** clearer dispatch error, log request size ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([f476c0a](https://github.com/Claire-s-Monster/ci-framework/commit/f476c0a176195e9a118f2267d6669532d91f2240))
+* **pixi-lock-refresh:** delete the temp ref on a cancelled run ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([9fa3a99](https://github.com/Claire-s-Monster/ci-framework/commit/9fa3a992e7d787a636899ebdbc77510e95b9c121))
+* **pixi-lock-refresh:** use GITHUB_API_URL in the token preflight ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([ba9fcf3](https://github.com/Claire-s-Monster/ci-framework/commit/ba9fcf3b9ac91a959090f983b11917b0d31a4884))
+* **release:** stop release-type input overriding release-please config ([#390](https://github.com/Claire-s-Monster/ci-framework/issues/390)) ([fedcf8f](https://github.com/Claire-s-Monster/ci-framework/commit/fedcf8f1215176503ba065c126a586e98a48ea72))
+* **release:** stop release-type input overriding release-please config ([#390](https://github.com/Claire-s-Monster/ci-framework/issues/390)) ([0063ecc](https://github.com/Claire-s-Monster/ci-framework/commit/0063ecce003a6065672ae0350627bf44658be2fe))
+* **reusable-ci:** CI Summary must prove gated jobs ran ([#385](https://github.com/Claire-s-Monster/ci-framework/issues/385)) ([556b8ac](https://github.com/Claire-s-Monster/ci-framework/commit/556b8acb66850be87180bf10d5d14da956fe75d1))
+* **reusable-ci:** CI Summary must prove gated jobs ran ([#385](https://github.com/Claire-s-Monster/ci-framework/issues/385)) ([5702661](https://github.com/Claire-s-Monster/ci-framework/commit/57026614cd9f54d913465ef64465b359ec7db2eb))
+* **reusable-ci:** enforce conda-first dependencies ([#386](https://github.com/Claire-s-Monster/ci-framework/issues/386)) ([39ddbe0](https://github.com/Claire-s-Monster/ci-framework/commit/39ddbe0f8fb7a9380e4ba723da0bae701be2d472))
+* **reusable-ci:** enforce conda-first dependencies ([#386](https://github.com/Claire-s-Monster/ci-framework/issues/386)) ([7a35886](https://github.com/Claire-s-Monster/ci-framework/commit/7a358863f5220a076f0627c90d4853ac4ea9621f))
+* **scorecard:** run only on pull_request or the default branch ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([a018214](https://github.com/Claire-s-Monster/ci-framework/commit/a01821468dcea9937a38be1fb5bffba65052e351))
+* **scorecard:** run only on pull_request or the default branch ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([ef37208](https://github.com/Claire-s-Monster/ci-framework/commit/ef372083ae573ff42060c1ce18a81b8c80e73d81))
+* **security-scan:** pin Semgrep to 1.180.0 ([593fb88](https://github.com/Claire-s-Monster/ci-framework/commit/593fb885d64d21c0c4c3507e41fc2cde984eb21e))
+* **security-scan:** pin Semgrep to 1.180.0 ([8da1b08](https://github.com/Claire-s-Monster/ci-framework/commit/8da1b08b60be3aa91b57abf1444d2caa57da9005))
+* **test:** narrow regex match before .group() in release-please guard ([b59b330](https://github.com/Claire-s-Monster/ci-framework/commit/b59b330fbda08e8d3ded19f288afc83da916d29d))
+
+
+### 🔧 Maintenance
+
+* sync main back to development ([7cbdd79](https://github.com/Claire-s-Monster/ci-framework/commit/7cbdd79d2803f2058e8fb61f394e2e20bf477ef3))
+
+
+### 🧪 Tests
+
+* **scorecard:** match the exact ref gate, not loose substrings ([#387](https://github.com/Claire-s-Monster/ci-framework/issues/387)) ([b101238](https://github.com/Claire-s-Monster/ci-framework/commit/b101238202df14ab1c75c196f0cdc8af96929ef3))
+
+
+### 👷 CI/CD
+
+* **cython-lint:** bump setup-pixi to v0.11.2 to match other jobs ([7f8e311](https://github.com/Claire-s-Monster/ci-framework/commit/7f8e311af88597c1270d1f100ce17daa1520b2b2))
+* **deps:** bump Claire-s-Monster/ci-framework from 3.0.0 to 4.0.0 ([bb65b16](https://github.com/Claire-s-Monster/ci-framework/commit/bb65b1622ea11344204f4f4a86b873e3c2c1eeeb))
+* **deps:** bump Claire-s-Monster/ci-framework from 3.0.0 to 4.0.0 ([0d560a5](https://github.com/Claire-s-Monster/ci-framework/commit/0d560a5654cc988915f259989a81800696cf95bb))
+* **deps:** bump ossf/scorecard-action from 2.4.4 to 2.5.0 ([#377](https://github.com/Claire-s-Monster/ci-framework/issues/377)) ([3d5a5e4](https://github.com/Claire-s-Monster/ci-framework/commit/3d5a5e4d97a42c53b18afe57a9e97209fd209842))
+* **deps:** bump prefix-dev/setup-pixi from 0.10.2 to 0.11.0 ([#371](https://github.com/Claire-s-Monster/ci-framework/issues/371)) ([356c176](https://github.com/Claire-s-Monster/ci-framework/commit/356c17671e7a1d1ea3731baa9070a18f098dce35))
+* **deps:** bump prefix-dev/setup-pixi from 0.11.0 to 0.11.2 ([#378](https://github.com/Claire-s-Monster/ci-framework/issues/378)) ([bf02930](https://github.com/Claire-s-Monster/ci-framework/commit/bf02930c3b305dda10189b84057ff80e7a6247f2))
+* **deps:** bump prefix-dev/setup-pixi in /actions/change-detection ([#373](https://github.com/Claire-s-Monster/ci-framework/issues/373)) ([ff98cb1](https://github.com/Claire-s-Monster/ci-framework/commit/ff98cb1ccded3a267bf7f8a008995510747ce896))
+* **deps:** bump prefix-dev/setup-pixi in /actions/change-detection ([#380](https://github.com/Claire-s-Monster/ci-framework/issues/380)) ([3a9901d](https://github.com/Claire-s-Monster/ci-framework/commit/3a9901df1fd4ef834b75e40c5bf5be0f208fc98a))
+* **deps:** bump prefix-dev/setup-pixi in /actions/performance-benchmark ([#375](https://github.com/Claire-s-Monster/ci-framework/issues/375)) ([b0a0d22](https://github.com/Claire-s-Monster/ci-framework/commit/b0a0d22cd8d5ab6c8d4faf87630b8bacea549a01))
+* **deps:** bump prefix-dev/setup-pixi in /actions/performance-benchmark ([#381](https://github.com/Claire-s-Monster/ci-framework/issues/381)) ([1e52c31](https://github.com/Claire-s-Monster/ci-framework/commit/1e52c31d01f4fca37c52be6caeb8f063fcfc9b37))
+* **deps:** bump prefix-dev/setup-pixi in /actions/quality-gates ([#376](https://github.com/Claire-s-Monster/ci-framework/issues/376)) ([41dfb72](https://github.com/Claire-s-Monster/ci-framework/commit/41dfb72206f345d85cfa28f8cee28cbd8a2bae5c))
+* **deps:** bump prefix-dev/setup-pixi in /actions/quality-gates ([#382](https://github.com/Claire-s-Monster/ci-framework/issues/382)) ([c12fb17](https://github.com/Claire-s-Monster/ci-framework/commit/c12fb1759fc87db7bf6159620c292817dc00f983))
+* **deps:** bump prefix-dev/setup-pixi in /actions/security-scan ([#372](https://github.com/Claire-s-Monster/ci-framework/issues/372)) ([07b62f3](https://github.com/Claire-s-Monster/ci-framework/commit/07b62f319d161643bba0558f0bf7f43b8dbffaae))
+* **deps:** bump prefix-dev/setup-pixi in /actions/security-scan ([#383](https://github.com/Claire-s-Monster/ci-framework/issues/383)) ([781fae2](https://github.com/Claire-s-Monster/ci-framework/commit/781fae2a8a98a552b670573a3cf5043e465fca7b))
+* **deps:** bump prefix-dev/setup-pixi in /actions/self-healing ([#374](https://github.com/Claire-s-Monster/ci-framework/issues/374)) ([52ab63a](https://github.com/Claire-s-Monster/ci-framework/commit/52ab63a84c98a10dccac748934e61f69ffc0070f))
+* **deps:** bump prefix-dev/setup-pixi in /actions/self-healing ([#379](https://github.com/Claire-s-Monster/ci-framework/issues/379)) ([76ff0ff](https://github.com/Claire-s-Monster/ci-framework/commit/76ff0ffd75069b407882461bcc31fda83ce5c4c3))
+* **deps:** bump trufflesecurity/trufflehog from 3.97.9 to 3.99.2 ([#369](https://github.com/Claire-s-Monster/ci-framework/issues/369)) ([fce9317](https://github.com/Claire-s-Monster/ci-framework/commit/fce93170bc8f2078fee10f35812704296bc081c9))
+* **deps:** bump trufflesecurity/trufflehog from 3.99.2 to 3.99.7 ([#384](https://github.com/Claire-s-Monster/ci-framework/issues/384)) ([110f526](https://github.com/Claire-s-Monster/ci-framework/commit/110f526ed84a8eed1e7e5b75fb9dbd389f79d65a))
+
 ## [4.0.0](https://github.com/Claire-s-Monster/ci-framework/compare/v3.0.0...v4.0.0) (2026-10-06)
 
 

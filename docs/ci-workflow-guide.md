@@ -232,6 +232,22 @@ The `pixi-version` input should match the pixi you use locally: CI and local
 solves should use the same pixi version, otherwise a lock solved in CI can
 differ from one solved locally (#386).
 
+### Pip Policy (opt-in check)
+
+Policy (issue #399): dependencies come from conda-forge via pixi. `reusable-ci.yml`
+can flag non-empty `[project.optional-dependencies]` in `pyproject.toml` (pixi
+merges a same-named extra into the pixi feature as PyPI requirements) and bare
+`pip install` in workflows, actions, shell scripts, `Makefile`, `Dockerfile`,
+`pixi.toml` and `pyproject.toml`:
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `pip-policy-check` | string | `off` | `off` skips the check, `warn` emits a `::warning` per violation and passes, `enforce` emits `::error` and fails. Any other value is rejected. hb-* callers should start on `warn`. |
+
+Editable installs of the project (`python -m pip install -e .`), comment lines
+and lines containing `pip-policy: allow` are exempt. The check runs in the
+`python-quality` job after "Conda-first lock check".
+
 ### Adding Custom Jobs
 
 #### Database Testing Job

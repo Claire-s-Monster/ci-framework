@@ -250,7 +250,7 @@ jobs:
             echo "::error::No pixi.toml or pixi.lock found, and no [tool.pixi] section in pyproject.toml. ci-framework requires pixi-based projects."
             exit 1
           fi
-          pixi run -e ${{ env.PIXI_ENVIRONMENT }} pip install -e . --no-deps
+          pixi run -e ${{ env.PIXI_ENVIRONMENT }} pip install -e . --no-deps  # pip-policy: allow (editable install of the project)
       - name: "Run Test Suite"
         working-directory: ${{ env.PACKAGE_PATH }}
         env:

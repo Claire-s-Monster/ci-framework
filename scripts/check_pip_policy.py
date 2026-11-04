@@ -9,9 +9,9 @@ are reported:
      installs of the project itself, comment lines and lines carrying the
      marker "pip-policy: allow" are exempt.
 
-Stdlib only (tomllib needs python >= 3.11): the runner's system python3 is not
-guaranteed to ship extra packages, and this runs before/outside any pixi
-environment.
+Stdlib only (tomllib needs python >= 3.11; on older pythons the check reports
+that instead of crashing): the runner's system python3 is not guaranteed to
+ship extra packages, and this runs before/outside any pixi environment.
 
 All inputs arrive via environment variables (never interpolated into code):
   PIP_POLICY_MODE  off | warn | enforce
@@ -24,8 +24,12 @@ from __future__ import annotations
 import os
 import re
 import sys
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # python < 3.11
+    tomllib = None  # type: ignore[assignment]
 
 MODES = ("off", "warn", "enforce")
 SKIP_DIRS = {".git", ".pixi", "node_modules", ".venv", "venv", "__pycache__"}
@@ -33,7 +37,9 @@ ISSUE = "https://github.com/Claire-s-Monster/ci-framework/issues/399"
 MARKER = "pip-policy: allow"
 
 _PIP_RE = re.compile(r"\bpip3?\s+install\b")
-_EDITABLE_RE = re.compile(r"\bpython3?\s+-m\s+pip\s+install\s+(?:-e|--editable)\b")
+_EDITABLE_RE = re.compile(
+    r"\bpython3?\s+-m\s+pip\s+install\s+(?:-[-\w]+(?:=\S+)?\s+)*(?:-e|--editable)(?=[\s=]|$)"
+)
 
 
 def find_extras(text: str) -> list[str]:
@@ -43,10 +49,31 @@ def find_extras(text: str) -> list[str]:
     return list(table) if isinstance(table, dict) else []
 
 
-def pip_violations_in_text(text: str) -> list[tuple[int, str]]:
-    """(line number, stripped line) for each non-exempt pip invocation."""
-    found: list[tuple[int, str]] = []
+def _logical_lines(text: str) -> list[tuple[int, str]]:
+    """(first physical line number, line) with backslash continuations joined."""
+    logical: list[tuple[int, str]] = []
+    pending: tuple[int, str] | None = None
     for number, line in enumerate(text.splitlines(), start=1):
+        if pending is not None:
+            number, line = pending[0], f"{pending[1]} {line.strip()}"
+        if line.rstrip().endswith("\\") and not line.lstrip().startswith("#"):
+            pending = (number, line.rstrip()[:-1].rstrip())
+            continue
+        pending = None
+        logical.append((number, line))
+    if pending is not None:
+        logical.append(pending)
+    return logical
+
+
+def pip_violations_in_text(text: str) -> list[tuple[int, str]]:
+    """(line number, stripped line) for each non-exempt pip invocation.
+
+    Lines ending in a backslash are joined with the next one before matching;
+    the reported number is that of the first physical line.
+    """
+    found: list[tuple[int, str]] = []
+    for number, line in _logical_lines(text):
         stripped = line.strip()
         if stripped.startswith("#") or MARKER in line:
             continue
@@ -83,6 +110,11 @@ def iter_scanned_files(root: Path) -> list[Path]:
 def _escape(value: str) -> str:
     """Escape a value for a GitHub workflow-command message."""
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _escape_property(value: str) -> str:
+    """Escape a value for a workflow-command property (file=, line=, title=)."""
+    return _escape(value).replace(":", "%3A").replace(",", "%2C")
 
 
 def _extras_violations(pyproject: str, level: str) -> int:
@@ -122,7 +154,7 @@ def _pip_violation_count(repo_root: str, level: str) -> int:
         for number, _ in pip_violations_in_text(text):
             count += 1
             print(
-                f"::{level} file={_escape(rel)},line={number},title=bare pip "
+                f"::{level} file={_escape_property(rel)},line={number},title=bare pip "
                 "install::Bare pip installs bypass the conda-forge solve. Use a pixi "
                 "dependency instead, or an editable install of the project "
                 "(python -m pip install -e .); to keep a deliberate one, append "
@@ -142,6 +174,12 @@ def run(mode: str, pyproject: str, repo_root: str) -> int:
         print("pip-policy-check is off; skipping.")
         return 0
     level = "error" if mode == "enforce" else "warning"
+    if tomllib is None:
+        print(
+            f"::{level} title=pip-policy-check python::pip-policy-check needs python "
+            f">= 3.11 (tomllib); found {_escape(sys.version.split()[0])}. See {ISSUE}"
+        )
+        return 1 if mode == "enforce" else 0
     total = _extras_violations(pyproject, level) + _pip_violation_count(
         repo_root, level
     )

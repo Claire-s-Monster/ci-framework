@@ -91,6 +91,8 @@ def test_invalid_toml_is_a_violation_not_a_crash(tmp_path, capsys):
         "pixi run pip install -e .",
         "python -m pip install x",
         "run: pip install x",
+        "python -m pip install requests -e .",
+        "python -m pip install -r req.txt -e .",
     ],
 )
 def test_pip_positives(line):
@@ -102,6 +104,9 @@ def test_pip_positives(line):
     [
         "python -m pip install -e .",
         "python3 -m pip install --editable .",
+        "python -m pip install --no-build-isolation -e .",
+        "python3 -m pip install -q --no-deps --editable .",
+        "python -m pip install --editable=.",
         "# pip install x",
         "    # pip install x",
         "pip install x  # pip-policy: allow",
@@ -117,6 +122,19 @@ def test_line_numbers_are_one_based():
     assert check.pip_violations_in_text("a\nb\npip install x\n") == [
         (3, "pip install x")
     ]
+
+
+# --- backslash continuations ---------------------------------------------------
+
+
+def test_continued_editable_install_is_exempt():
+    text = "python -m pip install \\\n  --no-build-isolation \\\n  -e ."
+    assert check.pip_violations_in_text(text) == []
+
+
+def test_continued_violation_reports_first_physical_line():
+    text = "pip install \\\n  requests\npip install y"
+    assert [n for n, _ in check.pip_violations_in_text(text)] == [1, 3]
 
 
 # --- file selection ------------------------------------------------------------
@@ -199,6 +217,33 @@ def test_clean_tree_passes_enforce(tmp_path, capsys):
     code, out = _run(tmp_path, capsys, "enforce")
     assert code == 0
     assert "pip-policy-check: 0 violation(s)." in out
+
+
+def test_escape_property():
+    assert check._escape_property("a,b:c%d\n") == "a%2Cb%3Ac%25d%0A"
+
+
+def test_file_property_is_escaped_in_output(tmp_path, capsys):
+    _write(tmp_path, "a,b/run.sh", "pip install x\n")
+    code, out = _run(tmp_path, capsys, "enforce")
+    assert code == 1
+    assert "file=a%2Cb/run.sh,line=1," in out
+
+
+# --- python without tomllib ----------------------------------------------------
+
+
+def test_missing_tomllib_is_reported_not_a_crash(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(check, "tomllib", None)
+    code, out = _run(tmp_path, capsys, "enforce")
+    assert code == 1
+    assert "::error title=pip-policy-check python" in out
+    code, out = _run(tmp_path, capsys, "warn")
+    assert code == 0
+    assert "::warning title=pip-policy-check python" in out
+    code, out = _run(tmp_path, capsys, "off")
+    assert code == 0
+    assert "::error" not in out and "::warning" not in out
 
 
 def test_ci_framework_itself_passes_enforce(capsys):

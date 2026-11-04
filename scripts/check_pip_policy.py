@@ -40,6 +40,7 @@ _PIP_RE = re.compile(r"\bpip3?\s+install\b")
 _EDITABLE_RE = re.compile(
     r"\bpython3?\s+-m\s+pip\s+install\s+(?:-[-\w]+(?:=\S+)?\s+)*(?:-e|--editable)(?=[\s=]|$)"
 )
+_TRAILING_COMMENT_RE = re.compile(r"\s#.*$")
 
 
 def find_extras(text: str) -> list[str]:
@@ -70,14 +71,16 @@ def pip_violations_in_text(text: str) -> list[tuple[int, str]]:
     """(line number, stripped line) for each non-exempt pip invocation.
 
     Lines ending in a backslash are joined with the next one before matching;
-    the reported number is that of the first physical line.
+    the reported number is that of the first physical line. A "#" preceded by
+    whitespace starts a comment, which is ignored.
     """
     found: list[tuple[int, str]] = []
     for number, line in _logical_lines(text):
         stripped = line.strip()
         if stripped.startswith("#") or MARKER in line:
             continue
-        if _PIP_RE.search(line) and not _EDITABLE_RE.search(line):
+        code = _TRAILING_COMMENT_RE.sub("", line)
+        if _PIP_RE.search(code) and not _EDITABLE_RE.search(code):
             found.append((number, stripped))
     return found
 

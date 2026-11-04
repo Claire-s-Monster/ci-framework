@@ -93,6 +93,8 @@ def test_invalid_toml_is_a_violation_not_a_crash(tmp_path, capsys):
         "run: pip install x",
         "python -m pip install requests -e .",
         "python -m pip install -r req.txt -e .",
+        "pip install git+https://h/r.git#egg=foo",
+        "pip install x  # some comment",
     ],
 )
 def test_pip_positives(line):
@@ -110,6 +112,8 @@ def test_pip_positives(line):
         "# pip install x",
         "    # pip install x",
         "pip install x  # pip-policy: allow",
+        "echo ok  # pip install x",
+        "run: echo ok # then pip install x",
         "pipx install foo",
         "pip-compile requirements.in",
     ],

@@ -2,13 +2,19 @@
 name: Pixi Lock Refresh (Reusable)
 
 # Refreshes pixi.lock on a schedule and opens or updates a signed bot PR (#387).
-# Zero secrets: only the built-in github.token is used. The commit is created
-# through the GraphQL createCommitOnBranch mutation, so GitHub signs it, and CI
-# is started with workflow_dispatch (the documented exception to "GITHUB_TOKEN
-# events do not trigger workflows"). Two one-time per-repo prerequisites:
-#   1. the consumer's CI workflow declares `workflow_dispatch:` under `on:`;
-#   2. Settings > Actions > General > "Allow GitHub Actions to create and
-#      approve pull requests" is enabled.
+# The commit is created through the GraphQL createCommitOnBranch mutation, so
+# GitHub signs it. Two token modes (#406):
+#   1. Default, zero secrets: only the built-in github.token is used, and CI is
+#      started with workflow_dispatch (the documented exception to "GITHUB_TOKEN
+#      events do not trigger workflows"). The caller grants contents,
+#      pull-requests and actions write. Two one-time per-repo prerequisites:
+#        a. the consumer's CI workflow declares `workflow_dispatch:` under `on:`;
+#        b. Settings > Actions > General > "Allow GitHub Actions to create and
+#           approve pull requests" is enabled.
+#   2. Optional GitHub App: the caller passes APP_CLIENT_ID and APP_PRIVATE_KEY
+#      and grants only `contents: read`. A short-lived App token does the
+#      commit, PR and auto-merge; its pushes and PRs trigger CI natively, so
+#      there is no dispatch and no `actions: write`.
 # See docs/pixi-lock-refresh.md.
 
 on:
@@ -74,9 +80,22 @@ on:
         required: false
         type: string
         default: 'ci.yml'
+    secrets:
+      APP_CLIENT_ID:
+        description: >-
+          Client ID of a GitHub App with Contents and Pull requests write,
+          installed on the repository. Set together with APP_PRIVATE_KEY to use
+          the App token path; leave both unset to use github.token.
+        required: false
+      APP_PRIVATE_KEY:
+        description: "Private key (PEM) of the GitHub App. Required with APP_CLIENT_ID."
+        required: false
 
-# Top level grants nothing (OpenSSF Token-Permissions, #359); the job scopes writes.
-permissions: {}
+# No permissions block here on purpose (same pattern as reusable-ci, quality,
+# security and release): the job inherits the caller's GITHUB_TOKEN grant.
+# github.token callers grant contents, pull-requests and actions write; App
+# callers grant only contents: read. A block declared here would cap or exceed
+# the caller's grant and break one of the two shapes.
 
 concurrency:
   group: pixi-lock-refresh-${{ github.repository }}-${{ inputs.branch-name }}
@@ -87,10 +106,6 @@ jobs:
     name: "🔄 Pixi Lock Refresh"
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: write
-      pull-requests: write
-      actions: write  # for the workflow_dispatch of the CI workflow
     steps:
       - name: Validate branch inputs
         env:
@@ -158,6 +173,30 @@ jobs:
               exit 1
               ;;
           esac
+
+      # Secrets cannot be tested in `if:`, so they are passed through env and
+      # only their presence is checked; the values are never printed.
+      - name: Select token mode
+        id: mode
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "$APP_CLIENT_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
+            echo "::notice title=Token mode::Using a GitHub App token."
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$APP_CLIENT_ID" ] && [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          else
+            if [ -z "$APP_CLIENT_ID" ]; then
+              missing=APP_CLIENT_ID
+            else
+              missing=APP_PRIVATE_KEY
+            fi
+            echo "::error title=App credentials incomplete::$missing is not set. Set both APP_CLIENT_ID and APP_PRIVATE_KEY to use a GitHub App, or neither to use github.token."
+            exit 1
+          fi
 
       # Fails/warns on PyPI-sourced packages in the refreshed lock (#386), before
       # any PR exists. Inlined rather than shipped as a pinned composite action:
@@ -539,11 +578,23 @@ jobs:
               sys.exit(main())
           PY
 
+      # Scoped to this repository only (no owner/repositories) and to the two
+      # write permissions the commit and PR steps need.
+      - name: Mint GitHub App token
+        id: app-token
+        if: steps.changes.outputs.changed == 'true' && steps.mode.outputs.app == 'true'
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Create signed commit on refresh branch
         id: commit
         if: steps.changes.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           BRANCH_NAME: ${{ inputs.branch-name }}
           PACKAGE_PATH: ${{ inputs.package-path }}
@@ -606,7 +657,7 @@ jobs:
         id: pr
         if: steps.changes.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           BRANCH_NAME: ${{ inputs.branch-name }}
           TARGET_BRANCH: ${{ inputs.target-branch }}
@@ -619,7 +670,7 @@ jobs:
             echo "Updated PR #${number}."
           else
             if ! gh pr create --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"; then
-              echo "::error title=PR creation failed::Enable Settings > Actions > General > \"Allow GitHub Actions to create and approve pull requests\" for this repository."
+              echo "::error title=PR creation failed::With github.token, enable Settings > Actions > General > \"Allow GitHub Actions to create and approve pull requests\". With a GitHub App, check that it is installed on this repository with Pull requests write permission."
               exit 1
             fi
             number=$(gh pr list --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --state open --json number --jq '.[0].number')
@@ -629,9 +680,11 @@ jobs:
 
       # PRs and pushes made with github.token do not start workflows, but
       # workflow_dispatch is the documented exception. The dispatched check runs
-      # attach to the branch head commit, which is the PR head.
+      # attach to the branch head commit, which is the PR head. On the App path
+      # the App-authored push and PR trigger CI natively, so there is no dispatch
+      # and the caller needs no `actions: write`.
       - name: Trigger CI on refresh branch
-        if: steps.changes.outputs.changed == 'true' && inputs.ci-workflow != ''
+        if: steps.changes.outputs.changed == 'true' && inputs.ci-workflow != '' && steps.mode.outputs.app != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -645,9 +698,10 @@ jobs:
 
       - name: Enable auto-merge
         if: steps.changes.outputs.changed == 'true' && inputs.auto-merge
-        # A merge done with github.token does not trigger push workflows on the target branch.
+        # A merge done with github.token does not trigger push workflows on the
+        # target branch; on the App path the merge does trigger them.
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |

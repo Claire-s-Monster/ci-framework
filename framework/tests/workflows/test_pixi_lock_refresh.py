@@ -48,6 +48,15 @@ HEREDOC_CLOSE = "\nPY\n"
 # The diff step redirects the rendered body straight into the PR body file.
 DIFF_HEREDOC_OPEN = "python3 - <<'PY' > \"$RUNNER_TEMP/pr-body.md\"\n"
 GATE = "steps.changes.outputs.changed == 'true'"
+MODE_STEP = "Select token mode"
+MINT_STEP = "Mint GitHub App token"
+APP_TOKEN_EXPR = "${{ steps.app-token.outputs.token || github.token }}"
+APP_SECRET_REFS = {
+    "APP_CLIENT_ID",
+    "APP_PRIVATE_KEY",
+    "LOCK_REFRESH_APP_CLIENT_ID",
+    "LOCK_REFRESH_APP_PRIVATE_KEY",
+}
 
 _spec = importlib.util.spec_from_file_location("pixi_lock_diff", SCRIPT)
 assert _spec is not None and _spec.loader is not None
@@ -398,16 +407,21 @@ def test_trigger_is_workflow_call_only():
     assert set(doc.get(True) or doc["on"]) == {"workflow_call"}
 
 
-def test_workflow_call_declares_no_secrets():
-    assert "secrets" not in _call()
+def test_workflow_call_declares_only_the_optional_app_secrets():
+    secrets = _call()["secrets"]
+    assert set(secrets) == {"APP_CLIENT_ID", "APP_PRIVATE_KEY"}
+    for name, spec in secrets.items():
+        assert spec["required"] is False, name
+        assert spec["description"], name
 
 
 def test_no_ci_bot_reference_in_workflow_or_template():
     for path in (REUSABLE, TEMPLATE):
         text = path.read_text(encoding="utf-8")
         assert "CI_BOT" not in text, path
-        assert "secrets." not in text, path
         assert "gpg" not in text.lower(), path
+        used = set(re.findall(r"secrets\.(\w+)", text))
+        assert used <= APP_SECRET_REFS, (path, used)
 
 
 def test_inputs_and_defaults():
@@ -443,14 +457,10 @@ def test_conda_first_allow_default_matches_reusable_ci():
     )
 
 
-def test_permissions_are_empty_at_top_and_scoped_on_the_job():
+def test_permissions_are_inherited_from_the_caller():
     doc = _workflow()
-    assert doc["permissions"] == {}
-    assert doc["jobs"]["refresh"]["permissions"] == {
-        "contents": "write",
-        "pull-requests": "write",
-        "actions": "write",
-    }
+    assert "permissions" not in doc
+    assert "permissions" not in doc["jobs"]["refresh"]
 
 
 def test_concurrency_is_per_repo_and_branch_and_never_cancels():
@@ -521,7 +531,7 @@ def test_commit_step_creates_a_verified_commit_via_graphql():
     step = _step(COMMIT_STEP)
     assert step["id"] == "commit"
     assert step["if"] == GATE
-    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert step["env"]["GH_TOKEN"] == APP_TOKEN_EXPR
     run = step["run"]
     assert "set -euo pipefail" in run
     assert "createCommitOnBranch" in run
@@ -545,6 +555,74 @@ def test_dispatch_step_uses_ci_workflow_input_and_is_skipped_when_empty():
     assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
     assert 'gh workflow run "$CI_WORKFLOW" --ref "$BRANCH_NAME"' in step["run"]
     assert "workflow_dispatch" in step["run"]
+    assert "steps.mode.outputs.app != 'true'" in step["if"]
+
+
+def test_mode_step_reads_secrets_via_env_and_rejects_a_half_configured_app():
+    step = _step(MODE_STEP)
+    assert step["id"] == "mode"
+    assert step["if"] == GATE
+    assert step["env"] == {
+        "APP_CLIENT_ID": "${{ secrets.APP_CLIENT_ID }}",
+        "APP_PRIVATE_KEY": "${{ secrets.APP_PRIVATE_KEY }}",
+    }
+    run = step["run"]
+    assert "secrets." not in run
+    assert '[ -n "$APP_CLIENT_ID" ] && [ -n "$APP_PRIVATE_KEY" ]' in run
+    assert '[ -z "$APP_CLIENT_ID" ] && [ -z "$APP_PRIVATE_KEY" ]' in run
+    assert run.count("app=true") == 1
+    assert run.count("app=false") == 1
+    assert "::error title=App credentials incomplete::" in run
+    assert "exit 1" in run
+    assert "missing=APP_CLIENT_ID" in run
+    assert "missing=APP_PRIVATE_KEY" in run
+    assert "echo $APP" not in run and 'echo "$APP' not in run
+    names = [s.get("name") for s in _steps()]
+    assert names.index("Detect lock changes") < names.index(MODE_STEP)
+    assert names.index(MODE_STEP) < names.index(MINT_STEP)
+
+
+def test_mint_step_requests_only_contents_and_pull_requests_write():
+    step = _step(MINT_STEP)
+    assert step["id"] == "app-token"
+    assert step["uses"] == "actions/create-github-app-token@v3.3.0"
+    assert GATE in step["if"]
+    assert "steps.mode.outputs.app == 'true'" in step["if"]
+    assert step["with"] == {
+        "client-id": "${{ secrets.APP_CLIENT_ID }}",
+        "private-key": "${{ secrets.APP_PRIVATE_KEY }}",
+        "permission-contents": "write",
+        "permission-pull-requests": "write",
+    }
+    names = [s.get("name") for s in _steps()]
+    assert names.index(CONDA_FIRST_STEP) < names.index(MINT_STEP)
+    assert names.index(MINT_STEP) < names.index(COMMIT_STEP)
+
+
+def test_app_path_needs_no_write_in_the_caller():
+    doc = _workflow()
+    assert "permissions" not in doc
+    assert "permissions" not in doc["jobs"]["refresh"]
+    for name in (COMMIT_STEP, "Open or update pull request", "Enable auto-merge"):
+        assert _step(name)["env"]["GH_TOKEN"] == APP_TOKEN_EXPR, name
+    dispatch = _step(DISPATCH_STEP)
+    assert "steps.mode.outputs.app != 'true'" in dispatch["if"]
+    only_github_token = [
+        s["name"]
+        for s in _steps()
+        if s.get("env", {}).get("GH_TOKEN") == "${{ github.token }}"
+    ]
+    assert only_github_token == [DISPATCH_STEP]
+    text = TEMPLATE.read_text(encoding="utf-8")
+    assert re.search(r"^\s*#\s*permissions:\n\s*#\s+contents: read$", text, re.M)
+    assert re.search(
+        r"^\s*#\s*APP_CLIENT_ID: \$\{\{ secrets\.LOCK_REFRESH_APP_CLIENT_ID", text, re.M
+    )
+    assert re.search(
+        r"^\s*#\s*APP_PRIVATE_KEY: \$\{\{ secrets\.LOCK_REFRESH_APP_PRIVATE_KEY",
+        text,
+        re.M,
+    )
 
 
 @pytest.mark.parametrize("path", CI_TEMPLATES, ids=lambda p: p.name)
@@ -569,14 +647,14 @@ def test_pr_is_listed_then_edited_or_created():
     assert run.index("gh pr edit") < run.index("gh pr create")
     assert '--body-file "$RUNNER_TEMP/pr-body.md"' in run
     assert "Allow GitHub Actions to create and approve pull requests" in run
-    assert (
-        _step("Open or update pull request")["env"]["GH_TOKEN"] == "${{ github.token }}"
-    )
+    assert _step("Open or update pull request")["env"]["GH_TOKEN"] == APP_TOKEN_EXPR
+    assert "pull_requests" in run or "Pull requests write" in run
 
 
 def test_auto_merge_defaults_off_and_is_gated_on_the_input():
     assert _call()["inputs"]["auto-merge"]["default"] is False
     step = _step("Enable auto-merge")
+    assert step["env"]["GH_TOKEN"] == APP_TOKEN_EXPR
     assert GATE in step["if"]
     assert "inputs.auto-merge" in step["if"]
     assert "gh pr merge" in step["run"]

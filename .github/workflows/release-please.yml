@@ -9,6 +9,12 @@ on:
 
 permissions: read-all
 
+# Never cancel a running release-please (it may be creating a tag/release); a newer
+# push replaces a queued run, which then processes the latest main.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-latest

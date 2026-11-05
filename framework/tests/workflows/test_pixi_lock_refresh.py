@@ -561,7 +561,7 @@ def test_dispatch_step_uses_ci_workflow_input_and_is_skipped_when_empty():
 def test_mode_step_reads_secrets_via_env_and_rejects_a_half_configured_app():
     step = _step(MODE_STEP)
     assert step["id"] == "mode"
-    assert step["if"] == GATE
+    assert "if" not in step
     assert step["env"] == {
         "APP_CLIENT_ID": "${{ secrets.APP_CLIENT_ID }}",
         "APP_PRIVATE_KEY": "${{ secrets.APP_PRIVATE_KEY }}",
@@ -578,16 +578,16 @@ def test_mode_step_reads_secrets_via_env_and_rejects_a_half_configured_app():
     assert "missing=APP_PRIVATE_KEY" in run
     assert "echo $APP" not in run and 'echo "$APP' not in run
     names = [s.get("name") for s in _steps()]
-    assert names.index("Detect lock changes") < names.index(MODE_STEP)
+    assert names.index("Validate branch inputs") < names.index(MODE_STEP)
     assert names.index(MODE_STEP) < names.index(MINT_STEP)
+    assert names.index(MINT_STEP) < names.index("Checkout target branch")
 
 
 def test_mint_step_requests_only_contents_and_pull_requests_write():
     step = _step(MINT_STEP)
     assert step["id"] == "app-token"
     assert step["uses"] == "actions/create-github-app-token@v3.3.0"
-    assert GATE in step["if"]
-    assert "steps.mode.outputs.app == 'true'" in step["if"]
+    assert step["if"] == "steps.mode.outputs.app == 'true'"
     assert step["with"] == {
         "client-id": "${{ secrets.APP_CLIENT_ID }}",
         "private-key": "${{ secrets.APP_PRIVATE_KEY }}",
@@ -595,8 +595,16 @@ def test_mint_step_requests_only_contents_and_pull_requests_write():
         "permission-pull-requests": "write",
     }
     names = [s.get("name") for s in _steps()]
-    assert names.index(CONDA_FIRST_STEP) < names.index(MINT_STEP)
+    assert names.index(MINT_STEP) < names.index("Checkout target branch")
+    assert names.index(MINT_STEP) < names.index("Detect lock changes")
     assert names.index(MINT_STEP) < names.index(COMMIT_STEP)
+
+
+def test_app_credentials_are_validated_even_when_the_lock_is_unchanged():
+    names = [s.get("name") for s in _steps()]
+    for name in (MODE_STEP, MINT_STEP):
+        assert "steps.changes" not in str(_step(name)), name
+        assert names.index(name) < names.index("Detect lock changes"), name
 
 
 def test_app_path_needs_no_write_in_the_caller():

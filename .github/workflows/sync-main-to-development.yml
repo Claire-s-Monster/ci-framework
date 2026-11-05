@@ -70,6 +70,13 @@ jobs:
           if [ "$MAIN_SHA" = "$DEV_SHA" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Main and development are identical — no sync needed"
+          # A development->main merge leaves main ahead only by the merge commit.
+          # Strict up-to-date is off on main and development, so development may
+          # lag by merge commits; the next content-changing push to main (e.g.
+          # the release commit) syncs them all.
+          elif [ "$(git rev-parse 'origin/main^{tree}')" = "$(git rev-parse 'origin/development^{tree}')" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "main and development have identical trees (main is ahead only by merge commits); skipping sync"
           else
             # Check if there are commits on main not in development
             AHEAD=$(git rev-list --count origin/development..origin/main)

@@ -75,10 +75,23 @@ permissions:
 jobs:
   cleanup-dev-files:
     runs-on: ubuntu-latest
+    # The release commit bumps the x-release-please self-pinned refs before
+    # release-please has created the tag (in a run triggered by this same push),
+    # so the job cannot resolve its own actions; content was already cleaned on
+    # development. Scoped to this repo so consumers' release commits are unaffected.
+    if: >-
+      !(github.repository == 'Claire-s-Monster/ci-framework'
+      && github.event_name == 'push'
+      && startsWith(github.event.head_commit.message, 'chore(main): release'))
     permissions:
       contents: write  # Allow pushing commits
       pull-requests: write  # Allow creating PRs
       issues: write  # Allow creating issues (required for PR creation)
+    # Per target branch, because the job creates automated-cleanup-* branches/PRs;
+    # serialized, not cancelled. Job-level: this file is also a reusable workflow.
+    concurrency:
+      group: cleanup-dev-files-${{ github.repository }}-${{ matrix.branch }}
+      cancel-in-progress: false
     strategy:
       matrix:
         # Use inputs for workflow_call, current branch for push, all branches for schedule/dispatch

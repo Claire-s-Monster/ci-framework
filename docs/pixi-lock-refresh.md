@@ -18,10 +18,59 @@ identical changes across platforms collapsed into one row:
 Added packages show `— → x`, removed ones `x → —`. When `pixi update` changes
 nothing, the job ends with a notice and no PR is opened.
 
-## No secrets
+## Token modes
 
-The workflow needs no secrets and no PAT or GPG key. It uses only the built-in
-`github.token`, with job permissions `contents: write`, `pull-requests: write`
+The workflow has two caller shapes. It declares no `permissions` of its own: the
+job inherits the caller's `GITHUB_TOKEN` grant, so each shape sets that grant in
+the caller.
+
+| | Default (zero secrets) | Optional GitHub App |
+|---|---|---|
+| Secrets | none | `APP_CLIENT_ID`, `APP_PRIVATE_KEY` |
+| Caller permissions | `contents`, `pull-requests`, `actions`: write | `contents: read` |
+| Commit, PR, auto-merge token | `github.token` | short-lived App token |
+| CI on the PR | `workflow_dispatch` of `ci-workflow` | triggered natively by the App's push and PR |
+| Auto-merge triggers push workflows | no | yes |
+| "Allow GitHub Actions to create and approve pull requests" | required | not needed |
+| Scorecard Token-Permissions alerts | 2 per repository | none |
+
+The mode is chosen by the secrets: both set selects the App path, both unset
+selects `github.token`. Setting exactly one fails the job with an
+`App credentials incomplete` error naming the missing secret. The secret values
+are never printed.
+
+### GitHub App setup
+
+1. Create a GitHub App with repository permissions **Contents: Read and write**
+   and **Pull requests: Read and write** (Metadata: read is implied).
+2. Install it on the repository.
+3. Store the App's client ID and a generated private key as repository (or
+   organization) secrets, for example `LOCK_REFRESH_APP_CLIENT_ID` and
+   `LOCK_REFRESH_APP_PRIVATE_KEY`.
+4. In the caller, set `permissions: contents: read` and pass the secrets (the
+   template has the commented-out shape):
+
+   ```yaml
+   jobs:
+     refresh:
+       permissions:
+         contents: read
+       uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@<tag>
+       secrets:
+         APP_CLIENT_ID: ${{ secrets.LOCK_REFRESH_APP_CLIENT_ID }}
+         APP_PRIVATE_KEY: ${{ secrets.LOCK_REFRESH_APP_PRIVATE_KEY }}
+   ```
+
+The token is minted by `actions/create-github-app-token` for the current
+repository only, with `contents: write` and `pull-requests: write`. The commit is
+still created through `createCommitOnBranch`, so it is GitHub-signed and the
+verified-commit check applies to both paths. There is no CI dispatch on the App
+path, so `actions: write` and `workflow_dispatch` in your CI are not needed.
+
+## Default mode: no secrets
+
+The default needs no secrets and no PAT or GPG key. It uses only the built-in
+`github.token`, with caller permissions `contents: write`, `pull-requests: write`
 and `actions: write` (the last one is for the CI dispatch).
 
 **One-time prerequisites per repository:**
@@ -59,10 +108,46 @@ checks are satisfied. Set `ci-workflow: ''` to disable the dispatch.
 - `dorny/paths-filter` in `reusable-ci.yml` diffs against the repository default
   branch on non-PR events. `pixi.lock` is in the `src` filter, so tests do run.
 - An auto-merge performed with `github.token` does not trigger push workflows
-  on the target branch.
+  on the target branch. On the App path it does.
 - The lock is sent base64-encoded in a single GraphQL `createCommitOnBranch`
   request (about 4/3 of the lock's size). The step logs both sizes, so a request
   rejected for size is visible in the job log.
+
+### Scorecard Token-Permissions alerts
+
+OpenSSF Scorecard (`TokenPermissionsID`) cannot see into a reusable workflow. It
+scores the caller's job-level permissions and raises two high alerts per
+consumer repository, both on the caller file (`pixi-lock-refresh.yml`):
+
+- `jobLevel 'contents' permission set to 'write'`
+- `jobLevel 'actions' permission set to 'write'`
+
+They are expected. Each scope backs one operation, all done with `github.token`:
+
+| Scope | Operation |
+|-------|-----------|
+| `contents: write` | API-signed commit (GraphQL `createCommitOnBranch`) |
+| `pull-requests: write` | open or update the PR and enable auto-merge |
+| `actions: write` | `gh workflow run` of the CI workflow on the refresh branch, because PRs and pushes made with `github.token` do not start workflows |
+
+Splitting the dispatch into a separate job does not help: Scorecard scores every
+job-level write. The template does set a top-level `permissions: {}`, which
+Scorecard also checks for.
+
+**Fix:** use the optional GitHub App shape (see "Token modes"). The caller then
+grants only `contents: read`, and the alerts do not appear (#406).
+
+**For repositories that stay on the zero-secret default**, dismiss each alert as
+"Won't fix" with this comment (280 characters or fewer, GitHub's dismissal
+comment limit):
+
+```text
+Won't fix: pixi-lock-refresh needs job-level contents:write (API-signed commit), pull-requests:write (PR) and actions:write (dispatch CI; github.token PRs don't trigger workflows). Top-level permissions: {}. The optional GitHub App shape avoids this (ci-framework#406)
+```
+
+If a repository's first Scorecard upload happens on a pull request, every
+pre-existing finding shows as new on that PR, because the target branch has no
+baseline yet. This is a one-time effect, not a regression.
 
 ## Behavior
 
@@ -75,7 +160,8 @@ checks are satisfied. Set `ci-workflow: ''` to disable the dispatch.
    via the API and force-move `branch-name` to it.
 6. Edit the open PR from `branch-name` into `target-branch` if there is one,
    otherwise create it.
-7. Dispatch `ci-workflow` on `branch-name`.
+7. Dispatch `ci-workflow` on `branch-name` (default mode only; skipped on the
+   App path).
 
 `branch-name` is **bot-owned**: it is force-updated on every run, so do not put
 work on it. The workflow refuses a `branch-name` equal to `target-branch`.
@@ -117,12 +203,17 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
+# Top level grants nothing (OpenSSF Token-Permissions); the job scopes writes.
+permissions: {}
+
 jobs:
   refresh:
+    # Default shape (zero secrets). Scorecard flags the contents/actions writes;
+    # see docs/pixi-lock-refresh.md "Scorecard Token-Permissions alerts".
     permissions:
-      contents: write
-      pull-requests: write
-      actions: write
+      contents: write        # API-signed commit
+      pull-requests: write   # open the PR and enable auto-merge
+      actions: write         # dispatch CI on the refresh branch (github.token PRs don't trigger workflows)
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@<tag>
 ```
 

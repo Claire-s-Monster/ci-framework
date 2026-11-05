@@ -12,6 +12,13 @@ on:
 
 permissions: read-all
 
+# Superseded PR runs are cancelled. Pushes and scheduled runs are never cancelled
+# mid-run, but GitHub keeps one pending run per group, so a newer push replaces a
+# queued one. Required checks are enforced on PR heads, so that is harmless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-format:
     name: "🧹 Lint & Format"

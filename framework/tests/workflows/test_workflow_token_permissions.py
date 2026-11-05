@@ -50,6 +50,9 @@ INHERIT_EXEMPT_WORKFLOWS = frozenset(
     {
         "reusable-ci.yml",
         "reusable-code-policy.yml",
+        # Inherits the caller's grant: github.token callers grant writes, App
+        # callers (#406) grant only contents: read.
+        "reusable-pixi-lock-refresh.yml",
         "reusable-quality.yml",
         "reusable-release.yml",
         "reusable-security.yml",

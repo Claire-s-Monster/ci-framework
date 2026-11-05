@@ -5,6 +5,39 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.1.0...v4.2.0) (2026-11-05)
+
+
+### 🚀 Features
+
+* **pixi-lock-refresh:** optional GitHub App token, read-only caller ([#406](https://github.com/Claire-s-Monster/ci-framework/issues/406)) ([2c40404](https://github.com/Claire-s-Monster/ci-framework/commit/2c40404ce554fadb75a7beed0a6cc5f1cf30e2d7))
+* **pixi-lock-refresh:** optional GitHub App token, read-only caller ([#406](https://github.com/Claire-s-Monster/ci-framework/issues/406)) ([b791010](https://github.com/Claire-s-Monster/ci-framework/commit/b791010328800fc92e19114df03960066080574b))
+
+
+### 🐛 Bug Fixes
+
+* **cleanup:** run cleanup once per push and skip the release commit ([3fe5971](https://github.com/Claire-s-Monster/ci-framework/commit/3fe5971cf794b27d94d102c6fab9c2e31d997e12))
+* **cleanup:** run cleanup once per push and skip the release commit ([2a7cd5e](https://github.com/Claire-s-Monster/ci-framework/commit/2a7cd5e90663d5c36ab136ee026ee9328dbf9733))
+* **sync:** skip main-&gt;development sync when the trees are identical ([bbfeb56](https://github.com/Claire-s-Monster/ci-framework/commit/bbfeb56599aa7e8df68031b32d645bae70e47fac))
+* **sync:** skip main-&gt;development sync when the trees are identical ([4ba6df6](https://github.com/Claire-s-Monster/ci-framework/commit/4ba6df61965ac858680cafb8c905ca751201bea1))
+
+
+### 📚 Documentation
+
+* **lock-refresh:** explain Scorecard Token-Permissions alerts on the caller ([b82ef42](https://github.com/Claire-s-Monster/ci-framework/commit/b82ef4233961d86c98663ef8255b35edde3e190e))
+* **lock-refresh:** explain Scorecard Token-Permissions alerts on the caller ([40bb0ab](https://github.com/Claire-s-Monster/ci-framework/commit/40bb0ab569ced8aa5d289ebe4aded002956ee81b))
+
+
+### 🔧 Maintenance
+
+* sync main back to development ([fc11dc7](https://github.com/Claire-s-Monster/ci-framework/commit/fc11dc777f271337d44e0e02244a4393e434223b))
+
+
+### 👷 CI/CD
+
+* add concurrency groups to push-triggered workflows ([a613a23](https://github.com/Claire-s-Monster/ci-framework/commit/a613a235cdc8f2f029d36fe08be7dd560e3b8122))
+* add concurrency groups to push-triggered workflows ([b110116](https://github.com/Claire-s-Monster/ci-framework/commit/b110116bc08bc7fb3cc30ed69b15e61f6023b036))
+
 ## [4.1.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.0.0...v4.1.0) (2026-11-04)
 
 

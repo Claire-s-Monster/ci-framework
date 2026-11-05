@@ -20,6 +20,12 @@ on:
 permissions:
   contents: read
 
+# Serialize syncs; a running sync is never cancelled, and a newer push replaces a
+# queued one, which is fine because the later run sees the latest main.
+concurrency:
+  group: sync-main-to-development
+  cancel-in-progress: false
+
 jobs:
   sync-to-development:
     name: "🔄 Sync Main → Development"

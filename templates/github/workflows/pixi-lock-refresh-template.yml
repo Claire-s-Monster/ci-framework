@@ -38,7 +38,7 @@ jobs:
     # secrets:
     #   APP_CLIENT_ID: ${{ secrets.LOCK_REFRESH_APP_CLIENT_ID }}
     #   APP_PRIVATE_KEY: ${{ secrets.LOCK_REFRESH_APP_PRIVATE_KEY }}
-    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@v4.1.0  # x-release-please-version
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@v4.2.0  # x-release-please-version
     # with:
     #   target-branch: development
     #   branch-name: chore/pixi-lock-refresh

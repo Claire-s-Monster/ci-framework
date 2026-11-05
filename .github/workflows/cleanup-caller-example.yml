@@ -7,16 +7,20 @@ permissions:
   contents: read
 
 on:
+  # In THIS repo cleanup-dev-files.yml already runs on push/schedule, so enabling
+  # them here double-runs cleanup and runs main's copy on development pushes.
+  # Consumers copying this file should uncomment them.
+  #
   # Trigger cleanup on pushes to protected branches
-  push:
-    branches:
-      - main
-      - master
-      - development
-
+  # push:
+  #   branches:
+  #     - main
+  #     - master
+  #     - development
+  #
   # Daily cleanup at 2 AM UTC
-  schedule:
-    - cron: '0 2 * * *'
+  # schedule:
+  #   - cron: '0 2 * * *'
 
   # Manual trigger
   workflow_dispatch:

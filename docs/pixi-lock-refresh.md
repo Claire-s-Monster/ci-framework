@@ -67,6 +67,12 @@ still created through `createCommitOnBranch`, so it is GitHub-signed and the
 verified-commit check applies to both paths. There is no CI dispatch on the App
 path, so `actions: write` and `workflow_dispatch` in your CI are not needed.
 
+On the App path the token is minted at the start of every run, including runs
+where the lock is already current. A wrong client ID or private key, a missing
+installation, or missing App permissions therefore fails the run immediately,
+and a manual `workflow_dispatch` of the caller is a complete setup check. The
+token is revoked at job end by the action's post step.
+
 ## Default mode: no secrets
 
 The default needs no secrets and no PAT or GPG key. It uses only the built-in
@@ -151,16 +157,18 @@ baseline yet. This is a one-time effect, not a regression.
 
 ## Behavior
 
-1. Check out `target-branch` (without persisted credentials). Its head commit
+1. Validate `branch-name`. On the App path, mint the App token now, on every
+   run, before any other work.
+2. Check out `target-branch` (without persisted credentials). Its head commit
    is the parent of the refresh commit.
-2. Run `pixi update --json` (with `-e` for each name in `environments`).
-3. If `pixi.lock` is unchanged, stop cleanly. Every later step is gated on the change.
-4. Run the conda-first check on the refreshed lock (below).
-5. Create the signed commit of `pixi.lock` as `chore(deps): refresh pixi.lock`
+3. Run `pixi update --json` (with `-e` for each name in `environments`).
+4. If `pixi.lock` is unchanged, stop cleanly. Every later step is gated on the change.
+5. Run the conda-first check on the refreshed lock (below).
+6. Create the signed commit of `pixi.lock` as `chore(deps): refresh pixi.lock`
    via the API and force-move `branch-name` to it.
-6. Edit the open PR from `branch-name` into `target-branch` if there is one,
+7. Edit the open PR from `branch-name` into `target-branch` if there is one,
    otherwise create it.
-7. Dispatch `ci-workflow` on `branch-name` (default mode only; skipped on the
+8. Dispatch `ci-workflow` on `branch-name` (default mode only; skipped on the
    App path).
 
 `branch-name` is **bot-owned**: it is force-updated on every run, so do not put

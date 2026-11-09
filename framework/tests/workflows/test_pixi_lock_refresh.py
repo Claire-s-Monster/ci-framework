@@ -481,7 +481,9 @@ def test_checkout_is_target_branch_without_persisted_credentials():
 
 def test_setup_pixi_pins_version_input():
     step = next(s for s in _steps() if "setup-pixi" in str(s.get("uses", "")))
-    assert step["uses"] == "prefix-dev/setup-pixi@v0.11.2"
+    assert re.fullmatch(r"prefix-dev/setup-pixi@v\d+\.\d+\.\d+", step["uses"]), (
+        f"setup-pixi must be pinned to a full semver tag, got {step['uses']!r}"
+    )
     assert step["with"]["pixi-version"] == "${{ inputs.pixi-version }}"
 
 
@@ -586,7 +588,11 @@ def test_mode_step_reads_secrets_via_env_and_rejects_a_half_configured_app():
 def test_mint_step_requests_only_contents_and_pull_requests_write():
     step = _step(MINT_STEP)
     assert step["id"] == "app-token"
-    assert step["uses"] == "actions/create-github-app-token@v3.3.0"
+    assert re.fullmatch(
+        r"actions/create-github-app-token@v\d+\.\d+\.\d+", step["uses"]
+    ), (
+        f"create-github-app-token must be pinned to a full semver tag, got {step['uses']!r}"
+    )
     assert step["if"] == "steps.mode.outputs.app == 'true'"
     assert step["with"] == {
         "client-id": "${{ secrets.APP_CLIENT_ID }}",

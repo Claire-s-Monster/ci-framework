@@ -80,6 +80,14 @@ on:
         required: false
         type: string
         default: 'ci.yml'
+      labels:
+        description: >-
+          Comma-separated labels applied to the refresh PR. Each is created if
+          missing; one that cannot be created is skipped with a warning. Empty
+          applies no labels.
+        required: false
+        type: string
+        default: 'dependencies,pixi'
     secrets:
       APP_CLIENT_ID:
         description: >-
@@ -672,15 +680,34 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BRANCH_NAME: ${{ inputs.branch-name }}
           TARGET_BRANCH: ${{ inputs.target-branch }}
+          PR_LABELS: ${{ inputs.labels }}
         run: |
           set -euo pipefail
           title="chore(deps): refresh pixi.lock"
+
+          # Ensure each requested label exists. A label that cannot be created
+          # is dropped with a warning; it must not fail the refresh.
+          create_labels=()
+          edit_labels=()
+          IFS=',' read -ra requested <<< "$PR_LABELS"
+          for raw in "${requested[@]+"${requested[@]}"}"; do
+            label="${raw#"${raw%%[![:space:]]*}"}"
+            label="${label%"${label##*[![:space:]]}"}"
+            [ -n "$label" ] || continue
+            if gh label create "$label" --force >/dev/null 2>&1; then
+              create_labels+=(--label "$label")
+              edit_labels+=(--add-label "$label")
+            else
+              echo "::warning title=Label unavailable::Could not create or update label '$label'; continuing without it. Create it manually or run the label-sync workflow."
+            fi
+          done
+
           number=$(gh pr list --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --state open --json number --jq '.[0].number // empty')
           if [ -n "$number" ]; then
-            gh pr edit "$number" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
+            gh pr edit "$number" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md" "${edit_labels[@]+"${edit_labels[@]}"}"
             echo "Updated PR #${number}."
           else
-            if ! gh pr create --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"; then
+            if ! gh pr create --head "$BRANCH_NAME" --base "$TARGET_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md" "${create_labels[@]+"${create_labels[@]}"}"; then
               echo "::error title=PR creation failed::With github.token, enable Settings > Actions > General > \"Allow GitHub Actions to create and approve pull requests\". With a GitHub App, check that it is installed on this repository with Pull requests write permission."
               exit 1
             fi

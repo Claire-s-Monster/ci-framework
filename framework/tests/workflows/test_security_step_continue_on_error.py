@@ -73,6 +73,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 from framework.tests.utils.pixi_meta import (
@@ -281,9 +282,41 @@ def uses_security_action(step: dict) -> bool:
     )
 
 
-def runs_security_tool_via_pixi(run_body: str, tasks: dict) -> bool:
+_VAR_RE = re.compile(r"\$\{?(\w+)\}?")
+_INPUT_EXPR_RE = re.compile(r"\$\{\{\s*inputs\.([\w-]+)\s*\}\}")
+
+
+def resolve_task_name(name: str, step: dict | None, inputs: dict) -> str | None:
+    """Resolve a `$VAR` task token via the step's `env:` and input defaults.
+
+    A literal name is returned unchanged. `None` means unresolvable, which the
+    caller treats as a scanner (conservative: never silently drop a step).
+    """
+    var = _VAR_RE.fullmatch(name)
+    if var is None:
+        return name
+    env = (step or {}).get("env") or {}
+    value = env.get(var.group(1))
+    if not isinstance(value, str):
+        return None
+    expr = _INPUT_EXPR_RE.fullmatch(value.strip())
+    if expr is None:
+        return None if "${{" in value else value.strip()
+    default = (inputs.get(expr.group(1)) or {}).get("default")
+    return default if isinstance(default, str) else None
+
+
+def runs_security_tool_via_pixi(
+    run_body: str,
+    tasks: dict,
+    step: dict | None = None,
+    inputs: dict | None = None,
+) -> bool:
     """True when a `run:` body reaches a scanner through a pixi task."""
-    for name in invoked_task_names(run_body):
+    for raw_name in invoked_task_names(run_body):
+        name = resolve_task_name(raw_name, step, inputs or {})
+        if name is None:
+            return True
         for cmd in resolve_task_commands(tasks, name):
             if any(marker in cmd.lower() for marker in SECURITY_TOOL_MARKERS):
                 return True
@@ -298,7 +331,9 @@ def runs_security_tool_directly(run_body: str) -> bool:
     )
 
 
-def is_security_relevant_step(step: dict, tasks: dict) -> bool:
+def is_security_relevant_step(
+    step: dict, tasks: dict, inputs: dict | None = None
+) -> bool:
     """True when `step` invokes a known secret/vulnerability/SAST scanner."""
     if is_non_scanner_step(step):
         return False
@@ -307,7 +342,9 @@ def is_security_relevant_step(step: dict, tasks: dict) -> bool:
     run = step.get("run")
     if not isinstance(run, str):
         return False
-    return runs_security_tool_via_pixi(run, tasks) or runs_security_tool_directly(run)
+    return runs_security_tool_via_pixi(
+        run, tasks, step, inputs
+    ) or runs_security_tool_directly(run)
 
 
 def step_label(step: dict, index: int) -> str:
@@ -337,6 +374,7 @@ def discover_security_steps(
     if not isinstance(doc, dict):
         return []
     found: list[tuple[str, dict, list, int]] = []
+    inputs = workflow_call_inputs(doc)
     for job_name, job in (doc.get("jobs") or {}).items():
         if not isinstance(job, dict):
             continue
@@ -344,7 +382,7 @@ def discover_security_steps(
         for index, step in enumerate(steps):
             if not isinstance(step, dict):
                 continue
-            if not is_security_relevant_step(step, tasks):
+            if not is_security_relevant_step(step, tasks, inputs):
                 continue
             identifier = f"{path.name}::{job_name}::{step_label(step, index)}"
             found.append((identifier, step, steps, index))
@@ -557,6 +595,85 @@ def test_classifier_flags_a_pixi_task_scanner():
     assert [identifier for identifier, *_rest in discovered] == [
         "synthetic.yml::fake-security-job::Run Bandit (synthetic)"
     ]
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("pixi run -e ci safety-check", "safety-check"),
+        ('pixi run -e "$PIXI_ENV" safety-check', "safety-check"),
+        ('pixi run -e "$PIXI_ENV" "$AUDIT_TASK"', "$AUDIT_TASK"),
+        ("pixi run --environment ${PIXI_ENV} ${TASK}", "${TASK}"),
+        ("pixi run safety-check", "safety-check"),
+    ],
+)
+def test_pixi_run_regex_handles_quoted_and_variable_tokens(line, expected):
+    """Self-test: the old `-e [\\w.-]+` regex captured `-e` for the quoted forms."""
+    match = PIXI_RUN_TASK_RE.search(line)
+    assert match is not None and match.group(1) == expected
+
+
+def test_audit_steps_are_classified_as_scanners():
+    """Non-vacuous: exactly the two audit steps must be classified, by id.
+
+    `pixi run -e "$PIXI_ENV" "$AUDIT_TASK"` was invisible to the old regex, and
+    the guard stayed green only because other scanners satisfied the anchors.
+    """
+    discovered = security_steps_by_workflow()
+    for workflow, job in (
+        ("reusable-ci.yml", "python-dep-audit"),
+        ("reusable-security.yml", "python-dep-audit"),
+    ):
+        hits = [
+            step.get("id")
+            for identifier, step, _steps, _index in discovered[workflow]
+            if identifier.split("::")[1] == job
+        ]
+        assert hits == ["audit"], f"{workflow}::{job}: classified {hits}"
+
+
+def test_unresolvable_variable_task_is_treated_as_scanner():
+    doc = yaml.safe_load(
+        """
+        jobs:
+          j:
+            steps:
+              - name: Mystery
+                run: pixi run -e ci "$WHO_KNOWS"
+        """
+    )
+    assert discover_security_steps(Path("synthetic.yml"), doc, load_tasks())
+
+
+def test_variable_task_resolves_through_env_and_input_default():
+    doc = yaml.safe_load(
+        """
+        on:
+          workflow_call:
+            inputs:
+              audit-task:
+                type: string
+                default: safety-check
+        jobs:
+          j:
+            steps:
+              - name: Audit
+                env:
+                  AUDIT_TASK: ${{ inputs.audit-task }}
+                run: pixi run -e "$PIXI_ENV" "$AUDIT_TASK"
+              - name: Benign
+                env:
+                  T: ${{ inputs.audit-task }}
+                run: echo hi
+        """
+    )
+    names = [
+        i.split("::")[2]
+        for i, *_rest in discover_security_steps(
+            Path("synthetic.yml"), doc, load_tasks()
+        )
+    ]
+    assert names == ["Audit"]
 
 
 def test_classifier_flags_a_direct_scanner_invocation():

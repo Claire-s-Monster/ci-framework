@@ -20,6 +20,10 @@
       "type": "generic"
     },
     {
+      "path": "templates/github/workflows/label-sync-template.yml",
+      "type": "generic"
+    },
+    {
       "path": "templates/github/workflows/pixi-lock-refresh-template.yml",
       "type": "generic"
     }

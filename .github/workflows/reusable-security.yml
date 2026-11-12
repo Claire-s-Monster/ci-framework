@@ -43,6 +43,14 @@ on:
         required: false
         type: string
         default: 'v0.82.0'
+      pixi-environment:
+        description: >-
+          Pixi environment the Python dependency audit installs and runs
+          `safety-check` in. An exit code of 127 (tool not installed) skips the
+          audit with a warning instead of failing.
+        required: false
+        type: string
+        default: 'ci'
       languages:
         description: "Comma-separated languages to check (auto-detect if empty)"
         required: false
@@ -199,10 +207,11 @@ jobs:
       - name: "Install Dependencies"
         env:
           PIXI_VER: ${{ inputs.pixi-version }}
+          PIXI_ENV: ${{ inputs.pixi-environment }}
         run: |
           set -o pipefail
           LOG="${RUNNER_TEMP:-/tmp}/pixi-install.log"
-          if ! (pixi install -e ci || pixi install) 2>&1 | tee "$LOG"; then
+          if ! (pixi install -e "$PIXI_ENV" || pixi install) 2>&1 | tee "$LOG"; then
             if grep -qi 'lock file version' "$LOG"; then
               LOCK_V="$(sed -n 's/^version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' pixi.lock 2>/dev/null | head -n1)"
               echo "::error title=pixi lock schema unsupported::pixi.lock uses lock-file schema v${LOCK_V:-unknown}, which the pinned pixi CLI ($PIXI_VER) cannot read. Raise this workflow's 'pixi-version' input to a pixi release that supports schema v${LOCK_V:-?} (schema v7 requires pixi >= v0.68.0), or regenerate pixi.lock with pixi $PIXI_VER. See https://github.com/Claire-s-Monster/ci-framework/issues/250"
@@ -211,18 +220,34 @@ jobs:
           fi
       - name: "Run dependency audit"
         id: audit
+        env:
+          PIXI_ENV: ${{ inputs.pixi-environment }}
         run: |
-          # Use the project's safety-check pixi task if available
-          if pixi task list -e ci 2>/dev/null | grep -q safety-check; then
+          # Use the project's safety-check pixi task if available.
+          # status output: ok | skipped | missing-tool | findings.
+          if pixi task list -e "$PIXI_ENV" 2>/dev/null | grep -qF -- safety-check; then
             echo "Running project safety-check task..."
-            pixi run -e ci safety-check
+            rc=0
+            pixi run -e "$PIXI_ENV" safety-check || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "status=ok" >> "$GITHUB_OUTPUT"
+            elif [ "$rc" -eq 127 ]; then
+              # 127 = command not found: the audit tool is not installed, which
+              # is a setup gap, not a vulnerability finding.
+              echo "::warning title=Audit tool missing::The audit tool for safety-check is not installed in env $PIXI_ENV (exit 127); skipping dependency audit."
+              echo "status=missing-tool" >> "$GITHUB_OUTPUT"
+            else
+              echo "status=findings" >> "$GITHUB_OUTPUT"
+              exit "$rc"
+            fi
           else
             echo "::notice::No safety-check pixi task found — skipping dependency audit"
             echo "Add a safety-check task to your pixi environment to enable auditing"
+            echo "status=skipped" >> "$GITHUB_OUTPUT"
           fi
         continue-on-error: true
       - name: Fail on CVEs
-        if: inputs.fail-on-cve && steps.audit.outcome == 'failure'
+        if: inputs.fail-on-cve && steps.audit.outcome == 'failure' && steps.audit.outputs.status != 'missing-tool'
         run: exit 1
 
   rust-dep-audit:

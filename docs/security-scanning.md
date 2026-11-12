@@ -39,6 +39,7 @@ All inputs are optional. The workflow will auto-detect your languages and use se
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `languages` | string | `` (empty) | Comma-separated languages to check. If empty, auto-detects from: `python` (pyproject.toml/setup.py), `rust` (Cargo.toml), `c_cpp` (CMakeLists.txt/C/C++ source files), `cython` (.pyx/.pxd files), `js_ts` (package.json). Example: `python,rust` |
+| `pixi-environment` | string | `ci` | Pixi environment the Python dependency audit installs and runs `safety-check` in. If the audit tool is not installed there (exit code 127) the audit is skipped with a `::warning::` and `fail-on-cve` does not fail the job. |
 | `fail-on-cve` | boolean | `true` | Fail the workflow on known dependency CVEs. Set to `false` to warn only. |
 | `fail-on-sast` | boolean | `false` | Fail the workflow on SAST findings (Semgrep, CodeQL). Default warns only due to false-positive rates. |
 | `fail-on-secrets` | boolean | `true` | Fail the workflow on detected secrets (TruffleHok). Set to `false` to warn only. |

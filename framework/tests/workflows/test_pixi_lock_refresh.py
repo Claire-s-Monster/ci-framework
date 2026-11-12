@@ -437,6 +437,7 @@ def test_inputs_and_defaults():
         "conda-first-check": "enforce",
         "conda-first-allow": "hb-*",
         "ci-workflow": "ci.yml",
+        "labels": "dependencies,pixi",
     }
     assert inputs["auto-merge"]["type"] == "boolean"
     reusable_ci = yaml.safe_load(
@@ -721,9 +722,16 @@ def test_template_triggers_weekly_and_manually_and_passes_no_secrets():
 
 def test_template_shows_inputs_commented_out():
     text = TEMPLATE.read_text(encoding="utf-8")
+    uncommented = re.sub(r"^\s*#.*$", "", text, flags=re.MULTILINE)
+    # The commonly tuned inputs are active in an uncommented `with:` block; the
+    # rest stay visible as comments. Every input must appear in one of the two.
+    assert re.search(r"^\s+with:\s*$", uncommented, re.MULTILINE)
+    active = yaml.safe_load(text)["jobs"]["refresh"]["with"]
+    assert active, "the active with: block is empty"
     for name in _call()["inputs"]:
+        if name in active:
+            continue
         assert re.search(rf"^\s*#\s*{re.escape(name)}:", text, re.MULTILINE), name
-    assert "with:" not in re.sub(r"^\s*#.*$", "", text, flags=re.MULTILINE)
 
 
 def test_only_the_marked_template_is_a_release_please_extra_file():

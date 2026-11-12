@@ -51,6 +51,14 @@ on:
         required: false
         type: string
         default: 'ci'
+      audit-task:
+        description: >-
+          Name of the pixi task the Python dependency audit job runs in
+          pixi-environment. If the task does not exist the audit is skipped; an
+          exit code of 127 (tool not installed) is skipped with a warning.
+        required: false
+        type: string
+        default: 'safety-check'
       pixi-version:
         description: >-
           Pixi CLI version passed to prefix-dev/setup-pixi. Note this is the
@@ -1046,18 +1054,33 @@ jobs:
         working-directory: ${{ inputs.package-path }}
         env:
           PIXI_ENV: ${{ inputs.pixi-environment }}
+          AUDIT_TASK: ${{ inputs.audit-task }}
         run: |
-          # Use the project's safety-check pixi task if available
-          if pixi task list -e "$PIXI_ENV" 2>/dev/null | grep -q safety-check; then
-            echo "Running project safety-check task..."
-            pixi run -e "$PIXI_ENV" safety-check
+          # Use the project's audit pixi task (default safety-check) if available.
+          # status output: ok | skipped | missing-tool | findings.
+          if pixi task list -e "$PIXI_ENV" 2>/dev/null | grep -qF -- "$AUDIT_TASK"; then
+            echo "Running project $AUDIT_TASK task..."
+            rc=0
+            pixi run -e "$PIXI_ENV" "$AUDIT_TASK" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "status=ok" >> "$GITHUB_OUTPUT"
+            elif [ "$rc" -eq 127 ]; then
+              # 127 = command not found: the audit tool is not installed, which
+              # is a setup gap, not a vulnerability finding.
+              echo "::warning title=Audit tool missing::The audit tool for task '$AUDIT_TASK' is not installed in env $PIXI_ENV (exit 127); skipping dependency audit."
+              echo "status=missing-tool" >> "$GITHUB_OUTPUT"
+            else
+              echo "status=findings" >> "$GITHUB_OUTPUT"
+              exit "$rc"
+            fi
           else
-            echo "::notice::No safety-check pixi task found — skipping dependency audit"
-            echo "Add a safety-check task to your pixi environment to enable auditing"
+            echo "::notice::No $AUDIT_TASK pixi task found — skipping dependency audit"
+            echo "Add a $AUDIT_TASK task to your pixi environment to enable auditing"
+            echo "status=skipped" >> "$GITHUB_OUTPUT"
           fi
         continue-on-error: true
       - name: Fail on CVEs
-        if: inputs.fail-on-cve && steps.audit.outcome == 'failure'
+        if: inputs.fail-on-cve && steps.audit.outcome == 'failure' && steps.audit.outputs.status != 'missing-tool'
         run: exit 1
 
   rust-dep-audit:

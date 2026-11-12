@@ -4,6 +4,12 @@
 version: 2
 updates:
   # Python dependencies (pyproject.toml, requirements.txt)
+  # PIXI PROJECTS: DELETE THIS BLOCK. Dependabot's pip ecosystem ignores
+  # [tool.pixi.*] tables and pixi.lock, so it does nothing on a pixi project.
+  # Refresh the lock with templates/github/workflows/pixi-lock-refresh-template.yml
+  # (reusable-pixi-lock-refresh.yml) instead, and keep Dependabot only for
+  # github-actions below. See docs/pixi-lock-refresh.md.
+  # Labels used below are created by templates/github/workflows/label-sync-template.yml.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:

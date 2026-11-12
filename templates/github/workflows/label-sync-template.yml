@@ -22,7 +22,7 @@ jobs:
   labels:
     permissions:
       issues: write  # gh label create --force
-    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-label-sync.yml@v4.2.0  # x-release-please-version
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-label-sync.yml@v4.2.1 # x-release-please-version
     # with:
     #   labels: |     # newline-separated name|color|description; default set below
     #     dependencies|0366d6|Pull requests that update a dependency file

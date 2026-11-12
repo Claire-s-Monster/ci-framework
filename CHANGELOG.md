@@ -5,6 +5,37 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.1](https://github.com/Claire-s-Monster/ci-framework/compare/v4.2.0...v4.2.1) (2026-11-09)
+
+
+### 🐛 Bug Fixes
+
+* **pixi-lock-refresh:** validate App credentials on every run ([12ad010](https://github.com/Claire-s-Monster/ci-framework/commit/12ad010b55a49e0546f1c2aad5f030b194f5b752))
+* **pixi-lock-refresh:** validate App credentials on every run ([8f9339f](https://github.com/Claire-s-Monster/ci-framework/commit/8f9339f9a8f99b9f4ecfdd2c106eb07a5afc8d9e))
+
+
+### 🔧 Maintenance
+
+* sync main back to development ([a3a7168](https://github.com/Claire-s-Monster/ci-framework/commit/a3a716860c082ae7cee329579f5df40533eb54bb))
+
+
+### 🧪 Tests
+
+* **pixi-lock-refresh:** accept any pinned semver for Dependabot-managed actions ([dbf3fe9](https://github.com/Claire-s-Monster/ci-framework/commit/dbf3fe945c4ebcf2bcb54f54b8040a5c9f78f278))
+* **pixi-lock-refresh:** accept any pinned semver for Dependabot-managed actions ([a871f24](https://github.com/Claire-s-Monster/ci-framework/commit/a871f2410c39a69a9c716f7680e2125d3e0b009f))
+
+
+### 👷 CI/CD
+
+* **deps:** bump prefix-dev/setup-pixi from 0.11.2 to 0.11.3 ([#415](https://github.com/Claire-s-Monster/ci-framework/issues/415)) ([cc0d81e](https://github.com/Claire-s-Monster/ci-framework/commit/cc0d81e2d872a0ea667ab255b2b3a8be74e599e6))
+* **deps:** bump prefix-dev/setup-pixi in /actions/change-detection ([#418](https://github.com/Claire-s-Monster/ci-framework/issues/418)) ([0b0333b](https://github.com/Claire-s-Monster/ci-framework/commit/0b0333bc1b5123ea2447e4f5fbc8040dece34d56))
+* **deps:** bump prefix-dev/setup-pixi in /actions/performance-benchmark ([#417](https://github.com/Claire-s-Monster/ci-framework/issues/417)) ([7d17f58](https://github.com/Claire-s-Monster/ci-framework/commit/7d17f58d13452b63bc565d75b980ea465fae540b))
+* **deps:** bump prefix-dev/setup-pixi in /actions/quality-gates ([#419](https://github.com/Claire-s-Monster/ci-framework/issues/419)) ([2bfbbe7](https://github.com/Claire-s-Monster/ci-framework/commit/2bfbbe710caf1dd4e3973234ae3351ded0bab7d8))
+* **deps:** bump prefix-dev/setup-pixi in /actions/security-scan ([#420](https://github.com/Claire-s-Monster/ci-framework/issues/420)) ([e2c5d6d](https://github.com/Claire-s-Monster/ci-framework/commit/e2c5d6dcac110ad47e1025bed7d456538159f5e8))
+* **deps:** bump prefix-dev/setup-pixi in /actions/self-healing ([#421](https://github.com/Claire-s-Monster/ci-framework/issues/421)) ([4fb2c78](https://github.com/Claire-s-Monster/ci-framework/commit/4fb2c781a37196e7ec77b7f51d0ae4a6453fecef))
+* **deps:** bump trufflesecurity/trufflehog from 3.99.7 to 3.99.8 ([4c3607a](https://github.com/Claire-s-Monster/ci-framework/commit/4c3607a70a1cf5f45a387d1a55a6d585f16ea488))
+* **deps:** bump trufflesecurity/trufflehog from 3.99.7 to 3.99.8 ([e310b01](https://github.com/Claire-s-Monster/ci-framework/commit/e310b01da573b54fb64aa423e5b65ba39ee0fb7b))
+
 ## [4.2.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.1.0...v4.2.0) (2026-11-05)
 
 

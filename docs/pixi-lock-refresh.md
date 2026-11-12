@@ -3,6 +3,13 @@
 `reusable-pixi-lock-refresh.yml` refreshes `pixi.lock` on a schedule and opens
 (or updates) one signed bot pull request with the result (#387).
 
+## Dependabot and pixi
+
+Dependabot's `pip` ecosystem ignores `[tool.pixi.*]` tables and `pixi.lock`, so
+on a pixi project it does nothing. Delete the `pip` block from
+`templates/github/dependabot.yml` in your copy, use this workflow for lock
+updates, and keep Dependabot for `github-actions`.
+
 ## Why
 
 A lock file that is only touched by hand drifts: security fixes in conda-forge
@@ -233,4 +240,13 @@ Optional inputs: `target-branch` (default `development`), `branch-name`
 (`chore/pixi-lock-refresh`), `environments` (empty = all), `auto-merge`,
 `pixi-version` (default matches `reusable-ci.yml`), `package-path` (`.`),
 `conda-first-check` (`enforce`), `conda-first-allow` (`hb-*`), `ci-workflow`
-(`ci.yml`; the workflow file dispatched on `branch-name`, empty disables it).
+(`ci.yml`; the workflow file dispatched on `branch-name`, empty disables it),
+`labels` (`dependencies,pixi`; comma-separated, empty = no labels).
+
+## PR labels
+
+The PR gets the labels in the `labels` input. Before creating or editing the PR,
+the job runs `gh label create <label> --force` for each one, so the label exists
+even in a repository that never ran [label sync](label-sync.md). If a label
+cannot be created, the job emits a `::warning::` and opens the PR without that
+label instead of failing. Set `labels: ''` to apply none.

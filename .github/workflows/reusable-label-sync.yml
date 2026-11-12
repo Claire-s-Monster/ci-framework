@@ -1,0 +1,67 @@
+---
+name: Label Sync (Reusable)
+
+# Creates (or updates) the repository labels that Dependabot and the pixi lock
+# refresh request. Dependabot silently drops labels that do not exist, so
+# nothing is labelled until something creates them. Idempotent: `gh label
+# create --force` updates the colour and description of an existing label.
+# See docs/label-sync.md.
+#
+# The caller grants `issues: write` at job level, for example:
+#   jobs:
+#     labels:
+#       permissions:
+#         issues: write
+#       uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-label-sync.yml@<tag>
+
+on:
+  workflow_call:
+    inputs:
+      labels:
+        description: >-
+          Newline-separated `name|color|description` lines (color is a 6-digit
+          hex without '#'). Blank lines are skipped; a malformed line fails the
+          job. Defaults to the labels requested by templates/github/dependabot.yml
+          plus `pixi`.
+        required: false
+        type: string
+        default: |
+          dependencies|0366d6|Pull requests that update a dependency file
+          python|3572A5|Pull requests that update Python code
+          github-actions|000000|Pull requests that update GitHub Actions code
+          docker|0db7ed|Pull requests that update Docker code
+          nodejs|539e43|Pull requests that update Node.js code
+          pixi|fdd835|Pull requests that update pixi dependencies
+
+permissions: {}
+
+jobs:
+  sync:
+    name: "🏷️ Sync Labels"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - name: Create or update labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LABELS: ${{ inputs.labels }}
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            if [ -z "${line//[[:space:]]/}" ]; then
+              continue
+            fi
+            IFS='|' read -r name color desc extra <<< "$line"
+            if [ -z "${name:-}" ] || [ -n "${extra:-}" ] || ! [[ "${color:-}" =~ ^[0-9A-Fa-f]{6}$ ]]; then
+              echo "::error title=Malformed label line::Expected 'name|color|description' with a 6-digit hex color, got: $line"
+              exit 1
+            fi
+            gh label create "$name" --color "$color" --description "${desc:-}" --force
+            count=$((count + 1))
+          done <<< "$LABELS"
+          echo "Synced $count label(s)."

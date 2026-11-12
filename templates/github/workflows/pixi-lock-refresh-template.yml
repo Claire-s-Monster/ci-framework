@@ -39,11 +39,13 @@ jobs:
     #   APP_CLIENT_ID: ${{ secrets.LOCK_REFRESH_APP_CLIENT_ID }}
     #   APP_PRIVATE_KEY: ${{ secrets.LOCK_REFRESH_APP_PRIVATE_KEY }}
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@v4.2.0  # x-release-please-version
-    # with:
-    #   target-branch: development
-    #   branch-name: chore/pixi-lock-refresh
-    #   environments: ''        # space-separated; empty updates all
-    #   auto-merge: false
+    with:
+      target-branch: development
+      environments: ''          # space-separated; empty updates all
+      auto-merge: false
+      labels: 'dependencies,pixi'  # comma-separated; '' = none; see label-sync-template.yml
+    # Less commonly tuned inputs (shown with their defaults):
+    #   branch-name: chore/pixi-lock-refresh   # bot-owned, force-pushed
     #   pixi-version: v0.82.0
     #   package-path: .
     #   conda-first-check: enforce

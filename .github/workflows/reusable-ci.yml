@@ -1140,8 +1140,13 @@ jobs:
           fi
         continue-on-error: true
       - name: Fail on CVEs
-        if: inputs.fail-on-cve && steps.audit.outcome == 'failure' && steps.audit.outputs.status != 'missing-tool'
+        if: inputs.fail-on-cve && steps.audit.outcome == 'failure' && steps.audit.outputs.status != 'missing-tool' && steps.audit.outputs.status != 'crashed'
         run: exit 1
+      - name: Fail on audit tool crash
+        if: steps.audit.outputs.status == 'crashed'
+        run: |
+          echo "::error::The dependency audit tool crashed, so the dependencies were not audited; failing regardless of fail-on-cve."
+          exit 1
 
   rust-dep-audit:
     name: "🦀 Rust Dependency Audit"

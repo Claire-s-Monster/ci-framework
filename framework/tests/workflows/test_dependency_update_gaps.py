@@ -269,7 +269,7 @@ def test_audit_step_behaviour(workflow, tmp_path, mode, rc, status):
 
 
 @pytest.mark.parametrize("workflow", AUDIT_STEP_SOURCES)
-def test_audit_step_crash_status_and_gate_unchanged(workflow):
+def test_audit_step_crash_fails_job_regardless_of_fail_on_cve(workflow):
     doc = load(workflow)
     steps, index, step = find_step(doc, "python-dep-audit", "Run dependency audit")
     assert "status=crashed" in step["run"]
@@ -279,7 +279,15 @@ def test_audit_step_crash_status_and_gate_unchanged(workflow):
     assert gate["if"] == (
         "inputs.fail-on-cve && steps.audit.outcome == 'failure'"
         " && steps.audit.outputs.status != 'missing-tool'"
+        " && steps.audit.outputs.status != 'crashed'"
     )
+    crash_gate = next(
+        s for s in steps[index + 1 :] if s.get("name") == "Fail on audit tool crash"
+    )
+    assert crash_gate["if"] == "steps.audit.outputs.status == 'crashed'"
+    assert "fail-on-cve" not in crash_gate["if"]
+    assert not has_interpolation(crash_gate["run"])
+    assert "exit 1" in crash_gate["run"]
 
 
 def test_reusable_security_pixi_environment_input_default():

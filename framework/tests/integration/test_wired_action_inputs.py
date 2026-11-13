@@ -1651,14 +1651,24 @@ class TestShellcheckCatchesUnusedVariable:
 
     @requires_shellcheck
     def test_sc2034_fires_on_an_inert_shell_variable(self, tmp_path):
-        from framework.action_shellcheck import RunStep, shellcheck_step
+        from framework.action_shellcheck import iter_run_steps, shellcheck_step
 
-        step = RunStep(
-            path=tmp_path / "action.yml",
-            step_name="test",
-            shell="bash",
-            body='INERT="${{ inputs.x }}"\necho "not using it"\n',
-            start_line=1,
+        action_yml = tmp_path / "action.yml"
+        action_yml.write_text(
+            "name: test\n"
+            "description: test\n"
+            "inputs:\n"
+            "  x:\n"
+            "    description: x\n"
+            "runs:\n"
+            "  using: composite\n"
+            "  steps:\n"
+            "    - name: test\n"
+            "      shell: bash\n"
+            "      run: |\n"
+            '        INERT="${{ inputs.x }}"\n'
+            '        echo "not using it"\n'
         )
+        (step,) = iter_run_steps(action_yml)
         messages = [finding.message for finding in shellcheck_step(step)]
         assert any("SC2034" in message for message in messages), messages

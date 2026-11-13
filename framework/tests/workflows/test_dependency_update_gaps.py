@@ -198,6 +198,8 @@ if [ "$1" = "task" ]; then
 fi
 case "$FAKE_MODE" in
   crash) echo "Traceback (most recent call last):"; echo "  httpx.TypeError"; exit 1 ;;
+  sig139) echo "audit started"; exit 139 ;;
+  sig137) echo "audit started"; exit 137 ;;
   vuln) echo "VULNERABILITY: pkg 1.0 has CVE-0000-0000"; exit 1 ;;
   missing) echo "safety: command not found"; exit 127 ;;
   ok) echo "No known vulnerabilities"; exit 0 ;;
@@ -266,6 +268,19 @@ def test_audit_step_behaviour(workflow, tmp_path, mode, rc, status):
     else:
         assert "crashed" not in proc.stdout
         assert summary == ""
+
+
+@pytest.mark.parametrize("workflow", AUDIT_STEP_SOURCES)
+@pytest.mark.parametrize(("mode", "rc"), [("sig139", 139), ("sig137", 137)])
+def test_audit_step_signal_exit_is_crashed_without_traceback(
+    workflow, tmp_path, mode, rc
+):
+    proc, output, summary = run_audit_step(workflow, tmp_path, mode)
+    assert "Traceback" not in proc.stdout
+    assert output.strip() == "status=crashed", proc.stderr
+    assert proc.returncode == rc, proc.stdout
+    assert "::error title=Dependency audit tool crashed::" in proc.stdout
+    assert "crashed" in summary
 
 
 @pytest.mark.parametrize("workflow", AUDIT_STEP_SOURCES)

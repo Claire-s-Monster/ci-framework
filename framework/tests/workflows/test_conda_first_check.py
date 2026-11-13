@@ -81,6 +81,30 @@ packages:
 )
 
 
+_REMOTE_ENTRY = """\
+- pypi: https://files.pythonhosted.org/packages/x/requests-2.0.0-py3-none-any.whl
+  name: requests
+  version: 2.0.0
+"""
+
+SELF_INSTALL_LOCK = (
+    _ENVIRONMENTS
+    + """\
+packages:
+- pypi: ./
+  name: myproj
+  version: 0.1.0
+  editable: true
+"""
+)
+
+
+def _local_lock(source: str) -> str:
+    return (
+        _ENVIRONMENTS + f"packages:\n- pypi: {source}\n  name: localpkg\n  version: 1\n"
+    )
+
+
 def _run(tmp_path, capsys, lock: str | None, mode: str, allow: str = "hb-*"):
     lock_file = tmp_path / "pixi.lock"
     if lock is not None:
@@ -203,6 +227,61 @@ def test_workflow_wires_the_check_after_install_dependencies():
     assert step["env"]["CONDA_FIRST_MODE"] == "${{ inputs.conda-first-check }}"
     assert step["env"]["CONDA_FIRST_ALLOW"] == "${{ inputs.conda-first-allow }}"
     assert "${{" not in step["run"], "inputs must reach the script via env only"
+
+
+def test_editable_self_install_is_not_reported(tmp_path, capsys):
+    """A pixi project's own `path = "."` editable install is not a PyPI package."""
+    assert check.parse_pypi_packages(SELF_INSTALL_LOCK) == []
+    code, out = _run(tmp_path, capsys, SELF_INSTALL_LOCK, "enforce")
+    assert code == 0
+    assert "::error" not in out and "::warning" not in out
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["./", "../sibling", "file:///abs/path", "/abs/path", "~/proj", "C:\\proj"],
+)
+def test_local_sources_are_not_reported(source, tmp_path, capsys):
+    lock = _local_lock(source)
+    assert check.parse_pypi_packages(lock) == []
+    code, _ = _run(tmp_path, capsys, lock, "enforce")
+    assert code == 0
+
+
+def test_kind_pypi_entry_with_local_path_is_not_reported():
+    lock = "packages:\n- kind: pypi\n  name: myproj\n  path: .\n  editable: true\n"
+    assert check.parse_pypi_packages(lock) == []
+
+
+def test_kind_pypi_entry_with_remote_url_is_still_reported():
+    lock = (
+        "packages:\n- kind: pypi\n  name: requests\n"
+        "  url: https://files.pythonhosted.org/r.whl\n"
+    )
+    assert check.parse_pypi_packages(lock) == ["requests"]
+
+
+def test_remote_package_is_still_reported(tmp_path, capsys):
+    """Negative control: the local-source exemption must not hide remote packages."""
+    lock = _ENVIRONMENTS + "packages:\n" + _REMOTE_ENTRY
+    assert check.parse_pypi_packages(lock) == ["requests"]
+    code, out = _run(tmp_path, capsys, lock, "enforce")
+    assert code == 1
+    assert "'requests'" in out
+
+
+def test_editable_remote_package_is_still_reported():
+    lock = _ENVIRONMENTS + "packages:\n" + _REMOTE_ENTRY + "  editable: true\n"
+    assert check.parse_pypi_packages(lock) == ["requests"]
+
+
+def test_mixed_lock_reports_only_the_remote_package(tmp_path, capsys):
+    lock = SELF_INSTALL_LOCK + _REMOTE_ENTRY
+    assert check.parse_pypi_packages(lock) == ["requests"]
+    code, out = _run(tmp_path, capsys, lock, "enforce")
+    assert code == 1
+    assert out.count("::error") == 1
+    assert "'requests'" in out and "myproj" not in out
 
 
 def _inline_script() -> str:

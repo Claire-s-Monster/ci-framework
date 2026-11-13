@@ -51,6 +51,13 @@ on:
         required: false
         type: string
         default: 'ci'
+      run-self-heal:
+        description: >-
+          Run the manual self-healing job. Only honoured on workflow_dispatch
+          runs, so a lock-refresh CI dispatch does not trigger it.
+        required: false
+        type: boolean
+        default: false
       audit-task:
         description: >-
           Name of the pixi task the Python dependency audit job runs in
@@ -1688,7 +1695,7 @@ jobs:
   self-heal:
     name: "🩹 Self-Healing (Manual Trigger)"
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.run-self-heal
     steps:
       - uses: actions/checkout@v7
       - name: "Run Self-Healing"

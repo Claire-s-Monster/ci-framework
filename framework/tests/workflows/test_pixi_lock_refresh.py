@@ -458,6 +458,24 @@ def test_conda_first_allow_default_matches_reusable_ci():
     )
 
 
+SELF_HEAL_WORKFLOWS = (
+    (Path(".github/workflows/reusable-ci.yml"), "workflow_call"),
+    (Path(".github/workflows/standalone-ci.yml"), "workflow_dispatch"),
+)
+
+
+@pytest.mark.parametrize(("path", "trigger"), SELF_HEAL_WORKFLOWS)
+def test_self_heal_is_opt_in(path, trigger):
+    """The lock-refresh CI dispatch passes no inputs, so self-heal must not run."""
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    declared = (doc.get(True) or doc["on"])[trigger]["inputs"]["run-self-heal"]
+    assert declared["type"] == "boolean"
+    assert declared["default"] is False
+    condition = doc["jobs"]["self-heal"]["if"]
+    assert "github.event_name == 'workflow_dispatch'" in condition
+    assert "inputs.run-self-heal" in condition
+
+
 def test_permissions_are_inherited_from_the_caller():
     doc = _workflow()
     assert "permissions" not in doc

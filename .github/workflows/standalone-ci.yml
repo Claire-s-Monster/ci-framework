@@ -39,8 +39,16 @@ name: Standalone Package CI
 #   pull_request:
 #     branches: [main, master, development]
 #   workflow_dispatch:
+#     inputs:
+#       run-self-heal: {type: boolean, default: false}
 on:
   workflow_dispatch:
+    inputs:
+      run-self-heal:
+        description: "Run the manual self-healing job"
+        required: false
+        type: boolean
+        default: false
 
 permissions: read-all
 
@@ -369,7 +377,7 @@ jobs:
   self-heal:
     name: "🩹 Self-Healing (Manual Trigger)"
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.run-self-heal
     steps:
       - uses: actions/checkout@v7
       - name: "Run Self-Healing"

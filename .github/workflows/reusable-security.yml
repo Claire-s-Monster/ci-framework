@@ -224,11 +224,14 @@ jobs:
           PIXI_ENV: ${{ inputs.pixi-environment }}
         run: |
           # Use the project's safety-check pixi task if available.
-          # status output: ok | skipped | missing-tool | findings.
+          # status output: ok | skipped | missing-tool | crashed | findings.
           if pixi task list -e "$PIXI_ENV" 2>/dev/null | grep -qF -- safety-check; then
             echo "Running project safety-check task..."
+            set -o pipefail
+            LOG="${RUNNER_TEMP:-/tmp}/dep-audit.log"
             rc=0
-            pixi run -e "$PIXI_ENV" safety-check || rc=$?
+            # pipefail makes the pipeline status the audit task's own exit code.
+            pixi run -e "$PIXI_ENV" safety-check 2>&1 | tee "$LOG" || rc=$?
             if [ "$rc" -eq 0 ]; then
               echo "status=ok" >> "$GITHUB_OUTPUT"
             elif [ "$rc" -eq 127 ]; then
@@ -236,6 +239,14 @@ jobs:
               # is a setup gap, not a vulnerability finding.
               echo "::warning title=Audit tool missing::The audit tool for safety-check is not installed in env $PIXI_ENV (exit 127); skipping dependency audit."
               echo "status=missing-tool" >> "$GITHUB_OUTPUT"
+            elif [ "$rc" -gt 128 ] || grep -qF 'Traceback (most recent call last)' "$LOG"; then
+              # A Python traceback, or an exit above 128 (killed by a signal,
+              # e.g. 139 segfault, 137 SIGKILL/OOM), means the audit tool itself
+              # crashed, so the audit did not complete; that is not a finding.
+              echo "::error title=Dependency audit tool crashed::The dependency audit did not complete because the audit tool crashed (traceback or killed by signal, exit $rc); this is not a vulnerability finding. Check the audit tool and its dependencies."
+              echo "Dependency audit tool crashed (exit $rc); the audit did not complete and this is not a vulnerability finding." >> "$GITHUB_STEP_SUMMARY"
+              echo "status=crashed" >> "$GITHUB_OUTPUT"
+              exit "$rc"
             else
               echo "status=findings" >> "$GITHUB_OUTPUT"
               exit "$rc"
@@ -247,8 +258,13 @@ jobs:
           fi
         continue-on-error: true
       - name: Fail on CVEs
-        if: inputs.fail-on-cve && steps.audit.outcome == 'failure' && steps.audit.outputs.status != 'missing-tool'
+        if: inputs.fail-on-cve && steps.audit.outcome == 'failure' && steps.audit.outputs.status != 'missing-tool' && steps.audit.outputs.status != 'crashed'
         run: exit 1
+      - name: Fail on audit tool crash
+        if: steps.audit.outputs.status == 'crashed'
+        run: |
+          echo "::error::The dependency audit tool crashed, so the dependencies were not audited; failing regardless of fail-on-cve."
+          exit 1
 
   rust-dep-audit:
     name: "🦀 Rust Dependency Audit"

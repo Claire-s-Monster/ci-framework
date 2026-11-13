@@ -72,11 +72,15 @@ def _name_from_url(url: str) -> str:
     return last.split("-", 1)[0] if re.search(r"\.(whl|tar\.gz|zip)$", last) else last
 
 
-def parse_pypi_packages(text: str) -> list[str]:
+def parse_pypi_packages(
+    text: str, skipped: list[tuple[str, str]] | None = None
+) -> list[str]:
     """Return the names of PyPI-sourced entries in the top-level `packages:`.
 
     Only the top-level `packages:` list is read: `environments:` also holds
-    `- pypi: <url>` references that must not be counted twice.
+    `- pypi: <url>` references that must not be counted twice. Local-source
+    entries are exempt; when `skipped` is given, each is appended to it as
+    `(name, location)` so the caller can report it.
     """
     names: list[str] = []
     in_packages = False
@@ -85,6 +89,10 @@ def parse_pypi_packages(text: str) -> list[str]:
     def flush() -> None:
         if entry and entry["pypi"]:
             if entry["location"] and _is_local_source(str(entry["location"])):
+                if skipped is not None:
+                    skipped.append(
+                        (str(entry["name"] or "<unknown>"), str(entry["location"]))
+                    )
                 return
             names.append(str(entry["name"] or _name_from_url(str(entry["url"]))))
 
@@ -164,8 +172,12 @@ def run(mode: str, allow: str, lock_file: str) -> int:
     patterns = parse_allow(allow)
     # pixi.lock has one entry per platform wheel: dedupe by normalized name (first spelling wins).
     unique: dict[str, str] = {}
-    for name in parse_pypi_packages(lock.read_text(encoding="utf-8")):
+    skipped: list[tuple[str, str]] = []
+    for name in parse_pypi_packages(lock.read_text(encoding="utf-8"), skipped):
         unique.setdefault(normalize(name), name)
+    # Plain log lines (not annotations): make the local-source exemption auditable.
+    for name, location in dict.fromkeys(skipped):
+        print(f"skipped local source: {name} ({location})")
     offenders = [
         unique[key] for key in sorted(unique) if not is_allowed(unique[key], patterns)
     ]

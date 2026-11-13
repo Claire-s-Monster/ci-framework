@@ -116,8 +116,9 @@ checks are satisfied. Set `ci-workflow: ''` to disable the dispatch.
 **Caveats.**
 
 - The CI run is a `workflow_dispatch` run, not a `pull_request` run.
-  `reusable-ci.yml`'s `self-heal` placeholder job also runs on dispatch; it is
-  a harmless echo.
+  The dispatch passes no inputs, so `reusable-ci.yml`'s `self-heal` job does not
+  run: it needs the `run-self-heal` input (default `false`) set on a manual
+  dispatch.
 - `dorny/paths-filter` in `reusable-ci.yml` diffs against the repository default
   branch on non-PR events. `pixi.lock` is in the `src` filter, so tests do run.
 - An auto-merge performed with `github.token` does not trigger push workflows
@@ -200,7 +201,8 @@ hb-* sub-packages are not on conda-forge. The script is the same
 
 Local-path sources (for example a project's own editable self-install,
 `path = ".", editable = true`) are not PyPI packages and are exempt; remote
-packages stay checked even when editable.
+packages stay checked even when editable. Each skipped local source is listed
+once in the log as `skipped local source: <name> (<location>)`.
 
 ## Auto-merge
 

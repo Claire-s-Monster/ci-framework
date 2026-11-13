@@ -57,10 +57,35 @@ def _pinned_shellcheck() -> str | None:
     return None
 
 
+def _in_ci() -> bool:
+    return os.environ.get("CI") == "true"
+
+
+def _require_shellcheck_in_ci() -> None:
+    """Fail (never skip) when CI lacks the pinned shellcheck."""
+    if _in_ci() and _pinned_shellcheck() is None:
+        pytest.fail("CI=true but no pixi-pinned shellcheck: refusing to skip")
+
+
+# Locally a missing shellcheck skips; in CI the skip is disabled so the test
+# body runs and the guard test below fails loudly.
 requires_shellcheck = pytest.mark.skipif(
-    _pinned_shellcheck() is None,
+    _pinned_shellcheck() is None and not _in_ci(),
     reason="no pixi-pinned shellcheck in this environment",
 )
+
+
+def test_shellcheck_present_in_ci() -> None:
+    _require_shellcheck_in_ci()
+
+
+def test_missing_shellcheck_fails_in_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    with pytest.raises(pytest.fail.Exception):
+        _require_shellcheck_in_ci()
+    monkeypatch.setenv("CI", "false")
+    _require_shellcheck_in_ci()
 
 
 def _extract(text: str, start_marker: str, end_marker: str) -> str:

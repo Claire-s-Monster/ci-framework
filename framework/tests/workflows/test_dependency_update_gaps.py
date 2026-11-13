@@ -11,9 +11,12 @@ the step or key it inspects was actually found before checking its content.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -185,6 +188,98 @@ def test_reusable_ci_audit_step_uses_input_and_handles_127():
     assert "steps.audit.outcome == 'failure'" in gate["if"]
     assert "steps.audit.outputs.status != 'missing-tool'" in gate["if"]
     assert gate["if"].startswith("inputs.fail-on-cve")
+
+
+FAKE_PIXI = """#!/usr/bin/env bash
+if [ "$1" = "task" ]; then
+  echo "safety-check"
+  echo "audit-task-x"
+  exit 0
+fi
+case "$FAKE_MODE" in
+  crash) echo "Traceback (most recent call last):"; echo "  httpx.TypeError"; exit 1 ;;
+  vuln) echo "VULNERABILITY: pkg 1.0 has CVE-0000-0000"; exit 1 ;;
+  missing) echo "safety: command not found"; exit 127 ;;
+  ok) echo "No known vulnerabilities"; exit 0 ;;
+esac
+exit 99
+"""
+
+AUDIT_STEP_SOURCES = [
+    pytest.param(REUSABLE_CI, id="reusable-ci"),
+    pytest.param(REUSABLE_SECURITY, id="reusable-security"),
+]
+
+
+def run_audit_step(workflow: Path, tmp_path: Path, mode: str):
+    """Execute the audit step's run: body with bash and a fake pixi on PATH."""
+    _s, _i, step = find_step(load(workflow), "python-dep-audit", "Run dependency audit")
+    script = tmp_path / "step.sh"
+    script.write_text(step["run"], encoding="utf-8")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    pixi = bindir / "pixi"
+    pixi.write_text(FAKE_PIXI, encoding="utf-8")
+    pixi.chmod(0o755)
+    output = tmp_path / "output"
+    summary = tmp_path / "summary"
+    output.touch()
+    summary.touch()
+    env = {
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "HOME": str(tmp_path),
+        "FAKE_MODE": mode,
+        "PIXI_ENV": "ci",
+        "AUDIT_TASK": "safety-check",
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(output),
+        "GITHUB_STEP_SUMMARY": str(summary),
+    }
+    proc = subprocess.run(  # noqa: S603
+        ["bash", "-e", str(script)],  # noqa: S607
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc, output.read_text(), summary.read_text()
+
+
+@pytest.mark.parametrize("workflow", AUDIT_STEP_SOURCES)
+@pytest.mark.parametrize(
+    ("mode", "rc", "status"),
+    [
+        ("crash", 1, "status=crashed"),
+        ("vuln", 1, "status=findings"),
+        ("missing", 0, "status=missing-tool"),
+        ("ok", 0, "status=ok"),
+    ],
+)
+def test_audit_step_behaviour(workflow, tmp_path, mode, rc, status):
+    proc, output, summary = run_audit_step(workflow, tmp_path, mode)
+    assert output.strip() == status, proc.stderr
+    assert proc.returncode == rc, proc.stdout
+    if mode == "crash":
+        assert "::error title=Dependency audit tool crashed::" in proc.stdout
+        assert "Traceback (most recent call last)" in proc.stdout, "must still stream"
+        assert "crashed" in summary
+    else:
+        assert "crashed" not in proc.stdout
+        assert summary == ""
+
+
+@pytest.mark.parametrize("workflow", AUDIT_STEP_SOURCES)
+def test_audit_step_crash_status_and_gate_unchanged(workflow):
+    doc = load(workflow)
+    steps, index, step = find_step(doc, "python-dep-audit", "Run dependency audit")
+    assert "status=crashed" in step["run"]
+    assert "Traceback (most recent call last)" in step["run"]
+    assert step["continue-on-error"] is True
+    gate = next(s for s in steps[index + 1 :] if s.get("name") == "Fail on CVEs")
+    assert gate["if"] == (
+        "inputs.fail-on-cve && steps.audit.outcome == 'failure'"
+        " && steps.audit.outputs.status != 'missing-tool'"
+    )
 
 
 def test_reusable_security_pixi_environment_input_default():

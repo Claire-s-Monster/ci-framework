@@ -1100,11 +1100,14 @@ jobs:
           AUDIT_TASK: ${{ inputs.audit-task }}
         run: |
           # Use the project's audit pixi task (default safety-check) if available.
-          # status output: ok | skipped | missing-tool | findings.
+          # status output: ok | skipped | missing-tool | crashed | findings.
           if pixi task list -e "$PIXI_ENV" 2>/dev/null | grep -qF -- "$AUDIT_TASK"; then
             echo "Running project $AUDIT_TASK task..."
+            set -o pipefail
+            LOG="${RUNNER_TEMP:-/tmp}/dep-audit.log"
             rc=0
-            pixi run -e "$PIXI_ENV" "$AUDIT_TASK" || rc=$?
+            # pipefail makes the pipeline status the audit task's own exit code.
+            pixi run -e "$PIXI_ENV" "$AUDIT_TASK" 2>&1 | tee "$LOG" || rc=$?
             if [ "$rc" -eq 0 ]; then
               echo "status=ok" >> "$GITHUB_OUTPUT"
             elif [ "$rc" -eq 127 ]; then
@@ -1112,6 +1115,13 @@ jobs:
               # is a setup gap, not a vulnerability finding.
               echo "::warning title=Audit tool missing::The audit tool for task '$AUDIT_TASK' is not installed in env $PIXI_ENV (exit 127); skipping dependency audit."
               echo "status=missing-tool" >> "$GITHUB_OUTPUT"
+            elif grep -qF 'Traceback (most recent call last)' "$LOG"; then
+              # A Python traceback means the audit tool itself crashed, so the
+              # audit did not complete; that is not a vulnerability finding.
+              echo "::error title=Dependency audit tool crashed::The dependency audit did not complete because the audit tool crashed (exit $rc, Python traceback in the log); this is not a vulnerability finding. Check the audit tool and its dependencies."
+              echo "Dependency audit tool crashed (exit $rc); the audit did not complete and this is not a vulnerability finding." >> "$GITHUB_STEP_SUMMARY"
+              echo "status=crashed" >> "$GITHUB_OUTPUT"
+              exit "$rc"
             else
               echo "status=findings" >> "$GITHUB_OUTPUT"
               exit "$rc"

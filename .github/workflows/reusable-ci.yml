@@ -509,6 +509,28 @@ jobs:
               r"^(?P<indent>\s*)- (?P<key>conda|pypi|kind):\s*(?P<value>.*?)\s*$"
           )
           _NAME_RE = re.compile(r"^(?P<indent>\s*)name:\s*(?P<value>.+?)\s*$")
+          # Older `- kind: pypi` entries carry their location in a `url:` or `path:` field.
+          _LOCATION_RE = re.compile(r"^(?P<indent>\s*)(?:url|path):\s*(?P<value>.+?)\s*$")
+          _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+          _REMOTE_PREFIXES = ("http://", "https://", "git+", "ssh://", "git://")
+
+
+          def _is_local_source(value: str) -> bool:
+              """True for a filesystem source, e.g. a project's own editable self-install.
+
+              Local means a relative or absolute path (`./`, `../x`, `/abs`, `~/x`), a
+              `file:` URL, a Windows drive path, or any value without a `scheme://`.
+              Explicit remote URLs (http(s), git+, ssh, git) are never local, so remote
+              packages stay checked even when editable.
+              """
+              value = value.strip()
+              if value.startswith(_REMOTE_PREFIXES):
+                  return False
+              return (
+                  value.startswith((".", "/", "~", "file:"))
+                  or bool(_WINDOWS_DRIVE_RE.match(value))
+                  or "://" not in value
+              )
 
 
           def normalize(name: str) -> str:
@@ -541,6 +563,8 @@ jobs:
 
               def flush() -> None:
                   if entry and entry["pypi"]:
+                      if entry["location"] and _is_local_source(str(entry["location"])):
+                          return
                       names.append(str(entry["name"] or _name_from_url(str(entry["url"]))))
 
               for line in text.splitlines():
@@ -564,16 +588,23 @@ jobs:
                           "indent": len(start["indent"]),
                           "pypi": key == "pypi" or (key == "kind" and value == "pypi"),
                           "url": value,
+                          "location": value if key == "pypi" else None,
                           "name": None,
                       }
                       continue
+                  if entry is None:
+                      continue
+                  field_indent = int(str(entry["indent"])) + 2
                   field = _NAME_RE.match(line)
-                  if (
-                      field
-                      and entry is not None
-                      and len(field["indent"]) == int(str(entry["indent"])) + 2
-                  ):
+                  if field and len(field["indent"]) == field_indent:
                       entry["name"] = _unquote(field["value"])
+                  location = _LOCATION_RE.match(line)
+                  if (
+                      location
+                      and not entry["location"]
+                      and len(location["indent"]) == field_indent
+                  ):
+                      entry["location"] = _unquote(location["value"])
               flush()
               return names
 

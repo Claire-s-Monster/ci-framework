@@ -198,6 +198,10 @@ package names. The default is `hb-*`, matching `reusable-ci.yml`, because
 hb-* sub-packages are not on conda-forge. The script is the same
 `scripts/check_conda_first.py`, inlined as a byte-identical heredoc.
 
+Local-path sources (for example a project's own editable self-install,
+`path = ".", editable = true`) are not PyPI packages and are exempt; remote
+packages stay checked even when editable.
+
 ## Auto-merge
 
 `auto-merge` defaults to `false`. When `true`, the last step runs
@@ -234,10 +238,11 @@ jobs:
 
 **Until the first release containing this workflow, callers must pin
 `@development`**: a tag cut before it does not have the file, and the template's
-`@v4.0.0` marker is only bumped by release-please at release time.
+`@<tag>  # x-release-please-version` marker is only bumped by release-please at
+release time.
 
 Optional inputs: `target-branch` (default `development`), `branch-name`
-(`chore/pixi-lock-refresh`), `environments` (empty = all), `auto-merge`,
+(`chore/pixi-lock-refresh`), `environments` (space-separated; empty = all), `auto-merge`,
 `pixi-version` (default matches `reusable-ci.yml`), `package-path` (`.`),
 `conda-first-check` (`enforce`), `conda-first-allow` (`hb-*`), `ci-workflow`
 (`ci.yml`; the workflow file dispatched on `branch-name`, empty disables it),

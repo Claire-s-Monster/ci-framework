@@ -200,7 +200,8 @@ hb-* sub-packages are not on conda-forge. The script is the same
 
 Local-path sources (for example a project's own editable self-install,
 `path = ".", editable = true`) are not PyPI packages and are exempt; remote
-packages stay checked even when editable.
+packages stay checked even when editable. Each skipped local source is listed
+once in the log as `skipped local source: <name> (<location>)`.
 
 ## Auto-merge
 

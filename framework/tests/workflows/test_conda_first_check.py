@@ -281,7 +281,36 @@ def test_mixed_lock_reports_only_the_remote_package(tmp_path, capsys):
     code, out = _run(tmp_path, capsys, lock, "enforce")
     assert code == 1
     assert out.count("::error") == 1
-    assert "'requests'" in out and "myproj" not in out
+    annotations = [ln for ln in out.splitlines() if ln.startswith("::")]
+    assert "'requests'" in out and not any("myproj" in ln for ln in annotations)
+
+
+def _skip_lines(out: str) -> list[str]:
+    return [ln for ln in out.splitlines() if ln.startswith("skipped local source:")]
+
+
+def test_editable_self_install_is_listed_as_skipped(tmp_path, capsys):
+    """The local-source exemption must be auditable in the log."""
+    code, out = _run(tmp_path, capsys, SELF_INSTALL_LOCK, "enforce")
+    assert code == 0
+    assert _skip_lines(out) == ["skipped local source: myproj (./)"]
+    assert "::error" not in out and "::warning" not in out
+
+
+def test_remote_package_prints_no_skip_line(tmp_path, capsys):
+    lock = _ENVIRONMENTS + "packages:\n" + _REMOTE_ENTRY
+    _, out = _run(tmp_path, capsys, lock, "enforce")
+    assert _skip_lines(out) == []
+
+
+def test_repeated_local_source_is_listed_once(tmp_path, capsys):
+    entry = "- pypi: ./\n  name: myproj\n  version: 0.1.0\n  editable: true\n"
+    lock = "packages:\n" + entry * 3
+    skipped: list[tuple[str, str]] = []
+    assert check.parse_pypi_packages(lock, skipped) == []
+    assert len(skipped) == 3, "self-test: parser must see every repeat"
+    _, out = _run(tmp_path, capsys, lock, "warn")
+    assert _skip_lines(out) == ["skipped local source: myproj (./)"]
 
 
 def _inline_script() -> str:

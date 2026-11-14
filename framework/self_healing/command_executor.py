@@ -142,6 +142,15 @@ class SafeCommandExecutor:
         if env:
             exec_env.update(env)
 
+        # subprocess raises FileNotFoundError/NotADirectoryError for a bad cwd as
+        # well as a missing executable, so check the cwd explicitly.
+        if not work_dir.exists():
+            raise CommandExecutionError(f"Working directory not found: {work_dir}")
+        if not work_dir.is_dir():
+            raise CommandExecutionError(
+                f"Working directory is not a directory: {work_dir}"
+            )
+
         try:
             # Execute command with timeout
             process = subprocess.Popen(

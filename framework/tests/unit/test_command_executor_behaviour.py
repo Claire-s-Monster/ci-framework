@@ -93,6 +93,41 @@ class TestExecute:
             executor.execute("no-such-binary-xyz", check_allowed=False)
         assert isinstance(exc.value.__cause__, FileNotFoundError)
 
+    def test_missing_binary_with_valid_cwd_still_says_command_not_found(
+        self, executor, tmp_path
+    ):
+        with pytest.raises(CommandExecutionError) as exc:
+            executor.execute(
+                "no-such-binary-xyz",
+                working_directory=str(tmp_path),
+                check_allowed=False,
+            )
+        assert str(exc.value).startswith("Command not found")
+        assert "Working directory" not in str(exc.value)
+
+    def test_missing_working_directory_is_not_reported_as_command_not_found(
+        self, executor, bin_dir, tmp_path
+    ):
+        _fake_tool(bin_dir, "ruff", "echo hi")
+        missing = tmp_path / "does-not-exist"
+        with pytest.raises(CommandExecutionError) as exc:
+            executor.execute("ruff", working_directory=str(missing))
+        assert f"Working directory not found: {missing.resolve()}" in str(exc.value)
+        assert "Command not found" not in str(exc.value)
+
+    def test_file_as_working_directory_reports_not_a_directory(
+        self, executor, bin_dir, tmp_path
+    ):
+        _fake_tool(bin_dir, "ruff", "echo hi")
+        a_file = tmp_path / "plain.txt"
+        a_file.write_text("x")
+        with pytest.raises(CommandExecutionError) as exc:
+            executor.execute("ruff", working_directory=str(a_file))
+        assert f"Working directory is not a directory: {a_file.resolve()}" in str(
+            exc.value
+        )
+        assert "Command not found" not in str(exc.value)
+
     def test_non_executable_file_maps_to_permission_error(self, executor, tmp_path):
         script = tmp_path / "noexec.sh"
         script.write_text("#!/bin/sh\necho hi\n")

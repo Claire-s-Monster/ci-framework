@@ -121,7 +121,7 @@ jobs:
       codeql_matrix: ${{ steps.codeql-matrix.outputs.matrix }}
       has_codeql: ${{ steps.codeql-matrix.outputs.has_codeql }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - id: detect
         env:
           LANGUAGES_INPUT: ${{ inputs.languages }}
@@ -198,9 +198,9 @@ jobs:
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: "Setup PIXI Environment"
-        uses: prefix-dev/setup-pixi@v0.11.3
+        uses: prefix-dev/setup-pixi@9936258fee697aff89b3fed6ca1f80a382ef694e  # v0.11.3
         with:
           pixi-version: ${{ inputs.pixi-version }}
           cache: false
@@ -272,10 +272,10 @@ jobs:
     if: needs.detect-languages.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: cargo-audit
         id: audit
-        uses: actions-rust-lang/audit@v1
+        uses: actions-rust-lang/audit@72c09e02f132669d52284a3323acdb503cfc1a24  # v1
         continue-on-error: true
       - name: Fail on advisories
         if: inputs.fail-on-cve && steps.audit.outcome == 'failure'
@@ -287,8 +287,8 @@ jobs:
     if: needs.detect-languages.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
 
   js-dep-audit:
     name: "📦 JS/TS Dependency Audit"
@@ -296,7 +296,7 @@ jobs:
     if: needs.detect-languages.outputs.js_ts == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: npm audit
         id: audit
         run: npm audit --audit-level=high
@@ -339,8 +339,8 @@ jobs:
               ;;
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: "3.12"
       - name: Install Semgrep
@@ -356,7 +356,7 @@ jobs:
         continue-on-error: true
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -412,8 +412,8 @@ jobs:
               ;;
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
-      - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         with:
           languages: ${{ matrix.language }}
           # c-cpp uses build-mode: none so a repo with no C/C++ build system
@@ -422,14 +422,14 @@ jobs:
           # failure (issue #227). Other languages keep the default build mode.
           build-mode: ${{ matrix.language == 'c-cpp' && 'none' || '' }}
       - if: matrix.language != 'c-cpp'
-        uses: github/codeql-action/autobuild@v4
+        uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
       # upload: true uses the native code-scanning path so the aggregate `CodeQL`
       # check reports success instead of `neutral` (issue #222). The upload
       # authenticates via CI_BOT_TOKEN (a PAT with the security_events scope)
       # when set, or falls back to github.token — which now actually reaches
       # this job when the caller grants security-events: write, since the
       # job no longer narrows permissions itself (#306, #352).
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         continue-on-error: true
         with:
           upload: true
@@ -441,12 +441,12 @@ jobs:
     needs: detect-languages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
       - name: TruffleHog scan
         id: trufflehog
-        uses: trufflesecurity/trufflehog@v3.99.8
+        uses: trufflesecurity/trufflehog@ea68ca03c865c5f324e86e849ced20ed3cf9dbbb  # v3.99.8
         with:
           extra_args: --only-verified
         continue-on-error: true
@@ -480,16 +480,16 @@ jobs:
       # allows only allowlisted `uses:` steps in this job (no `run:`), so the
       # check lives in the SAST jobs of the same workflow, which consume the
       # same token (#355).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           persist-credentials: false
-      - uses: ossf/scorecard-action@v2.5.0
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e  # v2.5.0
         with:
           results_file: scorecard.sarif
           results_format: sarif
           publish_results: true
       - name: Upload Scorecard SARIF
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         with:
           sarif_file: scorecard.sarif
           category: scorecard

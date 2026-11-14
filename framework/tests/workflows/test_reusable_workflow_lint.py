@@ -655,21 +655,47 @@ class TestCrossFileConsistency:
             f"Core job mismatch: reusable={sorted(reusable_core)}, standalone={sorted(standalone_core)}"
         )
 
+    @staticmethod
+    def _action_majors(text: str) -> dict[str, str]:
+        """Map action -> major version, from the tag or a SHA pin's '# vN' comment."""
+        action_re = re.compile(
+            r"uses:\s*([\w/-]+)@([0-9a-f]{40}|v\d+[^\s#]*)(?:[ \t]+#[ \t]*(v\d+))?"
+        )
+        majors: dict[str, str] = {}
+        for match in action_re.finditer(text):
+            ref, comment = match.group(2), match.group(3)
+            if re.fullmatch(r"[0-9a-f]{40}", ref):
+                if comment:
+                    majors[match.group(1)] = comment
+            else:
+                majors[match.group(1)] = ref.split(".")[0]
+        return majors
+
+    def test_action_majors_classifier(self):
+        sha = "a" * 40
+        text = (
+            f"uses: actions/checkout@{sha} # v7\n"
+            "uses: actions/cache@v6\n"
+            f"uses: prefix-dev/setup-pixi@{sha} # v0.11.3 note\n"
+            f"uses: dorny/paths-filter@{sha}\n"
+            f"uses: actions/setup-node@{sha}  # v7\n"
+        )
+        assert self._action_majors(text) == {
+            "actions/checkout": "v7",
+            "actions/cache": "v6",
+            "prefix-dev/setup-pixi": "v0",
+            "actions/setup-node": "v7",
+        }
+
     def test_action_versions_match(self):
         """Action versions should be consistent across workflows."""
         reusable_text = REUSABLE_CI.read_text()
         standalone_text = STANDALONE_CI.read_text()
 
-        # Extract action@version pairs
-        action_re = re.compile(r"uses:\s*([\w/-]+)@(v\d+)")
-
-        reusable_actions = {}
-        for match in action_re.finditer(reusable_text):
-            reusable_actions[match.group(1)] = match.group(2)
-
-        standalone_actions = {}
-        for match in action_re.finditer(standalone_text):
-            standalone_actions[match.group(1)] = match.group(2)
+        reusable_actions = self._action_majors(reusable_text)
+        standalone_actions = self._action_majors(standalone_text)
+        assert reusable_actions, "examined no action refs in reusable-ci.yml"
+        assert standalone_actions, "examined no action refs in standalone-ci.yml"
 
         # Check common actions have same versions
         common = set(reusable_actions.keys()) & set(standalone_actions.keys())

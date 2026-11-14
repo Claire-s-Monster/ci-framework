@@ -75,27 +75,15 @@
 **Best for**: Specific project types with specialized requirements
 
 ### Python Library Migration
-```bash
-ci-migrate migrate . --project-type=library --optimize-for=packaging
-```
 **[📚 Library Migration Guide](project-types/python-library.md)**
 
 ### Python Application Migration
-```bash
-ci-migrate migrate . --project-type=application --optimize-for=deployment
-```
 **[🚀 Application Migration Guide](project-types/python-application.md)**
 
 ### Monorepo Migration
-```bash
-ci-migrate migrate . --project-type=monorepo --enable-change-detection
-```
 **[📦 Monorepo Migration Guide](project-types/monorepo.md)**
 
 ### MCP Server Migration
-```bash
-ci-migrate migrate . --project-type=mcp-server --enable-mcp-validation
-```
 **[🔌 MCP Server Migration Guide](project-types/mcp-server.md)**
 
 ---
@@ -123,9 +111,8 @@ ci-migrate migrate . --project-type=mcp-server --enable-mcp-validation
 
 ## 🛠️ Migration Tools
 
-The CLI, web assistant and Python API migration tools (`ci-migrate`,
-`ProjectMigrator`) are no longer shipped with this framework. Use the manual
-migration steps above.
+Automated migration tooling is no longer shipped with this framework. Use the
+manual migration steps above.
 
 **[🔧 Migration Tools Documentation](../api/migration-tools.md)**
 
@@ -142,10 +129,7 @@ migration steps above.
 
 ### Post-Migration Validation
 ```bash
-# Automated validation
-ci-migrate validate .
-
-# Manual validation checklist
+# Validation checklist
 pixi run quality              # ✅ Quality gates pass
 pixi run security-scan        # ✅ Security checks pass
 git push                      # ✅ CI pipeline successful
@@ -169,9 +153,6 @@ git push                      # ✅ CI pipeline successful
 
 ### Emergency Rollback
 ```bash
-# Quick rollback
-ci-migrate rollback .
-
 # Manual rollback
 git checkout migration-backup-branch
 git push --force-with-lease

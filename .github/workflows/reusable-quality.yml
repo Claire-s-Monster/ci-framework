@@ -67,7 +67,7 @@ jobs:
       cython: ${{ steps.detect.outputs.cython }}
       js_ts: ${{ steps.detect.outputs.js_ts }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - id: detect
         run: |
           if [ -n "${{ inputs.languages }}" ]; then
@@ -121,8 +121,8 @@ jobs:
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: ${{ inputs.python-version }}
       - name: Install ruff
@@ -141,8 +141,8 @@ jobs:
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: ${{ inputs.python-version }}
       - name: Install ruff
@@ -161,8 +161,8 @@ jobs:
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: ${{ inputs.python-version }}
       - name: Install mypy
@@ -181,8 +181,8 @@ jobs:
     if: needs.detect-languages.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30  # v2
         with:
           components: clippy
       - name: Clippy
@@ -199,8 +199,8 @@ jobs:
     if: needs.detect-languages.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30  # v2
         with:
           components: rustfmt
       - name: rustfmt check
@@ -217,8 +217,8 @@ jobs:
     if: needs.detect-languages.outputs.c_cpp == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: cpp-linter/cpp-linter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: cpp-linter/cpp-linter-action@71cf8e84d4876ee304e3330f314df15b9da49c67  # v2
         id: linter
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -239,8 +239,8 @@ jobs:
     if: needs.detect-languages.outputs.cython == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: '3.12'
       - name: Install cython-lint
@@ -262,9 +262,9 @@ jobs:
     if: needs.detect-languages.outputs.js_ts == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: '20'
       - name: Install and lint

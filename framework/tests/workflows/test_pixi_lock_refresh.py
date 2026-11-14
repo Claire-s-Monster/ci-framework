@@ -355,6 +355,18 @@ def _steps() -> list[dict]:
     return _workflow()["jobs"]["refresh"]["steps"]
 
 
+_PINNED_USES_RE = re.compile(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}")
+
+
+def _pinned_version(action: str) -> str | None:
+    """Return the 'vX.Y.Z' trailing comment of the SHA-pinned `uses: <action>@` line."""
+    match = re.search(
+        rf"uses:\s*{re.escape(action)}@[0-9a-f]{{40}}[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b",
+        REUSABLE.read_text(encoding="utf-8"),
+    )
+    return match.group(1) if match else None
+
+
 def _step(name: str) -> dict:
     return next(s for s in _steps() if s.get("name") == name)
 
@@ -500,8 +512,11 @@ def test_checkout_is_target_branch_without_persisted_credentials():
 
 def test_setup_pixi_pins_version_input():
     step = next(s for s in _steps() if "setup-pixi" in str(s.get("uses", "")))
-    assert re.fullmatch(r"prefix-dev/setup-pixi@v\d+\.\d+\.\d+", step["uses"]), (
-        f"setup-pixi must be pinned to a full semver tag, got {step['uses']!r}"
+    assert _PINNED_USES_RE.fullmatch(step["uses"]), (
+        f"setup-pixi must be pinned to a full commit SHA, got {step['uses']!r}"
+    )
+    assert _pinned_version("prefix-dev/setup-pixi"), (
+        "setup-pixi pin needs a '# vX.Y.Z' version comment"
     )
     assert step["with"]["pixi-version"] == "${{ inputs.pixi-version }}"
 
@@ -608,9 +623,12 @@ def test_mint_step_requests_only_contents_and_pull_requests_write():
     step = _step(MINT_STEP)
     assert step["id"] == "app-token"
     assert re.fullmatch(
-        r"actions/create-github-app-token@v\d+\.\d+\.\d+", step["uses"]
+        r"actions/create-github-app-token@[0-9a-f]{40}", step["uses"]
     ), (
-        f"create-github-app-token must be pinned to a full semver tag, got {step['uses']!r}"
+        f"create-github-app-token must be pinned to a full commit SHA, got {step['uses']!r}"
+    )
+    assert _pinned_version("actions/create-github-app-token"), (
+        "create-github-app-token pin needs a '# vX.Y.Z' version comment"
     )
     assert step["if"] == "steps.mode.outputs.app == 'true'"
     assert step["with"] == {

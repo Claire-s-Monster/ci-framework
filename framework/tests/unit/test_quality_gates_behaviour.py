@@ -208,6 +208,14 @@ class TestExecuteCommandMockedRun:
         }
         assert run.call_args.kwargs["timeout"] == 7
 
+    def test_mock_call_is_argv_list_without_shell(self, action, tmp_path, monkeypatch):
+        run = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
+        monkeypatch.setattr(subprocess, "run", run)
+        action._execute_command("python -m ruff check; echo hi", tmp_path, 1)
+        args, kwargs = run.call_args
+        assert args[0] == ["python", "-m", "ruff", "check;", "echo", "hi"]
+        assert kwargs.get("shell") is not True
+
     def test_mock_success(self, action, tmp_path, monkeypatch):
         run = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
         monkeypatch.setattr(subprocess, "run", run)

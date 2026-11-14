@@ -38,6 +38,34 @@ def _write_results(path: Path, entries: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps({"benchmarks": entries}))
 
 
+def _write_baseline(
+    directory: Path, entries: list[tuple[str, float]], timestamp: int = 1000
+) -> Path:
+    """Write a baseline in the format store_results emits (what the action uploads)."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"benchmark-quick-{timestamp}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "timestamp": float(timestamp),
+                "suite": "quick",
+                "benchmarks": [
+                    {
+                        "name": n,
+                        "mean": m,
+                        "stddev": 0.0,
+                        "min": m,
+                        "max": m,
+                        "rounds": 5,
+                    }
+                    for n, m in entries
+                ],
+            }
+        )
+    )
+    return path
+
+
 class FakeRun:
     """Stand-in for subprocess.run recording calls and simulating pytest."""
 
@@ -357,10 +385,37 @@ class TestParseAndBaseline:
     def test_load_baseline_valid(
         self, action: PerformanceBenchmarkAction, tmp_path: Path
     ) -> None:
-        _write_results(tmp_path / "benchmark-results.json", [_raw("a", 2.0)])
+        _write_baseline(tmp_path, [("a", 2.0)])
         loaded = action.load_baseline_results(tmp_path)
         assert loaded is not None
         assert [(r.name, r.mean) for r in loaded] == [("a", 2.0)]
+
+    def test_load_baseline_picks_newest_stored_run(
+        self, action: PerformanceBenchmarkAction, tmp_path: Path
+    ) -> None:
+        _write_baseline(tmp_path, [("a", 1.0)], timestamp=100)
+        _write_baseline(tmp_path, [("a", 3.0)], timestamp=300)
+        _write_baseline(tmp_path, [("a", 2.0)], timestamp=200)
+        loaded = action.load_baseline_results(tmp_path)
+        assert loaded is not None
+        assert [(r.name, r.mean) for r in loaded] == [("a", 3.0)]
+
+    def test_stored_run_round_trips_into_regression_detection(
+        self, action: PerformanceBenchmarkAction, tmp_path: Path
+    ) -> None:
+        stored = PerformanceMetrics(benchmarks=[_bench("a", 1.0, 0.05)])
+        assert action.store_results(stored, tmp_path, "quick", timestamp=50.0)
+        loaded = action.load_baseline_results(tmp_path)
+        assert loaded is not None
+        assert [(r.name, r.mean, r.stddev, r.rounds) for r in loaded] == [
+            ("a", 1.0, 0.05, 5)
+        ]
+        detected, analyses, worst = action.analyze_regression(
+            [_bench("a", 1.5)], loaded, 10.0
+        )
+        assert detected is True
+        assert worst == pytest.approx(50.0)
+        assert analyses[0].baseline_mean == 1.0
 
     def test_load_baseline_corrupt(
         self,
@@ -368,7 +423,7 @@ class TestParseAndBaseline:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        (tmp_path / "benchmark-results.json").write_text("{not json")
+        (tmp_path / "benchmark-quick-1.json").write_text("{not json")
         assert action.load_baseline_results(tmp_path) is None
         assert "Failed to load baseline results" in capsys.readouterr().out
 
@@ -636,9 +691,7 @@ class TestExecuteBenchmarks:
         in_tmp: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        base = in_tmp / "baseline-results"
-        base.mkdir()
-        _write_results(base / "benchmark-results.json", [_raw("a", 1.0)])
+        _write_baseline(in_tmp / "baseline-results", [("a", 1.0)])
         monkeypatch.setattr(pb.subprocess, "run", FakeRun(entries=[_raw("a", 1.5)]))
         res = action.execute_benchmarks(
             in_tmp, regression_threshold=10.0, results_dir=Path("res")
@@ -663,9 +716,7 @@ class TestExecuteBenchmarks:
         in_tmp: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        base = in_tmp / "baseline-results"
-        base.mkdir()
-        _write_results(base / "benchmark-results.json", [_raw("a", 1.0)])
+        _write_baseline(in_tmp / "baseline-results", [("a", 1.0)])
         monkeypatch.setattr(pb.subprocess, "run", FakeRun(entries=[_raw("a", 1.2)]))
         lenient = action.execute_benchmarks(
             in_tmp, regression_threshold=25.0, store_results=False
@@ -685,15 +736,72 @@ class TestExecuteBenchmarks:
         in_tmp: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        base = in_tmp / "baseline-results"
-        base.mkdir()
-        _write_results(base / "benchmark-results.json", [_raw("a", 1.0)])
+        _write_baseline(in_tmp / "baseline-results", [("a", 1.0)])
         monkeypatch.setattr(pb.subprocess, "run", FakeRun(entries=[_raw("a", 9.0)]))
         res = action.execute_benchmarks(
             in_tmp, compare_baseline=False, store_results=False
         )
         assert res["regression_detected"] is False
         assert res["baseline_comparison"] == "No baseline available"
+
+    def test_baseline_found_when_project_dir_is_a_subdirectory(
+        self,
+        action: PerformanceBenchmarkAction,
+        in_tmp: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (in_tmp / "sub").mkdir()
+        _write_baseline(in_tmp / "baseline-results", [("a", 1.0)])
+        monkeypatch.setattr(pb.subprocess, "run", FakeRun(entries=[_raw("a", 1.5)]))
+        res = action.execute_benchmarks(
+            Path("sub"), store_results=False, results_dir=Path("res")
+        )
+        assert res["success"] is True
+        assert res["regression_detected"] is True
+        assert res["regression_percentage"] == pytest.approx(50.0)
+
+    def test_relative_project_dir_is_not_applied_twice(
+        self,
+        action: PerformanceBenchmarkAction,
+        in_tmp: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (in_tmp / "sub").mkdir()
+        fake = FakeRun(entries=[_raw("a", 1.0)])
+        monkeypatch.setattr(pb.subprocess, "run", fake)
+        res = action.execute_benchmarks(Path("sub"), store_results=False)
+        assert res["success"] is True, res["performance_report"]
+        bench_kwargs = fake.kwargs[-1]
+        assert Path(bench_kwargs["cwd"]).is_dir()
+        assert Path(bench_kwargs["cwd"]).resolve() == (in_tmp / "sub").resolve()
+
+    def test_relative_results_dir_stays_at_original_working_directory(
+        self,
+        action: PerformanceBenchmarkAction,
+        in_tmp: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (in_tmp / "sub").mkdir()
+        monkeypatch.setattr(pb.subprocess, "run", FakeRun(entries=[_raw("a", 1.0)]))
+        res = action.execute_benchmarks(Path("sub"), results_dir=Path("res"))
+        assert res["results_path"] == "res"
+        assert list((in_tmp / "res").glob("benchmark-quick-*.json"))
+        assert not (in_tmp / "sub" / "res").exists()
+
+    def test_stored_run_is_next_runs_baseline(
+        self,
+        action: PerformanceBenchmarkAction,
+        in_tmp: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(pb.subprocess, "run", FakeRun(entries=[_raw("a", 1.0)]))
+        first = action.execute_benchmarks(in_tmp, results_dir=Path("res"))
+        assert first["baseline_comparison"] == "No baseline available"
+        (in_tmp / "res").rename(in_tmp / "baseline-results")
+        monkeypatch.setattr(pb.subprocess, "run", FakeRun(entries=[_raw("a", 2.0)]))
+        second = action.execute_benchmarks(in_tmp, results_dir=Path("res"))
+        assert second["regression_detected"] is True
+        assert second["regression_percentage"] == pytest.approx(100.0)
 
     def test_config_overrides_and_parallel_flow_through(
         self,

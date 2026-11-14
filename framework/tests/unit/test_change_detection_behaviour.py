@@ -13,6 +13,7 @@ import json
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -52,8 +53,8 @@ def _fake_git(
     return calls
 
 
-def _result(**overrides) -> ChangeAnalysisResult:
-    fields = {
+def _result(**overrides: Any) -> ChangeAnalysisResult:
+    fields: dict[str, Any] = {
         "success": True,
         "changed_files": ["a.py", "README.md"],
         "classifications": {"source": ["a.py"], "docs": ["README.md"]},

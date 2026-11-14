@@ -48,14 +48,13 @@ git branch backup-for-demo
 
 **[Visual: Terminal showing project analysis]**
 
-**Narrator**: "First, let's understand what we're working with. The framework includes a migration analyzer:"
+**Narrator**: "First, let's understand what we're working with. Let's inspect the current setup by hand:"
 
 ```bash
-# Install migration tool
-pip install ci-framework-migrator
-
 # Analyze current project
-ci-migrate analyze .
+ls -la
+cat pyproject.toml
+cat .github/workflows/*.yml
 ```
 
 **[Visual: Analysis output showing detected tools and configurations]**

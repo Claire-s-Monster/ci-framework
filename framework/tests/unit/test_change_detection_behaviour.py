@@ -10,7 +10,10 @@ for real against files in ``tmp_path``.
 """
 
 import json
+import os
 import subprocess
+import sys
+import textwrap
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -100,13 +103,46 @@ class TestFilePatternMatcher:
             ("Makefile", "build"),
             ("setup.py", "build"),
             ("settings.yml", "config"),
-            (".github/workflows/ci.yml", "config"),
+            (".github/workflows/ci.yml", "ci"),
+            (".github/actions/setup/action.yml", "ci"),
+            (".gitlab-ci.yml", "ci"),
+            ("requirements.txt", "dependencies"),
+            ("requirements-dev.txt", "dependencies"),
+            ("docker/requirements.txt", "dependencies"),
+            ("pyproject.toml", "dependencies"),
+            ("services/api/pyproject.toml", "dependencies"),
+            ("package.json", "dependencies"),
+            ("web/package.json", "dependencies"),
+            ("Cargo.toml", "dependencies"),
+            ("docker-compose.yml", "build"),
+            ("notes.txt", "docs"),
+            ("tox.ini", "config"),
         ],
     )
     def test_default_classification(self, path, category):
         result = FilePatternMatcher().classify_files([path])
         assert result[category] == [path]
         assert sum(len(v) for v in result.values()) == 1
+
+    def test_requirements_only_change_is_not_docs_only(self):
+        classifications = FilePatternMatcher().classify_files(["requirements.txt"])
+        out = OptimizationEngine().calculate_optimization(classifications, [])
+        assert out["change_analysis"]["has_dependencies"] is True
+        assert out["change_analysis"]["docs_only"] is False
+        assert out["skip_tests"] is False
+        assert out["skip_security"] is False
+        assert out["skip_lint"] is False
+
+    def test_workflow_change_is_ci_and_not_skipped_as_docs(self):
+        classifications = FilePatternMatcher().classify_files(
+            ["README.md", ".github/workflows/ci.yml"]
+        )
+        assert classifications["ci"] == [".github/workflows/ci.yml"]
+        out = OptimizationEngine().calculate_optimization(classifications, [])
+        assert out["change_analysis"]["has_ci"] is True
+        assert out["change_analysis"]["docs_only"] is False
+        assert out["skip_lint"] is False
+        assert out["skip_security"] is False
 
     def test_extension_fallback_for_top_level_python(self):
         # "app.py" matches no glob (the source globs need a directory part),
@@ -319,12 +355,73 @@ class TestDependencyAnalyzer:
         analyzer = DependencyAnalyzer(Path("."))
         assert analyzer._test_matches_module(test_file, module_file) is expected
 
-    def test_import_matches_file(self):
-        analyzer = DependencyAnalyzer(Path("."))
-        assert analyzer._import_matches_file("pkg.core", "pkg/core.py")
-        assert analyzer._import_matches_file("pkg.core.Thing", "pkg/core.py")
-        assert analyzer._import_matches_file("pkg", "pkg/__init__.py")
-        assert not analyzer._import_matches_file("pkg.corex", "pkg/core.py")
+    def test_import_resolves_to_project_files(self, project):
+        analyzer = DependencyAnalyzer(project)
+        analyzer.build_dependency_graph(ALL_PY)
+        assert analyzer._files_for_import("pkg.core") == {
+            "pkg/__init__.py",
+            "pkg/core.py",
+        }
+        assert analyzer._files_for_import("pkg.core.Thing") == {
+            "pkg/__init__.py",
+            "pkg/core.py",
+        }
+        assert analyzer._files_for_import("pkg") == {"pkg/__init__.py"}
+        assert analyzer._files_for_import("pkg.corex") == {"pkg/__init__.py"}
+        assert analyzer._files_for_import("os") == set()
+
+    def test_import_based_test_selection_without_naming_match(self, tmp_path):
+        _write(tmp_path, "pkg/__init__.py")
+        _write(tmp_path, "pkg/engine.py")
+        _write(tmp_path, "tests/test_scenarios.py", "from pkg.engine import run\n")
+        _write(tmp_path, "tests/test_unrelated.py", "x = 1\n")
+        files = [
+            "pkg/__init__.py",
+            "pkg/engine.py",
+            "tests/test_scenarios.py",
+            "tests/test_unrelated.py",
+        ]
+        analyzer = DependencyAnalyzer(tmp_path)
+        graph = analyzer.build_dependency_graph(files)
+        assert graph["pkg/engine.py"].test_files == {"tests/test_scenarios.py"}
+        assert analyzer.get_affected_tests(["pkg/engine.py"]) == {
+            "tests/test_scenarios.py"
+        }
+
+    def test_tests_of_unchanged_dependents_are_affected(self, tmp_path):
+        _write(tmp_path, "lib.py")
+        _write(tmp_path, "app.py", "import lib\n")
+        _write(tmp_path, "tests/test_app.py", "import app\n")
+        analyzer = DependencyAnalyzer(tmp_path)
+        analyzer.build_dependency_graph(["lib.py", "app.py", "tests/test_app.py"])
+        assert analyzer.get_affected_tests(["lib.py"]) == {"tests/test_app.py"}
+
+    def test_discover_python_files_skips_hidden_and_vendored_dirs(self, tmp_path):
+        for rel in (
+            "src/a.py",
+            "b.py",
+            "src/notes.txt",
+            ".venv/lib/x.py",
+            ".git/hooks/y.py",
+            "node_modules/pkg/z.py",
+            "src/__pycache__/a.py",
+            "venv/lib/site-packages/w.py",
+        ):
+            _write(tmp_path, rel)
+        assert DependencyAnalyzer(tmp_path).discover_python_files() == [
+            "b.py",
+            "src/a.py",
+        ]
+
+    def test_discover_python_files_is_bounded(self, tmp_path, monkeypatch):
+        for i in range(5):
+            _write(tmp_path, f"m{i}.py")
+        monkeypatch.setattr(cd, "MAX_GRAPH_FILES", 3)
+        assert DependencyAnalyzer(tmp_path).discover_python_files() == [
+            "m0.py",
+            "m1.py",
+            "m2.py",
+        ]
 
     def test_local_import_detects_package_and_module(self, project):
         analyzer = DependencyAnalyzer(project)
@@ -394,9 +491,35 @@ class TestMonorepoHandler:
 
     def test_dependencies_are_extracted_per_package_type(self, monorepo):
         packages = MonorepoHandler(monorepo).detect_packages()
-        assert packages["libA"]["dependencies"] == "requests, numpy, scipy, attrs"
-        assert packages["libB"]["dependencies"] == "libA>=1, pytest"
-        assert packages["webapp"]["dependencies"] == "react, jest, left-pad"
+        assert packages["libA"]["dependencies"] == [
+            "requests",
+            "numpy",
+            "scipy",
+            "attrs",
+        ]
+        assert packages["libB"]["dependencies"] == ["libA", "pytest"]
+        assert packages["webapp"]["dependencies"] == ["react", "jest", "left-pad"]
+
+    def test_requirement_specifiers_are_reduced_to_names(self, tmp_path):
+        _write(
+            tmp_path,
+            "svc/pyproject.toml",
+            "[project]\ndependencies = [\"foo[extra]>=1; python_version<'3.9'\", "
+            '"Bar_baz!=2", "qux"]\n',
+        )
+        _write(tmp_path, "svc/requirements.txt", "zed>1\nyak<2\nwoo[x]==1\n")
+        deps = MonorepoHandler(tmp_path).detect_packages()["svc"]["dependencies"]
+        assert deps == ["foo", "Bar_baz", "qux", "zed", "yak", "woo"]
+
+    def test_dependents_match_exact_package_names_not_substrings(self, tmp_path):
+        _write(tmp_path, "lib/__init__.py")
+        _write(tmp_path, "libA/__init__.py")
+        _write(tmp_path, "user/pyproject.toml", '[project]\ndependencies = ["libA"]\n')
+        handler = MonorepoHandler(tmp_path)
+        handler.detect_packages()
+        assert handler._get_dependent_packages("lib") == set()
+        assert handler._get_dependent_packages("libA") == {"user"}
+        assert sorted(handler.get_affected_packages(["lib/x.py"])) == ["lib"]
 
     def test_detect_packages_caches_result_on_handler(self, monorepo):
         handler = MonorepoHandler(monorepo)
@@ -432,12 +555,12 @@ class TestMonorepoHandler:
         _write(tmp_path, "libC/requirements.txt", "flask==2\n")
         packages = MonorepoHandler(tmp_path).detect_packages()
         assert packages["libC"]["type"] == "python_project"
-        assert packages["libC"]["dependencies"] == "flask"
+        assert packages["libC"]["dependencies"] == ["flask"]
 
     def test_malformed_package_json_yields_no_dependencies(self, tmp_path):
         _write(tmp_path, "web/package.json", "{{{")
         packages = MonorepoHandler(tmp_path).detect_packages()
-        assert packages["web"]["dependencies"] == ""
+        assert packages["web"]["dependencies"] == []
 
     def test_changed_files_map_to_their_package(self, monorepo):
         handler = MonorepoHandler(monorepo)
@@ -670,6 +793,25 @@ class TestReportGenerator:
         assert "- `tests/test_19.py`" in md
         assert "tests/test_20.py" not in md
         assert "... and 5 more tests" in md
+
+    @pytest.mark.parametrize(("count", "remainder"), [(10, None), (11, 1), (25, 15)])
+    def test_markdown_lists_first_ten_files_and_counts_the_rest(
+        self, tmp_path, count, remainder
+    ):
+        files = [f"src/m{i:02d}.py" for i in range(count)]
+        ReportGenerator(tmp_path).generate_reports(
+            _result(classifications={"source": files}, change_categories="source")
+        )
+        md = (tmp_path / "change-detection-summary.md").read_text(encoding="utf-8")
+        assert f"- **Source:** {count} files" in md
+        for name in files[:10]:
+            assert f"  - `{name}`" in md
+        for name in files[10:]:
+            assert name not in md
+        if remainder is None:
+            assert "... and" not in md
+        else:
+            assert f"  - ... and {remainder} more\n" in md
 
     def test_markdown_omits_empty_categories(self, tmp_path):
         ReportGenerator(tmp_path).generate_reports(
@@ -981,12 +1123,29 @@ class TestExecute:
         assert report["changed_files"] == changed
         assert report["dependency_graph"]["src/util.py"]["imports"] == ["src.app"]
         assert report["dependency_graph"]["src/app.py"]["imported_by"] == [
-            "src/util.py"
+            "src/util.py",
+            "tests/test_app.py",
         ]
         assert report["optimization_reasoning"]["tests"].startswith("Source")
         assert report["change_analysis"]["has_source"] is True
         assert (tmp_path / "reports" / "change-detection-summary.md").is_file()
         assert (tmp_path / "reports" / "change-detection-detailed.md").is_file()
+
+    def test_unchanged_dependents_and_their_tests_are_affected(
+        self, tmp_path, monkeypatch
+    ):
+        _write(tmp_path, "src/lib.py", "x = 1\n")
+        _write(tmp_path, "src/app.py", "import src.lib\n")
+        _write(tmp_path, "src/other.py", "y = 2\n")
+        _write(tmp_path, "tests/test_app.py", "import src.app\n")
+        _write(tmp_path, "tests/test_other.py", "import src.other\n")
+        _, result = _run(tmp_path, monkeypatch, ["src/lib.py"])
+        assert result.affected_tests == ["tests/test_app.py"]
+        assert result.dependency_impact == 2
+        report = json.loads(
+            (tmp_path / "reports" / "change-detection-report.json").read_text()
+        )
+        assert report["dependency_graph"]["src/lib.py"]["imported_by"] == ["src/app.py"]
 
     def test_changed_test_files_are_selected(self, tmp_path, monkeypatch):
         _write(tmp_path, "src/app.py")
@@ -1085,3 +1244,189 @@ class TestExecute:
         assert result.success is False
         assert offender in result.failure_reason
         assert calls == []
+
+
+# --------------------------------------------------------------------------
+# actions/change-detection/action.yml: the python snippet, run for real
+# --------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ACTION_DIR = REPO_ROOT / "actions" / "change-detection"
+
+OUTPUT_KEYS = {
+    "success",
+    "detection-level",
+    "execution-time",
+    "changed-files",
+    "change-categories",
+    "affected-packages",
+    "skip-tests",
+    "skip-security",
+    "skip-docs",
+    "skip-lint",
+    "optimization-score",
+    "time-savings",
+    "affected-tests",
+    "dependency-impact",
+    "reports-path",
+    "failure-reason",
+}
+
+
+def _action_snippet() -> str:
+    """The python3 heredoc of the real action.yml, with the action path filled in."""
+    lines = (ACTION_DIR / "action.yml").read_text(encoding="utf-8").splitlines()
+    start = next(
+        i for i, line in enumerate(lines) if line.strip() == "python3 << 'EOF'"
+    )
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "EOF")
+    body = textwrap.dedent("\n".join(lines[start + 1 : end]))
+    return body.replace("${{ github.action_path }}", str(ACTION_DIR))
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _repo_with_feature_branch(
+    root: Path, base: dict[str, str], feature: dict[str, str]
+) -> Path:
+    repo = root / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    for rel, content in base.items():
+        _write(repo, rel, content)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+    _git(repo, "checkout", "-q", "-b", "feat")
+    for rel, content in feature.items():
+        _write(repo, rel, content)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "feature")
+    return repo
+
+
+def _run_snippet(
+    repo: Path, tmp_path: Path, **env_overrides: str
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    output_file = tmp_path / "github_output"
+    # pytest-cov's subprocess hook (COV_CORE_*) would make the child write
+    # coverage data that cannot be combined with the parent's branch data.
+    inherited = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("COV_CORE_", "COVERAGE_"))
+    }
+    env = {
+        **inherited,
+        "PROJECT_DIR": str(repo),
+        "REPORTS_DIR": str(tmp_path / "reports"),
+        "BASE_REF": "main",
+        "HEAD_REF": "feat",
+        "GITHUB_OUTPUT": str(output_file),
+        **env_overrides,
+    }
+    proc = subprocess.run(
+        [sys.executable, "-c", _action_snippet()],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    outputs: dict[str, str] = {}
+    if output_file.exists():
+        for line in output_file.read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition("=")
+            outputs[key] = value
+    return proc, outputs
+
+
+class TestActionYmlSnippet:
+    def test_source_change_writes_every_output_from_the_dataclass(self, tmp_path):
+        repo = _repo_with_feature_branch(
+            tmp_path,
+            {
+                "src/lib.py": "x = 1\n",
+                "src/app.py": "import src.lib\n",
+                "tests/test_app.py": "import src.app\n",
+            },
+            {"src/lib.py": "x = 2\n"},
+        )
+        proc, outputs = _run_snippet(repo, tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        assert set(outputs) == OUTPUT_KEYS
+        assert outputs["success"] == "true"
+        assert outputs["changed-files"] == "src/lib.py"
+        assert outputs["change-categories"] == "source"
+        assert outputs["affected-tests"] == "tests/test_app.py"
+        assert outputs["dependency-impact"] == "2"
+        assert outputs["skip-tests"] == "false"
+        assert outputs["skip-security"] == "false"
+        assert outputs["skip-docs"] == "true"
+        assert outputs["skip-lint"] == "false"
+        assert outputs["optimization-score"] == "25"
+        assert outputs["time-savings"] == "60"
+        assert outputs["affected-packages"] == ""
+        assert outputs["detection-level"] == "standard"
+        assert float(outputs["execution-time"]) >= 0
+        assert outputs["reports-path"] == str(tmp_path / "reports")
+        assert outputs["failure-reason"] == ""
+        assert (tmp_path / "reports" / "change-detection-report.json").is_file()
+
+    def test_docs_only_change_skips_jobs(self, tmp_path):
+        repo = _repo_with_feature_branch(
+            tmp_path, {"a.py": "x = 1\n"}, {"README.md": "hi\n"}
+        )
+        proc, outputs = _run_snippet(repo, tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        assert outputs["success"] == "true"
+        assert outputs["change-categories"] == "docs"
+        assert outputs["skip-tests"] == "true"
+        assert outputs["skip-security"] == "true"
+        assert outputs["skip-lint"] == "true"
+        assert outputs["skip-docs"] == "false"
+        assert outputs["optimization-score"] == "75"
+        assert outputs["failure-reason"] == ""
+
+    def test_no_changes_still_writes_outputs(self, tmp_path):
+        repo = _repo_with_feature_branch(
+            tmp_path, {"a.py": "x = 1\n"}, {"b.py": "y = 1\n"}
+        )
+        proc, outputs = _run_snippet(repo, tmp_path, HEAD_REF="main")
+        assert proc.returncode == 0, proc.stderr
+        assert set(outputs) == OUTPUT_KEYS
+        assert outputs["success"] == "true"
+        assert outputs["changed-files"] == ""
+        assert outputs["failure-reason"] == ""
+
+    @pytest.mark.parametrize(("fail_fast", "exit_code"), [("false", 0), ("true", 1)])
+    def test_failed_analysis_reports_reason_and_honours_fail_fast(
+        self, tmp_path, fail_fast, exit_code
+    ):
+        repo = _repo_with_feature_branch(
+            tmp_path, {"a.py": "x = 1\n"}, {"b.py": "y = 1\n"}
+        )
+        proc, outputs = _run_snippet(
+            repo, tmp_path, HEAD_REF="--foo", FAIL_FAST=fail_fast
+        )
+        assert proc.returncode == exit_code, proc.stderr
+        assert set(outputs) == OUTPUT_KEYS
+        assert outputs["success"] == "false"
+        assert "head_ref" in outputs["failure-reason"]
+        assert outputs["skip-tests"] == "false"
+        assert outputs["affected-tests"] == ""

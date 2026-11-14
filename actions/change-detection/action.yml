@@ -249,6 +249,7 @@ runs:
 
         # Execute change detection using Python
         python3 << 'EOF'
+        import dataclasses
         import sys
         import json
         import time
@@ -661,6 +662,15 @@ runs:
           pattern_config=pattern_config,
         )
         result = detector.execute()
+        # The packaged class returns a ChangeAnalysisResult dataclass, the
+        # standalone fallback returns a plain dict. Normalise to a dict so
+        # every read below works for both (a dataclass has no subscript or
+        # .get()).
+        if not isinstance(result, dict):
+          result = dataclasses.asdict(result)
+        # `failure_reason` is None (not absent) on success in the dataclass,
+        # so `.get(key, '')` would emit the literal string "None".
+        failure_reason = result.get('failure_reason') or ''
 
         # Set outputs
         print(f"success={str(result['success']).lower()}")
@@ -678,7 +688,7 @@ runs:
         print(f"affected-tests={','.join(result.get('affected_tests', []))}")
         print(f"dependency-impact={result.get('dependency_impact', 0)}")
         print(f"reports-path={result.get('reports_path', REPORTS_DIR)}")
-        print(f"failure-reason={result.get('failure_reason', '')}")
+        print(f"failure-reason={failure_reason}")
 
         # Generate GitHub outputs
         with open(os.environ.get("GITHUB_OUTPUT", "/dev/null"), "a") as f:
@@ -697,7 +707,7 @@ runs:
           f.write(f"affected-tests={','.join(result.get('affected_tests', []))}\n")
           f.write(f"dependency-impact={result.get('dependency_impact', 0)}\n")
           f.write(f"reports-path={result.get('reports_path', REPORTS_DIR)}\n")
-          f.write(f"failure-reason={result.get('failure_reason', '')}\n")
+          f.write(f"failure-reason={failure_reason}\n")
 
         # Exit with appropriate code
         if result["success"]:
@@ -722,8 +732,7 @@ runs:
 
           exit(0)
         else:
-          failure_reason = result.get('failure_reason', 'Unknown error')
-          print(f"❌ Change detection failed: {failure_reason}")
+          print(f"❌ Change detection failed: {failure_reason or 'Unknown error'}")
 
           if FAIL_FAST:
             exit(1)

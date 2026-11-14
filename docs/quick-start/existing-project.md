@@ -6,23 +6,9 @@
 
 ## ⏱️ Integration Strategy
 
-### Option A: Automated Migration (1 minute)
-**Recommended**: Let our tools handle the heavy lifting
-
-```bash
-# 1. Install migration tool
-pip install ci-framework-migrator
-
-# 2. Analyze your project
-ci-migrate analyze .
-# Output: Migration plan with step-by-step instructions
-
-# 3. Execute migration
-ci-migrate migrate . --backup --preview
-# Review changes, then run without --preview
-```
-
-**✅ Done!** Skip to [Validation](#validation) section.
+### Option A: Automated Migration (removed)
+The `ci-migrate` automated migration CLI is no longer shipped with this
+framework. Use Option B.
 
 ### Option B: Manual Integration (3-4 minutes)
 **Full control**: Step-by-step integration

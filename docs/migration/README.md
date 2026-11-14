@@ -26,16 +26,8 @@
 
 **Best for**: 90% of Python projects with standard setups
 
-### Quick Automated Migration
-```bash
-# 1. Install migration tool
-pip install ci-framework-migrator
-
-# 2. Analyze and migrate
-ci-migrate analyze .                    # Shows migration plan
-ci-migrate migrate . --backup --dry-run # Preview changes
-ci-migrate migrate . --backup           # Execute migration
-```
+> **Note**: The automated migration CLI (`ci-migrate`) is no longer shipped with this
+> framework. Follow the [Manual Migration](#manual-migration) steps below instead.
 
 ### Automated Migration Features
 - **🔍 Smart Detection**: Automatically identifies your current setup
@@ -131,34 +123,9 @@ ci-migrate migrate . --project-type=mcp-server --enable-mcp-validation
 
 ## 🛠️ Migration Tools
 
-### CLI Migration Tool
-```bash
-# Install
-pip install ci-framework-migrator
-
-# Basic usage
-ci-migrate --help
-
-# Advanced usage with custom config
-ci-migrate migrate . --config=custom-migration.yml
-```
-
-### Web Migration Assistant
-```bash
-# Launch interactive web interface
-ci-migrate serve --port=8080
-# Open http://localhost:8080 for guided migration
-```
-
-### API Integration
-```python
-# Programmatic migration for automation
-from ci_framework.migrator import ProjectMigrator
-
-migrator = ProjectMigrator('.')
-analysis = migrator.analyze()
-result = migrator.migrate(backup=True, dry_run=False)
-```
+The CLI, web assistant and Python API migration tools (`ci-migrate`,
+`ProjectMigrator`) are no longer shipped with this framework. Use the manual
+migration steps above.
 
 **[🔧 Migration Tools Documentation](../api/migration-tools.md)**
 

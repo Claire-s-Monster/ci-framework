@@ -159,10 +159,6 @@ test-cov-impl = "pytest framework/tests/ --cov=framework --cov-report=term-missi
 test-unit = "pytest framework/tests/unit/ -v"
 test-integration = "pytest framework/tests/integration/ -v"
 test-property = "pytest framework/tests/property/ -v"
-test-security = "pytest framework/tests/security/ -v"
-test-reporting = "pytest framework/tests/reporting/ -v"
-test-performance = "pytest framework/tests/performance/ -v"
-test-maintenance = "pytest framework/tests/maintenance/ -v"
 
 # Quality Gates (CRITICAL - MUST PASS)
 lint = "pixi run -e quality lint-impl"

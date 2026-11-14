@@ -221,8 +221,7 @@ class QualityGatesAction:
                 try:
                     # Call the mock to trigger side effects
                     result = mock_run(
-                        cmd,
-                        shell=True,
+                        shlex.split(cmd),
                         cwd=project_dir,
                         capture_output=True,
                         text=True,

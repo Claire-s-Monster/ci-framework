@@ -50,6 +50,8 @@ pytest-cov = ">=4.0.0"
 pytest-timeout = ">=2.1.0"
 pytest-asyncio = ">=0.21.0"
 pytest-xdist = ">=3.3.0"
+# shellcheck-dependent tests must run (not skip) on both ci.yml paths (-e ci, -e quality)
+shellcheck = "*"
 
 # Type Checking
 mypy = ">=1.0.0"

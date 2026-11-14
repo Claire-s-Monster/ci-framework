@@ -57,10 +57,35 @@ def _pinned_shellcheck() -> str | None:
     return None
 
 
+def _in_ci() -> bool:
+    return os.environ.get("CI") == "true"
+
+
+def _require_shellcheck_in_ci() -> None:
+    """Fail (never skip) when CI lacks the pinned shellcheck."""
+    if _in_ci() and _pinned_shellcheck() is None:
+        pytest.fail("CI=true but no pixi-pinned shellcheck: refusing to skip")
+
+
+# Locally a missing shellcheck skips; in CI the skip is disabled so the test
+# body runs and the guard test below fails loudly.
 requires_shellcheck = pytest.mark.skipif(
-    _pinned_shellcheck() is None,
+    _pinned_shellcheck() is None and not _in_ci(),
     reason="no pixi-pinned shellcheck in this environment",
 )
+
+
+def test_shellcheck_present_in_ci() -> None:
+    _require_shellcheck_in_ci()
+
+
+def test_missing_shellcheck_fails_in_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    with pytest.raises(pytest.fail.Exception):
+        _require_shellcheck_in_ci()
+    monkeypatch.setenv("CI", "false")
+    _require_shellcheck_in_ci()
 
 
 def _extract(text: str, start_marker: str, end_marker: str) -> str:
@@ -1651,14 +1676,24 @@ class TestShellcheckCatchesUnusedVariable:
 
     @requires_shellcheck
     def test_sc2034_fires_on_an_inert_shell_variable(self, tmp_path):
-        from framework.action_shellcheck import RunStep, shellcheck_step
+        from framework.action_shellcheck import iter_run_steps, shellcheck_step
 
-        step = RunStep(
-            path=tmp_path / "action.yml",
-            step_name="test",
-            shell="bash",
-            body='INERT="${{ inputs.x }}"\necho "not using it"\n',
-            start_line=1,
+        action_yml = tmp_path / "action.yml"
+        action_yml.write_text(
+            "name: test\n"
+            "description: test\n"
+            "inputs:\n"
+            "  x:\n"
+            "    description: x\n"
+            "runs:\n"
+            "  using: composite\n"
+            "  steps:\n"
+            "    - name: test\n"
+            "      shell: bash\n"
+            "      run: |\n"
+            '        INERT="${{ inputs.x }}"\n'
+            '        echo "not using it"\n'
         )
+        (step,) = iter_run_steps(action_yml)
         messages = [finding.message for finding in shellcheck_step(step)]
         assert any("SC2034" in message for message in messages), messages

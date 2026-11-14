@@ -5,6 +5,73 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.2.1...v4.3.0) (2026-11-14)
+
+
+### 🚀 Features
+
+* close pixi dependency-update gaps in reusable workflows and templates ([cd96340](https://github.com/Claire-s-Monster/ci-framework/commit/cd96340ffc2e6cf93bff89203338545df8297651))
+* close pixi dependency-update gaps in reusable workflows and templates ([3fdb561](https://github.com/Claire-s-Monster/ci-framework/commit/3fdb561a6c63c332bc2c5ead710296177f489246))
+* **conda-first:** list skipped local pypi sources in the log ([c5a0db3](https://github.com/Claire-s-Monster/ci-framework/commit/c5a0db30af011c45f2c7b16b9d3debd998b79c6e))
+* **dep-audit:** fail the job when the audit tool crashes ([b0937ba](https://github.com/Claire-s-Monster/ci-framework/commit/b0937ba47b448a9da8f76e4a879914d60d421132))
+* **dep-audit:** report a crashed audit tool separately from findings ([67cc688](https://github.com/Claire-s-Monster/ci-framework/commit/67cc688e395f504c6f6e731c9316ef36a94ca386))
+* **dep-audit:** treat a signal-killed audit tool as crashed ([3b563b2](https://github.com/Claire-s-Monster/ci-framework/commit/3b563b2368131be6b13602734fb85ed288d96f57))
+* pixi-task pilot follow-ups (conda-first skip log, audit crash status, opt-in self-heal) ([ececc1f](https://github.com/Claire-s-Monster/ci-framework/commit/ececc1f033b0d744a810763692c3d4b016fe3051))
+* **self-heal:** require an explicit run-self-heal input ([b9e9b64](https://github.com/Claire-s-Monster/ci-framework/commit/b9e9b649c50d1b484a6a42e870a3d522b6c9b8ae))
+
+
+### 🐛 Bug Fixes
+
+* **change-detection:** fix action crash, category order, import matching, graph scope ([8c85ca7](https://github.com/Claire-s-Monster/ci-framework/commit/8c85ca79257c6d7d088d3d9552985d0e4d29c270))
+* **change-detection:** fix action crash, category order, import matching, graph scope ([b6c2b0e](https://github.com/Claire-s-Monster/ci-framework/commit/b6c2b0ec03856c634964a42e4dd65ad601595f42))
+* **ci:** allowlist test SHA fixture and harden the pin guard ([1942e6b](https://github.com/Claire-s-Monster/ci-framework/commit/1942e6b882230e3d89474e097af238aa76699dbd))
+* **ci:** pin every third-party action to a commit SHA ([c4e2379](https://github.com/Claire-s-Monster/ci-framework/commit/c4e2379a2294cf0e47af65ef9c42e63c73385177))
+* **ci:** pin every third-party action to a commit SHA ([972574e](https://github.com/Claire-s-Monster/ci-framework/commit/972574ece5ead0a924c3ca5b485d18e3944ac402))
+* **ci:** stop masking a failed coverage gate with a fallback test run ([68a5e9f](https://github.com/Claire-s-Monster/ci-framework/commit/68a5e9f7b9ea555dee470678b9b9bc605ae8db61))
+* **ci:** stop masking a failed coverage gate with a fallback test run ([8ac22b4](https://github.com/Claire-s-Monster/ci-framework/commit/8ac22b42b63b259653782d886c7e9ad77aa5fe47))
+* **conda-first:** exempt local-path pypi sources such as editable self-installs ([00822a9](https://github.com/Claire-s-Monster/ci-framework/commit/00822a90f35238d3e0af83385f8bf3a552ab2ef6))
+* **conda-first:** exempt local-path pypi sources such as editable self-installs ([33cdc80](https://github.com/Claire-s-Monster/ci-framework/commit/33cdc805c0149646e4e89ea72343577eb9f62932))
+* **performance-benchmark:** resolve paths once and make baseline loader read stored runs ([0fb9eb8](https://github.com/Claire-s-Monster/ci-framework/commit/0fb9eb8e08f8bdab10e11d70f40f81b3de728c99))
+* **performance-benchmark:** resolve paths once and make baseline loader read stored runs ([3b2b473](https://github.com/Claire-s-Monster/ci-framework/commit/3b2b473013728021971d9fd47db40c260a47a5cd))
+* **quality-gates:** drop shell=True from the last subprocess call ([e2c0577](https://github.com/Claire-s-Monster/ci-framework/commit/e2c0577aa8e2470afe760e240006763101ddab85))
+* **quality-gates:** drop shell=True from the last subprocess call ([d38e225](https://github.com/Claire-s-Monster/ci-framework/commit/d38e2251229fd94ab0aa15687786aa74156ae3ae))
+* **self-healing:** report a bad working directory as such, not "Command not found" ([c7d0752](https://github.com/Claire-s-Monster/ci-framework/commit/c7d0752da69a8df2fe1b917c38850666673be0d0))
+* **self-healing:** report a bad working directory as such, not "Command not found" ([2f7261a](https://github.com/Claire-s-Monster/ci-framework/commit/2f7261ac1051c0d110c9d500333bc256ef751aba))
+* **tests:** give the SC2034 self-test a real action.yml ([cb5d242](https://github.com/Claire-s-Monster/ci-framework/commit/cb5d2424cdd8be2ecc650fec33c1aeffa461f2f7))
+* **tests:** make CI run the shellcheck tests, and fix the SC2034 self-test they hid ([02c6c26](https://github.com/Claire-s-Monster/ci-framework/commit/02c6c26d2e2ec020d06a2fdd284ce4d7fc857160))
+
+
+### 🔧 Maintenance
+
+* drop deps and docs left behind by the package removals ([c7728e1](https://github.com/Claire-s-Monster/ci-framework/commit/c7728e1affd6f13f4899fa39f0e966855343ac4b))
+* drop deps and docs left behind by the package removals ([a07bd7c](https://github.com/Claire-s-Monster/ci-framework/commit/a07bd7c85a45b0df9eb09e47a3b52b330a6c2e61))
+* remove unused security, maintenance, migration, reporting and performance packages ([69d84c4](https://github.com/Claire-s-Monster/ci-framework/commit/69d84c427508eb770677350479f9c28221c6db29))
+* remove unused security, maintenance, migration, reporting and performance packages ([c64d41a](https://github.com/Claire-s-Monster/ci-framework/commit/c64d41a9c2b61bc516bb2d068f0275317ecb5867))
+* **secrets:** refresh .secrets.baseline line numbers ([61c94c0](https://github.com/Claire-s-Monster/ci-framework/commit/61c94c0e8d0127c6683498a8635f32ed3500b33b))
+* **secrets:** refresh .secrets.baseline line numbers ([51bc3d4](https://github.com/Claire-s-Monster/ci-framework/commit/51bc3d4cb55a89210dba4cd17dc373b50d66d6d4))
+* sync main back to development ([a92327d](https://github.com/Claire-s-Monster/ci-framework/commit/a92327d319bf0e463d3709fb63397bcce95f3529))
+
+
+### 🧪 Tests
+
+* **action-shellcheck:** behavioural tests for action_shellcheck ([6478044](https://github.com/Claire-s-Monster/ci-framework/commit/6478044e9bbb76d100ce41ebc8224cd398975f1d))
+* **action-shellcheck:** behavioural tests for action_shellcheck ([6eb9434](https://github.com/Claire-s-Monster/ci-framework/commit/6eb9434eae8f23bdffd1f383a7d9c179f7051046))
+* **change-detection:** behavioural tests for change_detection ([a57dadc](https://github.com/Claire-s-Monster/ci-framework/commit/a57dadc216397bf2aea3ff72a825477acd12785c))
+* **change-detection:** behavioural tests for change_detection ([1d8fb05](https://github.com/Claire-s-Monster/ci-framework/commit/1d8fb05591482a8696e61a3c49222e06f23e4782))
+* **change-detection:** type the _result helper so mypy passes ([6ea5ba5](https://github.com/Claire-s-Monster/ci-framework/commit/6ea5ba5a5acd19df07c1daee9aefa2cac7104d93))
+* **performance-benchmark:** behavioural tests for performance_benchmark ([217c2e9](https://github.com/Claire-s-Monster/ci-framework/commit/217c2e96dd1b9573ba171a4f69e10395fbefa4bd))
+* **performance-benchmark:** behavioural tests for performance_benchmark ([ec1111e](https://github.com/Claire-s-Monster/ci-framework/commit/ec1111e54e8b8f529b78160bc3947a0fc1e1c52b))
+* **quality-gates,self-healing:** behavioural tests for quality_gates and command_executor ([b5b65a7](https://github.com/Claire-s-Monster/ci-framework/commit/b5b65a74f7c9dc2b2f9993eac87dbf370897165a))
+* **quality-gates,self-healing:** behavioural tests for quality_gates and command_executor ([4689f2b](https://github.com/Claire-s-Monster/ci-framework/commit/4689f2bacc4c73ee9ca682e668b010b430690bc4))
+* **quality-gates:** reject any truthy shell value in the mocked call ([bf2a7f3](https://github.com/Claire-s-Monster/ci-framework/commit/bf2a7f33f89a017952358b392bffe076e7d3b935))
+* **workflow-lint:** behavioural tests for workflow_lint ([2083b17](https://github.com/Claire-s-Monster/ci-framework/commit/2083b17ffd29c38777761d66d6978ee6779d9ce3))
+* **workflow-lint:** behavioural tests for workflow_lint ([2955feb](https://github.com/Claire-s-Monster/ci-framework/commit/2955feb8a75788570a43a1ad4335b85ce63880fa))
+
+
+### 👷 CI/CD
+
+* run the shellcheck tests in CI instead of skipping them ([5dd9776](https://github.com/Claire-s-Monster/ci-framework/commit/5dd97763a96b2a3edaa95667c06e352316911958))
+
 ## [4.2.1](https://github.com/Claire-s-Monster/ci-framework/compare/v4.2.0...v4.2.1) (2026-11-09)
 
 

@@ -85,10 +85,6 @@ cp .ci-framework/workflows/python-ci-integration.yml .github/workflows/ci-framew
 **Current setup**: `.github/workflows/test.yml` + `poetry.lock`
 
 ```bash
-# Quick integration
-ci-migrate migrate . --from=poetry-github-actions --backup
-
-# Manual steps
 pixi init --import-from-poetry
 cp .ci-framework/workflows/poetry-integration.yml .github/workflows/ci-framework.yml
 ```
@@ -97,10 +93,6 @@ cp .ci-framework/workflows/poetry-integration.yml .github/workflows/ci-framework
 **Current setup**: Just `requirements.txt`, no CI
 
 ```bash
-# Full migration recommended
-ci-migrate migrate . --from=pip-no-ci --full-setup
-
-# Manual steps
 pixi init
 pixi install $(cat requirements.txt | tr '\n' ' ')
 cp .ci-framework/workflows/python-ci-template.yml .github/workflows/ci.yml
@@ -110,10 +102,6 @@ cp .ci-framework/workflows/python-ci-template.yml .github/workflows/ci.yml
 **Current setup**: `.travis.yml` + `setup.py`
 
 ```bash
-# Modernize and migrate
-ci-migrate migrate . --from=travis-setuptools --modernize
-
-# Manual steps
 pixi init
 pixi install pytest flake8 mypy  # Add modern tools
 cp .ci-framework/workflows/travis-migration.yml .github/workflows/ci.yml
@@ -122,11 +110,7 @@ cp .ci-framework/workflows/travis-migration.yml .github/workflows/ci.yml
 ### Scenario 4: Complex Multi-Tool Setup
 **Current setup**: Multiple tools, complex configuration
 
-```bash
-# Analyze first, then custom migration
-ci-migrate analyze . --detailed
-ci-migrate migrate . --custom --interactive
-```
+Integrate one tool at a time using the manual steps above, validating after each.
 
 ---
 
@@ -178,10 +162,6 @@ quality = { depends-on = ["test", "lint", "typecheck"] }
 ### Pre-Integration Backup
 Always create a backup before migration:
 ```bash
-# Automatic backup
-ci-migrate migrate . --backup
-
-# Manual backup
 git branch backup-before-ci-framework
 git add . && git commit -m "Backup before CI framework integration"
 ```
@@ -211,10 +191,7 @@ After integration, verify:
 # Rollback option 1: Git branch
 git checkout backup-before-ci-framework
 
-# Rollback option 2: Migration tool
-ci-migrate rollback .
-
-# Rollback option 3: Manual
+# Rollback option 2: Manual
 rm -rf .ci-framework
 git checkout HEAD~1 -- .github/workflows/ pyproject.toml
 ```
@@ -231,12 +208,8 @@ git checkout HEAD~1 -- .github/workflows/ pyproject.toml
 
 ### Team Communication
 ```bash
-# Generate integration report for your team
-ci-migrate analyze . --report=team-report.md
-
 # Test integration on feature branch first
 git checkout -b integrate-ci-framework
-ci-migrate migrate .
 # Test thoroughly, then merge to main
 ```
 
@@ -245,9 +218,6 @@ ci-migrate migrate .
 # Keep existing commands working
 echo "alias old-test='pixi run test'" >> ~/.bashrc
 echo "alias old-lint='pixi run lint'" >> ~/.bashrc
-
-# Document changes for team
-ci-migrate generate-changelog . > MIGRATION_CHANGELOG.md
 ```
 
 ---
@@ -261,9 +231,6 @@ ci-migrate generate-changelog . > MIGRATION_CHANGELOG.md
 # Check for conflicts
 pixi solve
 poetry check 2>/dev/null || echo "Poetry not used"
-
-# Resolve conflicts
-ci-migrate resolve-conflicts .
 ```
 
 **CI workflow conflicts:**

@@ -78,8 +78,8 @@ cat .github/workflows/*.yml
 **Narrator**: "Now for the integration. The migration tool automatically creates backups before making any changes:"
 
 ```bash
-# Execute migration with backup and preview
-ci-migrate migrate . --backup --preview
+# Create a backup branch before integrating
+git branch backup-for-demo
 ```
 
 **[Visual: Preview output showing exactly what will be changed]**
@@ -104,8 +104,8 @@ ci-migrate migrate . --backup --preview
 **Narrator**: "Notice what's happening - our existing Poetry configuration stays intact, our current workflows are preserved, and the framework adds enhancement alongside our existing setup. Let's execute this:"
 
 ```bash
-# Execute migration
-ci-migrate migrate .
+# Integrate manually (see docs/quick-start/existing-project.md)
+pixi init --import-from-poetry
 ```
 
 **[Visual: Migration progress with success indicators]**
@@ -186,13 +186,10 @@ pixi run performance     # New performance monitoring
 **Narrator**: "If anything goes wrong, rollback is simple. The migration tool provides multiple recovery options:"
 
 ```bash
-# Option 1: Automated rollback
-ci-migrate rollback .
-
-# Option 2: Git branch restoration
+# Option 1: Git branch restoration
 git checkout backup-for-demo
 
-# Option 3: Manual restoration from backup
+# Option 2: Manual restoration from backup
 cp -r .ci-framework-backup/* .
 ```
 
@@ -211,29 +208,6 @@ cp -r .ci-framework-backup/* .
 - **Migration Guide**: framework.dev/migration
 - **Integration Examples**: framework.dev/examples
 - **Community Support**: github.com/MementoRC/ci-framework/discussions
-
----
-
-## Alternative Scenarios (B-roll Content)
-
-### Scenario B: Travis CI Migration
-```bash
-# Special case: migrating from Travis CI
-ci-migrate migrate . --from=travis-ci --modernize
-```
-
-### Scenario C: No Existing CI
-```bash
-# Projects with no CI at all
-ci-migrate migrate . --from=no-ci --full-setup
-```
-
-### Scenario D: Complex Multi-Tool Setup
-```bash
-# Projects with complex existing tooling
-ci-migrate analyze . --detailed
-ci-migrate migrate . --custom --interactive
-```
 
 ---
 

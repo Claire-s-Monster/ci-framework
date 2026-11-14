@@ -165,7 +165,7 @@ ANCHOR_WORKFLOWS = (
 # tracked issue; `test_documented_exemptions_are_not_stale` forces deletion
 # once an entry's subject stops matching.
 _KNOWN_UNGATED: dict[str, str] = {
-    "reusable-security.yml::sast-codeql::github/codeql-action/analyze@v4": (
+    "reusable-security.yml::sast-codeql::github/codeql-action/analyze": (
         "Cannot be gated until #306 is resolved. #222 established that this "
         "step must keep `upload: true`: the native code-scanning path is the "
         "only thing that sets the aggregate `CodeQL` check's conclusion, and "
@@ -358,7 +358,9 @@ def step_label(step: dict, index: int) -> str:
     for key in ("name", "id", "uses"):
         value = step.get(key)
         if isinstance(value, str) and value.strip():
-            return value
+            # Drop the `@ref`: a SHA pin changes on every bump and must not
+            # invalidate an exemption keyed on what the step runs.
+            return value.split("@", 1)[0] if key == "uses" else value
     return f"<step {index}>"
 
 

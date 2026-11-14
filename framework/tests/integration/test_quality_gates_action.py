@@ -375,7 +375,7 @@ ruff = "*"
         with patch("subprocess.run") as mock_run:
 
             def side_effect(cmd, *args, **kwargs):
-                cmd_str = cmd[0] if isinstance(cmd, list) else cmd
+                cmd_str = " ".join(cmd)
                 if "test" in cmd_str:
                     return Mock(returncode=0, stdout="tests passed", stderr="")
                 elif "lint" in cmd_str:

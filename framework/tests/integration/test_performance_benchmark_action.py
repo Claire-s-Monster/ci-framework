@@ -376,21 +376,21 @@ class TestPerformanceBenchmarkIntegration:
         """Test successful loading of baseline results."""
         action = PerformanceBenchmarkAction()
 
-        # Create baseline results file
-        baseline_file = tmp_path / "benchmark-results.json"
+        # Baseline as written by store_results (what the action uploads)
+        baseline_file = tmp_path / "benchmark-quick-1000.json"
         baseline_data = {
+            "timestamp": 1000.0,
+            "suite": "quick",
             "benchmarks": [
                 {
                     "name": "test_baseline",
-                    "stats": {
-                        "mean": 0.002,
-                        "stddev": 0.0002,
-                        "min": 0.0018,
-                        "max": 0.0022,
-                        "rounds": 5,
-                    },
+                    "mean": 0.002,
+                    "stddev": 0.0002,
+                    "min": 0.0018,
+                    "max": 0.0022,
+                    "rounds": 5,
                 }
-            ]
+            ],
         }
 
         with open(baseline_file, "w") as f:

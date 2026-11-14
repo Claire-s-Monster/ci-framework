@@ -35,10 +35,10 @@ authority over the whole thing. `test_tool_configs_track_the_declared_floor`
 below now compares all three declarations against each other.
 
 Issue #286 widened this file again: `discover_version_declarations` walks
-three corpora - every `*.toml` at the repo root and under `templates/`,
-every `.github/workflows/*.yml` and `*.yml.template`, and the literal
-`py3XX` / `>=3.Y` defaults `framework/migration/migrator.py` emits into
-migrated projects - and checks every Python-version declaration found there
+two corpora - every `*.toml` at the repo root and under `templates/`, and
+every `.github/workflows/*.yml` and `*.yml.template` - (a third, the literal
+`py3XX` / `>=3.Y` defaults of the since-removed `framework/migration/migrator.py`,
+was dropped with that module) and checks every Python-version declaration found there
 against the `[project] requires-python` floor. It deliberately EXCLUDES
 `docs/` and `README.md` (~70 sites still pinned to 3.10 at the time this
 was written): those are fixed in a separate PR (#286 PR-C), and including
@@ -508,7 +508,7 @@ def test_declared_floor_matches_tomllib_usage():
 
 
 # ============================================================================
-# #286: version-declaration discovery across TOML / workflow / migrator /
+# #286: version-declaration discovery across TOML / workflow /
 # framework / docs corpora. See the module docstring for each corpus's scope.
 # ============================================================================
 
@@ -516,7 +516,6 @@ DeclarationRecord = tuple[Path, str, str, tuple[int, int] | None]
 
 TEMPLATES_DIR = REPO_ROOT / "templates"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
-MIGRATOR_PATH = REPO_ROOT / "framework" / "migration" / "migrator.py"
 
 # Any "X.Y" pair, used to pull a floor out of loosely-formatted specs
 # (pixi's `python = ">=3.11"` / `"3.12.*"`, workflow matrix arrays) that
@@ -537,12 +536,6 @@ VERSION_KEY_RE = re.compile(r"['\"]?(python-versions?)['\"]?\s*[:=]\s*(.*)$")
 # the `YAML_FALLBACK_WINDOW` idiom above.
 WORKFLOW_LOOKAHEAD_WINDOW = 10
 DEFAULT_VALUE_RE = re.compile(r"default:\s*['\"]?(\[[^\]\n]*\])")
-
-# `framework/migration/migrator.py` literals: quote-agnostic so either
-# quote style is caught, using a backreference to match the same quote on
-# both sides.
-PY3_LITERAL_RE = re.compile(r"""(['"])(py3\d+)\1""")
-GTE_LITERAL_RE = re.compile(r"""(['"])(>=3\.\d+)\1""")
 
 
 def _parse_version_floor_loose(value: object) -> tuple[int, int] | None:
@@ -681,44 +674,8 @@ def discover_workflow_version_declarations() -> list[DeclarationRecord]:
     return records
 
 
-def discover_migrator_version_declarations() -> list[DeclarationRecord]:
-    """`py3\\d+` and `>=3\\.\\d+` string literals in `framework/migration/migrator.py`.
-
-    These are the Python-version defaults the migrator writes INTO
-    consumer projects' `pyproject.toml`/ruff config during a migration, so a
-    stale literal here ships a stale floor outward to every project this
-    tool touches.
-    """
-    records: list[DeclarationRecord] = []
-    try:
-        text = MIGRATOR_PATH.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return records
-    for match in PY3_LITERAL_RE.finditer(text):
-        value = match.group(2)
-        records.append(
-            (
-                MIGRATOR_PATH,
-                "migrator-py3-literal",
-                value,
-                _parse_ruff_target_version(value),
-            )
-        )
-    for match in GTE_LITERAL_RE.finditer(text):
-        value = match.group(2)
-        records.append(
-            (
-                MIGRATOR_PATH,
-                "migrator-gte-literal",
-                value,
-                _parse_requires_python_floor(value),
-            )
-        )
-    return records
-
-
 def discover_version_declarations() -> list[DeclarationRecord]:
-    """Every Python-version declaration across all five corpora.
+    """Every Python-version declaration across all four corpora.
 
     #286 PR-C added the docs corpus - see the module docstring and
     `discover_docs_version_declarations` for its structured/prose
@@ -727,7 +684,6 @@ def discover_version_declarations() -> list[DeclarationRecord]:
     return (
         discover_toml_version_declarations()
         + discover_workflow_version_declarations()
-        + discover_migrator_version_declarations()
         + discover_framework_version_declarations()
         + discover_docs_version_declarations()
     )
@@ -748,12 +704,6 @@ def test_version_declaration_discovery_is_not_vacuous():
         "no python-version(s) matrix declarations found under "
         ".github/workflows/ (*.yml or *.yml.template) - the workflow "
         "walker is broken"
-    )
-
-    migrator_records = discover_migrator_version_declarations()
-    assert migrator_records, (
-        "no py3XX / >=3.Y string literals found in "
-        "framework/migration/migrator.py - the migrator walker is broken"
     )
 
 

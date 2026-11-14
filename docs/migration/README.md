@@ -26,16 +26,8 @@
 
 **Best for**: 90% of Python projects with standard setups
 
-### Quick Automated Migration
-```bash
-# 1. Install migration tool
-pip install ci-framework-migrator
-
-# 2. Analyze and migrate
-ci-migrate analyze .                    # Shows migration plan
-ci-migrate migrate . --backup --dry-run # Preview changes
-ci-migrate migrate . --backup           # Execute migration
-```
+> **Note**: The automated migration CLI (`ci-migrate`) is no longer shipped with this
+> framework. Follow the [Manual Migration](#manual-migration) steps below instead.
 
 ### Automated Migration Features
 - **🔍 Smart Detection**: Automatically identifies your current setup
@@ -83,27 +75,15 @@ ci-migrate migrate . --backup           # Execute migration
 **Best for**: Specific project types with specialized requirements
 
 ### Python Library Migration
-```bash
-ci-migrate migrate . --project-type=library --optimize-for=packaging
-```
 **[📚 Library Migration Guide](project-types/python-library.md)**
 
 ### Python Application Migration
-```bash
-ci-migrate migrate . --project-type=application --optimize-for=deployment
-```
 **[🚀 Application Migration Guide](project-types/python-application.md)**
 
 ### Monorepo Migration
-```bash
-ci-migrate migrate . --project-type=monorepo --enable-change-detection
-```
 **[📦 Monorepo Migration Guide](project-types/monorepo.md)**
 
 ### MCP Server Migration
-```bash
-ci-migrate migrate . --project-type=mcp-server --enable-mcp-validation
-```
 **[🔌 MCP Server Migration Guide](project-types/mcp-server.md)**
 
 ---
@@ -131,34 +111,8 @@ ci-migrate migrate . --project-type=mcp-server --enable-mcp-validation
 
 ## 🛠️ Migration Tools
 
-### CLI Migration Tool
-```bash
-# Install
-pip install ci-framework-migrator
-
-# Basic usage
-ci-migrate --help
-
-# Advanced usage with custom config
-ci-migrate migrate . --config=custom-migration.yml
-```
-
-### Web Migration Assistant
-```bash
-# Launch interactive web interface
-ci-migrate serve --port=8080
-# Open http://localhost:8080 for guided migration
-```
-
-### API Integration
-```python
-# Programmatic migration for automation
-from ci_framework.migrator import ProjectMigrator
-
-migrator = ProjectMigrator('.')
-analysis = migrator.analyze()
-result = migrator.migrate(backup=True, dry_run=False)
-```
+Automated migration tooling is no longer shipped with this framework. Use the
+manual migration steps above.
 
 **[🔧 Migration Tools Documentation](../api/migration-tools.md)**
 
@@ -175,10 +129,7 @@ result = migrator.migrate(backup=True, dry_run=False)
 
 ### Post-Migration Validation
 ```bash
-# Automated validation
-ci-migrate validate .
-
-# Manual validation checklist
+# Validation checklist
 pixi run quality              # ✅ Quality gates pass
 pixi run security-scan        # ✅ Security checks pass
 git push                      # ✅ CI pipeline successful
@@ -202,9 +153,6 @@ git push                      # ✅ CI pipeline successful
 
 ### Emergency Rollback
 ```bash
-# Quick rollback
-ci-migrate rollback .
-
 # Manual rollback
 git checkout migration-backup-branch
 git push --force-with-lease

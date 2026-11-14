@@ -120,7 +120,13 @@ def top_level_permission_violation(workflow: dict) -> str | None:
 
 def test_walker_is_not_vacuous():
     names = {path.name for path in workflow_files()}
-    required = {"ci.yml", "branch-policy.yml", "reusable-ci.yml", "self-healing.yml"}
+    required = {
+        "ci.yml",
+        "branch-policy.yml",
+        "reusable-ci.yml",
+        "reusable-label-sync.yml",
+        "self-healing.yml",
+    }
     assert names, "walk found no workflow files"
     assert required <= names, f"walk is missing {sorted(required - names)}"
 

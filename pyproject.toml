@@ -28,8 +28,6 @@ platforms = ["linux-64"]  # Local development on linux, CI matrix handles cross-
 [tool.pixi.dependencies]
 python = "3.12.*"
 pytest = "*"
-psutil = "*"
-pandas = "*"
 pyyaml = "*"
 requests = ">=2.33.0"  # Security floor, issue #301
 hypothesis = "*"
@@ -37,7 +35,6 @@ pytest-workflow = ">=2.1.0,<3"
 pytest-cov = ">=6.2.1,<7"
 pytest-mock = ">=3.14.1,<4"
 responses = ">=0.25.7,<0.26"
-tomli-w = "*"  # TOML writing for migration tools
 radon = ">=6.0.1,<7"
 vulture = ">=2.7.0"
 
@@ -50,6 +47,8 @@ pytest-cov = ">=4.0.0"
 pytest-timeout = ">=2.1.0"
 pytest-asyncio = ">=0.21.0"
 pytest-xdist = ">=3.3.0"
+# shellcheck-dependent tests must run (not skip) on both ci.yml paths (-e ci, -e quality)
+shellcheck = "*"
 
 # Type Checking
 mypy = ">=1.0.0"
@@ -157,10 +156,6 @@ test-cov-impl = "pytest framework/tests/ --cov=framework --cov-report=term-missi
 test-unit = "pytest framework/tests/unit/ -v"
 test-integration = "pytest framework/tests/integration/ -v"
 test-property = "pytest framework/tests/property/ -v"
-test-security = "pytest framework/tests/security/ -v"
-test-reporting = "pytest framework/tests/reporting/ -v"
-test-performance = "pytest framework/tests/performance/ -v"
-test-maintenance = "pytest framework/tests/maintenance/ -v"
 
 # Quality Gates (CRITICAL - MUST PASS)
 lint = "pixi run -e quality lint-impl"

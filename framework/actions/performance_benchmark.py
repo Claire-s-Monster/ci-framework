@@ -271,17 +271,39 @@ class PerformanceBenchmarkAction:
         return results
 
     def load_baseline_results(self, baseline_dir: Path) -> list[BenchmarkResult] | None:
-        """Load baseline benchmark results for comparison."""
-        baseline_file = baseline_dir / "benchmark-results.json"
+        """Load the newest run written by store_results from baseline_dir.
 
-        if not baseline_file.exists():
+        The action uploads the results directory (benchmark-<suite>-<ts>.json
+        files in store_results format) as the baseline artifact, so that is
+        the format read back here.
+        """
+        candidates = list(baseline_dir.glob("benchmark-*-*.json"))
+        if not candidates:
             return None
 
         try:
-            with open(baseline_file) as f:
-                baseline_data = json.load(f)
+            stamped = []
+            for path in candidates:
+                with open(path) as f:
+                    doc = json.load(f)
+                stamped.append((float(doc.get("timestamp", 0.0)), path.name, doc))
+            newest = max(stamped, key=lambda item: item[:2])[2]
 
-            return self.parse_benchmark_results(baseline_data)
+            return [
+                BenchmarkResult(
+                    name=b.get("name", "unknown"),
+                    mean=b.get("mean", 0.0),
+                    stddev=b.get("stddev", 0.0),
+                    min_value=b.get("min", 0.0),
+                    max_value=b.get("max", 0.0),
+                    rounds=b.get("rounds", 0),
+                    unit=b.get("unit", "seconds"),
+                    group=b.get("group", ""),
+                    params=b.get("params", {}),
+                    metadata=b.get("metadata", {}),
+                )
+                for b in newest.get("benchmarks", [])
+            ]
 
         except Exception as e:
             print(f"⚠️ Failed to load baseline results: {e}")
@@ -519,6 +541,15 @@ class PerformanceBenchmarkAction:
         Returns a dictionary with execution results and analysis.
         """
 
+        # setup_benchmark_environment chdirs into project_dir, so pin every
+        # relative path to the original working directory (the action's
+        # workspace, where baseline-results is downloaded and results-dir is
+        # uploaded from) before that happens.
+        results_path = str(results_dir)
+        project_dir = project_dir.resolve()
+        results_dir = results_dir.resolve()
+        baseline_dir = Path("baseline-results").resolve()
+
         # Apply config overrides
         if config_overrides:
             self.effective_config.update(config_overrides)
@@ -537,7 +568,7 @@ class PerformanceBenchmarkAction:
                 "regression_detected": False,
                 "regression_percentage": 0.0,
                 "baseline_comparison": "Environment setup failed",
-                "results_path": str(results_dir),
+                "results_path": results_path,
                 "performance_report": "Failed to setup benchmark environment",
                 "trend_analysis": "Setup failed",
             }
@@ -556,7 +587,7 @@ class PerformanceBenchmarkAction:
                 "regression_detected": False,
                 "regression_percentage": 0.0,
                 "baseline_comparison": result_data.get("error", "Unknown error"),
-                "results_path": str(results_dir),
+                "results_path": results_path,
                 "performance_report": f"Benchmark execution failed: {result_data.get('error', 'Unknown error')}",
                 "trend_analysis": "Execution failed",
             }
@@ -582,7 +613,6 @@ class PerformanceBenchmarkAction:
         regression_percentage = 0.0
 
         if compare_baseline:
-            baseline_dir = Path("baseline-results")
             baseline_results = self.load_baseline_results(baseline_dir)
 
             if baseline_results:
@@ -629,7 +659,7 @@ class PerformanceBenchmarkAction:
             "regression_detected": regression_detected,
             "regression_percentage": regression_percentage,
             "baseline_comparison": baseline_comparison,
-            "results_path": str(results_dir),
+            "results_path": results_path,
             "performance_report": performance_report,
             "trend_analysis": trend_analysis,
         }

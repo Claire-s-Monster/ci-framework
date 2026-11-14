@@ -355,6 +355,18 @@ def _steps() -> list[dict]:
     return _workflow()["jobs"]["refresh"]["steps"]
 
 
+_PINNED_USES_RE = re.compile(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}")
+
+
+def _pinned_version(action: str) -> str | None:
+    """Return the 'vX.Y.Z' trailing comment of the SHA-pinned `uses: <action>@` line."""
+    match = re.search(
+        rf"uses:\s*{re.escape(action)}@[0-9a-f]{{40}}[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b",
+        REUSABLE.read_text(encoding="utf-8"),
+    )
+    return match.group(1) if match else None
+
+
 def _step(name: str) -> dict:
     return next(s for s in _steps() if s.get("name") == name)
 
@@ -437,6 +449,7 @@ def test_inputs_and_defaults():
         "conda-first-check": "enforce",
         "conda-first-allow": "hb-*",
         "ci-workflow": "ci.yml",
+        "labels": "dependencies,pixi",
     }
     assert inputs["auto-merge"]["type"] == "boolean"
     reusable_ci = yaml.safe_load(
@@ -455,6 +468,24 @@ def test_conda_first_allow_default_matches_reusable_ci():
         _call()["inputs"]["conda-first-allow"]["default"]
         == ci_inputs["conda-first-allow"]["default"]
     )
+
+
+SELF_HEAL_WORKFLOWS = (
+    (Path(".github/workflows/reusable-ci.yml"), "workflow_call"),
+    (Path(".github/workflows/standalone-ci.yml"), "workflow_dispatch"),
+)
+
+
+@pytest.mark.parametrize(("path", "trigger"), SELF_HEAL_WORKFLOWS)
+def test_self_heal_is_opt_in(path, trigger):
+    """The lock-refresh CI dispatch passes no inputs, so self-heal must not run."""
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    declared = (doc.get(True) or doc["on"])[trigger]["inputs"]["run-self-heal"]
+    assert declared["type"] == "boolean"
+    assert declared["default"] is False
+    condition = doc["jobs"]["self-heal"]["if"]
+    assert "github.event_name == 'workflow_dispatch'" in condition
+    assert "inputs.run-self-heal" in condition
 
 
 def test_permissions_are_inherited_from_the_caller():
@@ -481,8 +512,11 @@ def test_checkout_is_target_branch_without_persisted_credentials():
 
 def test_setup_pixi_pins_version_input():
     step = next(s for s in _steps() if "setup-pixi" in str(s.get("uses", "")))
-    assert re.fullmatch(r"prefix-dev/setup-pixi@v\d+\.\d+\.\d+", step["uses"]), (
-        f"setup-pixi must be pinned to a full semver tag, got {step['uses']!r}"
+    assert _PINNED_USES_RE.fullmatch(step["uses"]), (
+        f"setup-pixi must be pinned to a full commit SHA, got {step['uses']!r}"
+    )
+    assert _pinned_version("prefix-dev/setup-pixi"), (
+        "setup-pixi pin needs a '# vX.Y.Z' version comment"
     )
     assert step["with"]["pixi-version"] == "${{ inputs.pixi-version }}"
 
@@ -589,9 +623,12 @@ def test_mint_step_requests_only_contents_and_pull_requests_write():
     step = _step(MINT_STEP)
     assert step["id"] == "app-token"
     assert re.fullmatch(
-        r"actions/create-github-app-token@v\d+\.\d+\.\d+", step["uses"]
+        r"actions/create-github-app-token@[0-9a-f]{40}", step["uses"]
     ), (
-        f"create-github-app-token must be pinned to a full semver tag, got {step['uses']!r}"
+        f"create-github-app-token must be pinned to a full commit SHA, got {step['uses']!r}"
+    )
+    assert _pinned_version("actions/create-github-app-token"), (
+        "create-github-app-token pin needs a '# vX.Y.Z' version comment"
     )
     assert step["if"] == "steps.mode.outputs.app == 'true'"
     assert step["with"] == {
@@ -721,9 +758,16 @@ def test_template_triggers_weekly_and_manually_and_passes_no_secrets():
 
 def test_template_shows_inputs_commented_out():
     text = TEMPLATE.read_text(encoding="utf-8")
+    uncommented = re.sub(r"^\s*#.*$", "", text, flags=re.MULTILINE)
+    # The commonly tuned inputs are active in an uncommented `with:` block; the
+    # rest stay visible as comments. Every input must appear in one of the two.
+    assert re.search(r"^\s+with:\s*$", uncommented, re.MULTILINE)
+    active = yaml.safe_load(text)["jobs"]["refresh"]["with"]
+    assert active, "the active with: block is empty"
     for name in _call()["inputs"]:
+        if name in active:
+            continue
         assert re.search(rf"^\s*#\s*{re.escape(name)}:", text, re.MULTILINE), name
-    assert "with:" not in re.sub(r"^\s*#.*$", "", text, flags=re.MULTILINE)
 
 
 def test_only_the_marked_template_is_a_release_please_extra_file():

@@ -3,6 +3,13 @@
 `reusable-pixi-lock-refresh.yml` refreshes `pixi.lock` on a schedule and opens
 (or updates) one signed bot pull request with the result (#387).
 
+## Dependabot and pixi
+
+Dependabot's `pip` ecosystem ignores `[tool.pixi.*]` tables and `pixi.lock`, so
+on a pixi project it does nothing. Delete the `pip` block from
+`templates/github/dependabot.yml` in your copy, use this workflow for lock
+updates, and keep Dependabot for `github-actions`.
+
 ## Why
 
 A lock file that is only touched by hand drifts: security fixes in conda-forge
@@ -109,8 +116,9 @@ checks are satisfied. Set `ci-workflow: ''` to disable the dispatch.
 **Caveats.**
 
 - The CI run is a `workflow_dispatch` run, not a `pull_request` run.
-  `reusable-ci.yml`'s `self-heal` placeholder job also runs on dispatch; it is
-  a harmless echo.
+  The dispatch passes no inputs, so `reusable-ci.yml`'s `self-heal` job does not
+  run: it needs the `run-self-heal` input (default `false`) set on a manual
+  dispatch.
 - `dorny/paths-filter` in `reusable-ci.yml` diffs against the repository default
   branch on non-PR events. `pixi.lock` is in the `src` filter, so tests do run.
 - An auto-merge performed with `github.token` does not trigger push workflows
@@ -191,6 +199,11 @@ package names. The default is `hb-*`, matching `reusable-ci.yml`, because
 hb-* sub-packages are not on conda-forge. The script is the same
 `scripts/check_conda_first.py`, inlined as a byte-identical heredoc.
 
+Local-path sources (for example a project's own editable self-install,
+`path = ".", editable = true`) are not PyPI packages and are exempt; remote
+packages stay checked even when editable. Each skipped local source is listed
+once in the log as `skipped local source: <name> (<location>)`.
+
 ## Auto-merge
 
 `auto-merge` defaults to `false`. When `true`, the last step runs
@@ -227,10 +240,20 @@ jobs:
 
 **Until the first release containing this workflow, callers must pin
 `@development`**: a tag cut before it does not have the file, and the template's
-`@v4.0.0` marker is only bumped by release-please at release time.
+`@<tag>  # x-release-please-version` marker is only bumped by release-please at
+release time.
 
 Optional inputs: `target-branch` (default `development`), `branch-name`
-(`chore/pixi-lock-refresh`), `environments` (empty = all), `auto-merge`,
+(`chore/pixi-lock-refresh`), `environments` (space-separated; empty = all), `auto-merge`,
 `pixi-version` (default matches `reusable-ci.yml`), `package-path` (`.`),
 `conda-first-check` (`enforce`), `conda-first-allow` (`hb-*`), `ci-workflow`
-(`ci.yml`; the workflow file dispatched on `branch-name`, empty disables it).
+(`ci.yml`; the workflow file dispatched on `branch-name`, empty disables it),
+`labels` (`dependencies,pixi`; comma-separated, empty = no labels).
+
+## PR labels
+
+The PR gets the labels in the `labels` input. Before creating or editing the PR,
+the job runs `gh label create <label> --force` for each one, so the label exists
+even in a repository that never ran [label sync](label-sync.md). If a label
+cannot be created, the job emits a `::warning::` and opens the PR without that
+label instead of failing. Set `labels: ''` to apply none.

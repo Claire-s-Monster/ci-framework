@@ -8,6 +8,8 @@ import ast
 import fnmatch
 import json
 import logging
+import os
+import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -53,10 +55,61 @@ class DependencyNode:
     is_test: bool = False
 
 
+_DEPENDENCY_MANIFESTS = (
+    "requirements*.txt",
+    "pyproject.toml",
+    "package.json",
+    "Pipfile*",
+    "poetry.lock",
+    "package-lock.json",
+    "yarn.lock",
+    "Cargo.toml",
+)
+
+# Upper bound on the Python files parsed to build the project dependency graph.
+MAX_GRAPH_FILES = 5000
+
+_SKIPPED_DIRS = frozenset(
+    {"__pycache__", "node_modules", "site-packages", "venv", "dist", "build"}
+)
+
+_REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def _requirement_name(spec: str) -> str | None:
+    """The distribution name of a requirement spec, without extras or version."""
+    match = _REQUIREMENT_NAME.match(spec.strip())
+    return match.group(0) if match else None
+
+
 class FilePatternMatcher:
-    """Handles file pattern matching and classification."""
+    """Handles file pattern matching and classification.
+
+    Categories are tried in dict order and the first match wins, so the
+    specific ones (ci, dependencies, build) must precede the generic
+    extension-based ones (docs, config) that would otherwise swallow them.
+    """
 
     DEFAULT_PATTERNS = {
+        "ci": [
+            ".github/workflows/**",
+            ".github/actions/**",
+            ".gitlab-ci.yml",
+        ],
+        "dependencies": [
+            *_DEPENDENCY_MANIFESTS,
+            *(f"**/{manifest}" for manifest in _DEPENDENCY_MANIFESTS),
+        ],
+        "build": [
+            "Dockerfile*",
+            "docker-compose*.yml",
+            "Makefile",
+            "setup.py",
+            "setup.cfg",
+            "CMakeLists.txt",
+            "build.gradle",
+            "pom.xml",
+        ],
         "docs": [
             "docs/**",
             "*.md",
@@ -88,33 +141,6 @@ class FilePatternMatcher:
             "*_test.py",
         ],
         "source": ["src/**", "**/*.py", "**/*.js", "**/*.ts", "framework/**", "lib/**"],
-        "dependencies": [
-            "requirements*.txt",
-            "pyproject.toml",
-            "package.json",
-            "Pipfile*",
-            "poetry.lock",
-            "package-lock.json",
-            "yarn.lock",
-            "Cargo.toml",
-        ],
-        "ci": [
-            ".github/workflows/**",
-            ".github/actions/**",
-            "*.yml",
-            "*.yaml",
-            ".gitlab-ci.yml",
-        ],
-        "build": [
-            "Dockerfile*",
-            "docker-compose*.yml",
-            "Makefile",
-            "setup.py",
-            "setup.cfg",
-            "CMakeLists.txt",
-            "build.gradle",
-            "pom.xml",
-        ],
     }
 
     def __init__(self, custom_patterns: dict[str, list[str]] | None = None):
@@ -208,6 +234,26 @@ class DependencyAnalyzer:
         self.project_dir = project_dir
         self.dependency_graph: dict[str, DependencyNode] = {}
         self.module_cache: dict[str, set[str]] = {}
+        self._module_index: dict[str, str] = {}
+
+    def discover_python_files(self) -> list[str]:
+        """List the project's Python files (posix paths), bounded by MAX_GRAPH_FILES."""
+        found: list[str] = []
+        for dirpath, dirnames, filenames in os.walk(self.project_dir):
+            dirnames[:] = sorted(
+                d for d in dirnames if not d.startswith(".") and d not in _SKIPPED_DIRS
+            )
+            rel_dir = Path(dirpath).relative_to(self.project_dir)
+            for name in sorted(filenames):
+                if not name.endswith(".py"):
+                    continue
+                if len(found) >= MAX_GRAPH_FILES:
+                    logger.warning(
+                        f"Dependency graph limited to the first {MAX_GRAPH_FILES} Python files"
+                    )
+                    return found
+                found.append((rel_dir / name).as_posix())
+        return found
 
     def build_dependency_graph(
         self, source_files: list[str]
@@ -240,6 +286,9 @@ class DependencyAnalyzer:
                     logger.warning(f"Failed to analyze {file}: {e}")
 
         # Build reverse dependencies
+        self._module_index = {}
+        for file in self.dependency_graph:
+            self._module_index.setdefault(self._module_name(file), file)
         self._build_reverse_dependencies()
 
         # Associate test files
@@ -295,7 +344,11 @@ class DependencyAnalyzer:
 
         # Also add tests that import any affected modules
         for test_file, node in self.dependency_graph.items():
-            if node.is_test and node.imports.intersection(affected_modules):
+            if node.is_test and any(
+                module in affected_modules
+                for imp in node.imports
+                for module in self._files_for_import(imp)
+            ):
                 affected_tests.add(test_file)
 
         return affected_tests
@@ -376,19 +429,25 @@ class DependencyAnalyzer:
         """Build reverse dependency relationships."""
         for file_path, node in self.dependency_graph.items():
             for imported_module in node.imports:
-                # Find the file that corresponds to this import
-                for other_file, other_node in self.dependency_graph.items():
-                    if self._import_matches_file(imported_module, other_file):
-                        other_node.imported_by.add(file_path)
+                for target in self._files_for_import(imported_module):
+                    if target != file_path:
+                        self.dependency_graph[target].imported_by.add(file_path)
 
-    def _import_matches_file(self, import_name: str, file_path: str) -> bool:
-        """Check if an import name matches a file path."""
-        # Convert file path to module name
-        module_name = file_path.replace("/", ".").replace(".py", "")
-        if module_name.endswith(".__init__"):
-            module_name = module_name[:-9]  # Remove .__init__
+    @staticmethod
+    def _module_name(file_path: str) -> str:
+        """Dotted module name of a project file path (``pkg/a.py`` -> ``pkg.a``)."""
+        name = file_path.removesuffix(".py").replace("/", ".")
+        return name.removesuffix(".__init__")
 
-        return import_name == module_name or import_name.startswith(f"{module_name}.")
+    def _files_for_import(self, import_name: str) -> set[str]:
+        """Graph files an import resolves to: the module itself and its parent packages."""
+        parts = import_name.split(".")
+        candidates = (".".join(parts[:i]) for i in range(1, len(parts) + 1))
+        return {
+            self._module_index[name]
+            for name in candidates
+            if name in self._module_index
+        }
 
     def _associate_test_files(self):
         """Associate test files with the modules they test."""
@@ -396,13 +455,19 @@ class DependencyAnalyzer:
             if not test_node.is_test:
                 continue
 
+            imported_files = {
+                file
+                for imp in test_node.imports
+                for file in self._files_for_import(imp)
+            }
+
             # Find modules this test file might be testing
             for module_file, module_node in self.dependency_graph.items():
                 if module_node.is_test:
                     continue
 
                 # Heuristic: test file imports the module, or names match
-                if module_file in test_node.imports or self._test_matches_module(
+                if module_file in imported_files or self._test_matches_module(
                     test_file, module_file
                 ):
                     module_node.test_files.add(test_file)
@@ -483,39 +548,35 @@ class MonorepoHandler:
 
     def _analyze_package(self, package_dir: Path) -> dict[str, Any] | None:
         """Analyze a potential package directory."""
-        package_info = {"path": str(package_dir.relative_to(self.project_dir))}
+        package_info: dict[str, Any] = {
+            "path": str(package_dir.relative_to(self.project_dir))
+        }
 
         # Check for Python package
         if (package_dir / "__init__.py").exists():
             package_info["type"] = "python_package"
-            package_info["dependencies"] = ", ".join(
-                self._get_python_dependencies(package_dir)
-            )
+            package_info["dependencies"] = self._get_python_dependencies(package_dir)
             return package_info
 
         # Check for Python project
         pyproject_toml = package_dir / "pyproject.toml"
         if pyproject_toml.exists():
             package_info["type"] = "python_project"
-            package_info["dependencies"] = ", ".join(
-                self._get_python_dependencies(package_dir)
-            )
+            package_info["dependencies"] = self._get_python_dependencies(package_dir)
             return package_info
 
         # Check for Node.js package
         package_json = package_dir / "package.json"
         if package_json.exists():
             package_info["type"] = "npm_package"
-            package_info["dependencies"] = ", ".join(
-                self._get_npm_dependencies(package_dir)
-            )
+            package_info["dependencies"] = self._get_npm_dependencies(package_dir)
             return package_info
 
         return None
 
     def _get_python_dependencies(self, package_dir: Path) -> list[str]:
         """Get Python package dependencies."""
-        deps = []
+        deps: list[str] = []
 
         # Check pyproject.toml
         pyproject_toml = package_dir / "pyproject.toml"
@@ -528,7 +589,11 @@ class MonorepoHandler:
 
                 # Get dependencies from various sections
                 project_deps = data.get("project", {}).get("dependencies", [])
-                deps.extend(project_deps)
+                deps.extend(
+                    name
+                    for name in map(_requirement_name, project_deps)
+                    if name is not None
+                )
 
                 # Tool-specific dependencies
                 tool_deps = data.get("tool", {}).get("pixi", {}).get("dependencies", {})
@@ -544,16 +609,9 @@ class MonorepoHandler:
                 try:
                     with open(req_path) as f:
                         for line in f:
-                            line = line.strip()
-                            if line and not line.startswith("#"):
-                                # Extract package name (before ==, >=, etc.)
-                                pkg_name = (
-                                    line.split("==")[0]
-                                    .split(">=")[0]
-                                    .split("<=")[0]
-                                    .split("~=")[0]
-                                )
-                                deps.append(pkg_name.strip())
+                            pkg_name = _requirement_name(line)
+                            if pkg_name is not None:
+                                deps.append(pkg_name)
                 except Exception as e:
                     logger.warning(f"Failed to parse {req_path}: {e}")
 
@@ -595,10 +653,10 @@ class MonorepoHandler:
         if package_name not in self.packages:
             return dependents
 
-        # Simple approach: check if package is in dependencies of other packages
+        # Exact membership: "lib" must not match a dependency named "libA"
         for other_package, package_info in self.packages.items():
             if other_package != package_name:
-                dependencies = package_info.get("dependencies", [])
+                dependencies: list[str] = package_info.get("dependencies", [])
                 if package_name in dependencies:
                     dependents.add(other_package)
 
@@ -669,7 +727,7 @@ class OptimizationEngine:
 
         # Calculate change patterns
         docs_only = has_docs and not any(
-            [has_source, has_tests, has_dependencies, has_build]
+            [has_source, has_tests, has_dependencies, has_build, has_ci]
         )
         config_only = has_config and not any(
             [has_source, has_tests, has_dependencies, has_docs]
@@ -872,9 +930,8 @@ class ReportGenerator:
                 for category, files in result.classifications.items():
                     if files:
                         f.write(f"- **{category.title()}:** {len(files)} files\n")
-                        if len(files) <= 10:  # Show files if not too many
-                            for file in files[:10]:
-                                f.write(f"  - `{file}`\n")
+                        for file in files[:10]:
+                            f.write(f"  - `{file}`\n")
                         if len(files) > 10:
                             f.write(f"  - ... and {len(files) - 10} more\n")
                 f.write("\n")
@@ -1067,20 +1124,13 @@ class ChangeDetectionAction:
             classifications = self.pattern_matcher.classify_files(changed_files)
 
             # Dependency analysis (for standard and comprehensive levels)
-            affected_tests = []
+            affected_tests: list[str] = []
             dependency_impact = 0
 
             if self.detection_level in ["standard", "comprehensive"]:
-                source_files = classifications.get("source", [])
-                if source_files:
-                    logger.info("Building dependency graph...")
-                    self.dependency_analyzer.build_dependency_graph(source_files)
-                    affected_tests_set = self.dependency_analyzer.get_affected_tests(
+                if classifications.get("source", []):
+                    affected_tests, dependency_impact = self._analyze_dependencies(
                         changed_files
-                    )
-                    affected_tests = list(affected_tests_set)
-                    dependency_impact = len(
-                        self.dependency_analyzer.get_affected_modules(changed_files)
                     )
 
             # Monorepo analysis
@@ -1123,7 +1173,10 @@ class ChangeDetectionAction:
                 "optimization_reasoning": optimization_result.get("reasoning", {}),
                 "change_analysis": optimization_result.get("change_analysis", {}),
                 "dependency_graph": {
-                    k: {"imports": list(v.imports), "imported_by": list(v.imported_by)}
+                    k: {
+                        "imports": sorted(v.imports),
+                        "imported_by": sorted(v.imported_by),
+                    }
                     for k, v in self.dependency_analyzer.dependency_graph.items()
                 },
             }
@@ -1159,6 +1212,22 @@ class ChangeDetectionAction:
                 reports_path=str(self.reports_dir),
                 failure_reason=str(e),
             )
+
+    def _analyze_dependencies(self, changed_files: list[str]) -> tuple[list[str], int]:
+        """Build the project-wide graph; return (affected tests, affected source modules).
+
+        The graph spans every project Python file (plus changed ones beyond the
+        discovery bound) so dependents of a changed module are found even when
+        they were not touched themselves.
+        """
+        analyzer = self.dependency_analyzer
+        logger.info("Building dependency graph...")
+        python_files = set(analyzer.discover_python_files())
+        python_files.update(f for f in changed_files if f.endswith(".py"))
+        graph = analyzer.build_dependency_graph(sorted(python_files))
+        affected_modules = analyzer.get_affected_modules(changed_files)
+        impact = sum(1 for module in affected_modules if not graph[module].is_test)
+        return sorted(analyzer.get_affected_tests(changed_files)), impact
 
     def _get_changed_files(self) -> list[str]:
         """Get list of changed files between base and head refs."""

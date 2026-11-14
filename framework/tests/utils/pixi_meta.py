@@ -34,8 +34,13 @@ WORKFLOWS_DIR = Path(".github/workflows")
 # single logical line: YAML block/folded scalars are already resolved by the
 # parser before this regex sees anything, and `logical_run_lines` rejoins
 # shell `\` continuations, so the only text reaching it is plain shell.
+# The environment and task tokens may be quoted and/or shell variables
+# (`-e "$PIXI_ENV" "$AUDIT_TASK"`, `${VAR}`); the captured task keeps its `$`
+# so callers can tell a variable from a literal name.
 PIXI_RUN_TASK_RE = re.compile(
-    r"pixi\s+run\s+(?:(?:-e|--environment)\s+[\w.-]+\s+)?([\w.-]+)"
+    r"pixi\s+run\s+"
+    r"(?:(?:-e|--environment)\s+[\"']?[\w.${}-]+[\"']?\s+)?"
+    r"[\"']?([\w.${}-]+)"
 )
 
 

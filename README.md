@@ -666,11 +666,7 @@ ci-framework/
 │   ├── cross-platform-validation/ # Platform testing logic
 │   └── cleanup-dev-files/      # Cleanup automation logic
 ├── framework/                  # Core Python framework
-│   ├── actions/               # Action implementations
-│   ├── performance/           # Performance analysis
-│   ├── security/              # Security analysis
-│   ├── reporting/             # Report generation
-│   └── maintenance/           # Framework maintenance
+│   └── actions/               # Action implementations
 ├── docs/                       # Comprehensive documentation
 ├── templates/                  # Project templates
 └── examples/                   # Usage examples

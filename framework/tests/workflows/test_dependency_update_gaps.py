@@ -201,6 +201,10 @@ def test_dependabot_auto_merge_is_documented():
     assert "dependabot-auto-merge.md" in (REPO_ROOT / "docs" / "README.md").read_text()
     assert (REPO_ROOT / "docs" / "dependabot-auto-merge.md").is_file()
     assert (
+        "## Migrating from a hand-copied workflow"
+        in (REPO_ROOT / "docs" / "dependabot-auto-merge.md").read_text()
+    )
+    assert (
         "dependabot-auto-merge-template.yml"
         in (REPO_ROOT / "templates" / "README.md").read_text()
     )

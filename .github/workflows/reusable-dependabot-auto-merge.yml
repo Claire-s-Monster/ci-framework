@@ -1,0 +1,226 @@
+---
+name: Dependabot Auto-Merge (Reusable)
+
+# Approves Dependabot pull requests and enables auto-merge on them. Caller contract:
+#   1. The caller triggers on `pull_request`, NOT `pull_request_target`. A
+#      pull_request_target run has write access and secrets while a PR is open;
+#      this workflow rejects that event in its first step.
+#   2. The calling job grants `contents: write` and `pull-requests: write`.
+#   3. Required repository settings:
+#        a. Settings > General > Pull Requests > "Allow auto-merge";
+#        b. required status checks on the base branch, otherwise auto-merge
+#           merges immediately;
+#        c. Settings > Actions > General > "Allow GitHub Actions to create and
+#           approve pull requests", when approving with github.token.
+#   4. Major updates are manual by default; set `include-major: true` to opt in.
+#   5. The optional App secrets (APP_CLIENT_ID, APP_PRIVATE_KEY) must be stored
+#      as Dependabot secrets: runs triggered by Dependabot cannot read Actions
+#      secrets.
+# The workflow never checks out code. See docs/dependabot-auto-merge.md.
+
+on:
+  workflow_call:
+    inputs:
+      merge-method:
+        description: "Auto-merge method: merge, squash or rebase"
+        required: false
+        type: string
+        default: 'squash'
+      approve:
+        description: >-
+          Approve the PR before enabling auto-merge. Set false when approval is
+          not wanted or "Allow GitHub Actions to create and approve pull
+          requests" cannot be enabled.
+        required: false
+        type: boolean
+        default: true
+      include-major:
+        description: "Also approve and auto-merge semver-major updates"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      APP_CLIENT_ID:
+        description: >-
+          Client ID of a GitHub App with Contents and Pull requests write,
+          installed on the repository. Set together with APP_PRIVATE_KEY to use
+          the App token path; leave both unset to use github.token. Store it as
+          a Dependabot secret.
+        required: false
+      APP_PRIVATE_KEY:
+        description: "Private key (PEM) of the GitHub App. Required with APP_CLIENT_ID."
+        required: false
+
+# No permissions block here on purpose (same pattern as reusable-pixi-lock-refresh):
+# the job inherits the caller's GITHUB_TOKEN grant. A block declared here would
+# replace the caller's grant.
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number || github.ref }}
+  # Never cancel: a maintainer's reopen or edit event shares this group and must
+  # not cancel an in-flight Dependabot run between approve and merge.
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    name: "Dependabot Auto-Merge"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # All four must hold: the PR author, the original actor, the triggering
+    # actor, and a same-repo head. On a re-run github.actor keeps the original
+    # actor (and its privileges); only github.triggering_actor becomes the user
+    # who re-ran, so a human re-running a Dependabot PR is excluded by it.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.actor == 'dependabot[bot]'
+      && github.triggering_actor == 'dependabot[bot]'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Check trigger event
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "::error title=Unsupported trigger::This workflow must be called from a pull_request event, not '$EVENT_NAME'. pull_request_target is rejected on purpose."
+            exit 1
+          fi
+
+      - name: Validate inputs
+        env:
+          MERGE_METHOD: ${{ inputs.merge-method }}
+        run: |
+          case "$MERGE_METHOD" in
+            merge | squash | rebase) ;;
+            *)
+              echo "::error title=merge-method invalid::merge-method must be one of merge, squash or rebase, got '$MERGE_METHOD'."
+              exit 1
+              ;;
+          esac
+
+      # Least privilege: metadata and the eligibility decision need only the
+      # read-scoped github.token. The App token is minted after Decide, and only
+      # for an eligible PR.
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98  # v3
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Decide eligibility
+        id: decide
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          INCLUDE_MAJOR: ${{ inputs.include-major }}
+        run: |
+          eligible=false
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch | version-update:semver-minor)
+              eligible=true
+              ;;
+            version-update:semver-major)
+              if [ "$INCLUDE_MAJOR" = "true" ]; then
+                eligible=true
+              else
+                echo "::notice title=Major update::Major updates are manual unless include-major is true."
+              fi
+              ;;
+            *)
+              echo "::notice title=Update type unknown::update-type is '$UPDATE_TYPE'; not eligible for auto-merge."
+              ;;
+          esac
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Dependabot auto-merge"
+            echo "- update-type: \`${UPDATE_TYPE:-none}\`"
+            echo "- include-major: \`$INCLUDE_MAJOR\`"
+            echo "- eligible: \`$eligible\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Secrets cannot be tested in `if:`, so they are passed through env and
+      # only their presence is checked; the values are never printed.
+      - name: Select token mode
+        id: mode
+        env:
+          APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "$APP_CLIENT_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
+            echo "::notice title=Token mode::Using a GitHub App token."
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$APP_CLIENT_ID" ] && [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          else
+            if [ -z "$APP_CLIENT_ID" ]; then
+              missing=APP_CLIENT_ID
+            else
+              missing=APP_PRIVATE_KEY
+            fi
+            echo "::error title=App credentials incomplete::$missing is not set. Set both APP_CLIENT_ID and APP_PRIVATE_KEY (as Dependabot secrets) to use a GitHub App, or neither to use github.token."
+            exit 1
+          fi
+
+      # Scoped to this repository only and to the two write permissions the
+      # approve and merge steps need. Minted only for an eligible PR. The
+      # action's post step revokes the token.
+      - name: Mint GitHub App token
+        id: app-token
+        if: steps.decide.outputs.eligible == 'true' && steps.mode.outputs.app == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # Prerequisite for auto-merge: `gh pr merge --auto` merges IMMEDIATELY when
+      # the PR is already mergeable, which is the case when the base branch has no
+      # required status checks. Refuse in that case so nothing merges without CI.
+      # Required checks can come from classic branch protection or from a ruleset,
+      # so both are queried. Any API failure fails closed.
+      # Twin of "Enable auto-merge" in reusable-pixi-lock-refresh.yml; keep the
+      # check in sync.
+      - name: Require base-branch status checks
+        if: steps.decide.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          if ! protection=$(gh api "repos/$REPO/branches/$BASE_REF" --jq '[(.protection.required_status_checks.contexts // []), (.protection.required_status_checks.checks // [])] | map(length) | add'); then
+            echo "::error title=Cannot verify required checks::Could not read branch protection for $BASE_REF, so it cannot be verified that required status checks exist. Refusing to enable auto-merge. Check that the token can read the branch."
+            exit 1
+          fi
+          if ! rules=$(gh api "repos/$REPO/rules/branches/$BASE_REF" --jq '[.[] | select(.type == "required_status_checks")] | length'); then
+            echo "::error title=Cannot verify required checks::Could not read the rulesets for $BASE_REF, so it cannot be verified that required status checks exist. Refusing to enable auto-merge. Check that the token can read repository rules."
+            exit 1
+          fi
+          if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then
+            echo "::error title=No required checks::$BASE_REF has no required status checks, so auto-merge would merge immediately without CI. Add required status checks to $BASE_REF (branch protection or a ruleset)."
+            exit 1
+          fi
+
+      - name: Approve pull request
+        if: steps.decide.outputs.eligible == 'true' && inputs.approve
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          if ! gh api --method POST "repos/$REPO/pulls/$PR_NUMBER/reviews" -f event=APPROVE -f commit_id="$HEAD_SHA"; then
+            echo "::error title=Approval failed::Could not approve the PR. With github.token, enable Settings > Actions > General > \"Allow GitHub Actions to create and approve pull requests\", or set the approve input to false. With a GitHub App, check that it is installed with Pull requests write permission."
+            exit 1
+          fi
+
+      - name: Enable auto-merge
+        if: steps.decide.outputs.eligible == 'true'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_METHOD: ${{ inputs.merge-method }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          if ! gh pr merge --auto --"$MERGE_METHOD" --match-head-commit "$HEAD_SHA" "$PR_URL"; then
+            echo "::error title=Auto-merge failed::Could not enable auto-merge. Enable Settings > General > Pull Requests > \"Allow auto-merge\" and add required status checks on the base branch."
+            exit 1
+          fi

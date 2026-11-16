@@ -91,15 +91,38 @@ def step_index(predicate) -> int:
     raise AssertionError("no step matched")
 
 
-def test_job_gate_has_author_actor_triggering_actor_and_same_repo():
-    condition = " ".join(str(job()["if"]).split())
-    assert "github.event.pull_request.user.login == 'dependabot[bot]'" in condition
-    assert "github.actor == 'dependabot[bot]'" in condition
-    assert "github.triggering_actor == 'dependabot[bot]'" in condition
-    assert (
-        "github.event.pull_request.head.repo.full_name == github.repository"
-        in condition
-    )
+GATE_CLAUSES = {
+    "github.event.pull_request.user.login == 'dependabot[bot]'",
+    "github.actor == 'dependabot[bot]'",
+    "github.triggering_actor == 'dependabot[bot]'",
+    "github.event.pull_request.head.repo.full_name == github.repository",
+}
+
+
+def gate_clauses(condition: str) -> set[str]:
+    """Normalise whitespace, reject `||`, return the `&&`-separated clauses."""
+    normalised = " ".join(str(condition).split())
+    assert "||" not in normalised, normalised
+    return {clause.strip() for clause in normalised.split("&&")}
+
+
+def test_job_gate_has_exactly_author_actor_triggering_actor_and_same_repo():
+    assert gate_clauses(job()["if"]) == GATE_CLAUSES
+
+
+def test_gate_parser_rejects_or_and_clause_changes():
+    base = " && ".join(sorted(GATE_CLAUSES))
+    assert gate_clauses(base) == GATE_CLAUSES
+    assert gate_clauses(f"  {base.replace(' && ', chr(10) + '&& ')}") == GATE_CLAUSES
+    assert gate_clauses(f"{base} && true") != GATE_CLAUSES
+    dropped = " && ".join(sorted(GATE_CLAUSES)[1:])
+    assert gate_clauses(dropped) != GATE_CLAUSES
+    try:
+        gate_clauses(f"{base} || true")
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("`||` was not rejected")
 
 
 def test_concurrency_is_job_level_keyed_on_pr_number():
@@ -126,6 +149,19 @@ def test_no_step_checks_out_code():
     uses = [str(s["uses"]) for s in steps() if "uses" in s]
     assert uses, "no `uses:` step found"
     assert not [u for u in uses if u.startswith("actions/checkout")]
+
+
+GIT_FETCH_RE = re.compile(r"\bgit\s+(fetch|checkout|clone)\b")
+
+
+def test_no_run_block_fetches_code_with_git():
+    scanned = run_blocks()
+    assert len(scanned) > 0, "no run blocks scanned"
+    offenders = [r for r in scanned if GIT_FETCH_RE.search(r)]
+    assert not offenders, offenders
+    assert GIT_FETCH_RE.search("git  checkout main")
+    assert GIT_FETCH_RE.search("git fetch origin")
+    assert not GIT_FETCH_RE.search("echo gitfetch; gh pr view")
 
 
 def test_no_run_block_interpolates_expressions():
@@ -210,6 +246,49 @@ def test_required_checks_step_precedes_approve_and_merge():
     assert "::error title=No required checks" in run
     assert "::error title=Cannot verify required checks" in run
     assert "exit 1" in run
+    assert_refusal_logic(run, "repos/$REPO")
+
+
+def normalised_lines(run: str) -> list[str]:
+    return [" ".join(line.split()) for line in run.splitlines() if line.strip()]
+
+
+def branch_body(lines: list[str], opener: str) -> list[str]:
+    """Lines of the `if` branch that starts with `opener`, up to its `fi`."""
+    starts = [i for i, line in enumerate(lines) if line.startswith(opener)]
+    assert len(starts) == 1, f"expected exactly one line starting {opener!r}"
+    body: list[str] = []
+    for line in lines[starts[0] + 1 :]:
+        if line == "fi":
+            return body
+        body.append(line)
+    raise AssertionError(f"branch {opener!r} is not closed by fi")
+
+
+def assert_refusal_logic(run: str, api_prefix: str) -> None:
+    """Both API-failure branches and the zero-checks branch must `exit 1`."""
+    lines = normalised_lines(run)
+    for opener in (
+        f'if ! protection=$(gh api "{api_prefix}/branches/$BASE_REF"',
+        f'if ! rules=$(gh api "{api_prefix}/rules/branches/$BASE_REF"',
+        'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then',
+    ):
+        body = branch_body(lines, opener)
+        assert body[-1] == "exit 1", (opener, body)
+        assert "exit 0" not in body, (opener, body)
+
+
+def test_refusal_asserter_detects_a_neutralised_guard():
+    good = (
+        'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then\n'
+        '  echo "::error title=No required checks::x"\n'
+        "  exit 1\n"
+        "fi\n"
+    )
+    opener = 'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then'
+    assert branch_body(normalised_lines(good), opener)[-1] == "exit 1"
+    bad = good.replace("exit 1", "exit 0")
+    assert branch_body(normalised_lines(bad), opener)[-1] != "exit 1"
 
 
 def test_major_requires_opt_in():

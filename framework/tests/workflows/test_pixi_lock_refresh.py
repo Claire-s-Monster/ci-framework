@@ -727,6 +727,23 @@ def test_auto_merge_verifies_required_checks_before_merging():
     assert "::error title=Auto-merge failed" in run
     assert "Allow auto-merge" in run
     assert "${{" not in run
+    lines = [" ".join(line.split()) for line in run.splitlines() if line.strip()]
+    for opener in (
+        'if ! protection=$(gh api "repos/$GH_REPO/branches/$TARGET_BRANCH"',
+        'if ! rules=$(gh api "repos/$GH_REPO/rules/branches/$TARGET_BRANCH"',
+        'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then',
+    ):
+        starts = [i for i, line in enumerate(lines) if line.startswith(opener)]
+        assert len(starts) == 1, opener
+        body = []
+        for line in lines[starts[0] + 1 :]:
+            if line == "fi":
+                break
+            body.append(line)
+        else:
+            raise AssertionError(f"{opener!r} is not closed by fi")
+        assert body[-1] == "exit 1", (opener, body)
+        assert "exit 0" not in body, (opener, body)
 
 
 def test_no_input_is_interpolated_inside_any_run_script():

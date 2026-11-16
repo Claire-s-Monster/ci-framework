@@ -40,6 +40,25 @@ Secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are optional (see below).
   pull requests", when approving with `github.token`. Otherwise set `approve: false`.
 - The calling job grants `contents: write` and `pull-requests: write`.
 
+## Migrating from a hand-copied workflow
+
+- Replace the old file in the same PR. Overwriting
+  `.github/workflows/dependabot-auto-merge.yml` with the caller is simplest. Never
+  run both: two workflows would race to approve and merge the same PR. A
+  hand-copied `pull_request_target` version is the riskier pattern this replaces.
+- If the old file used App secrets stored as Actions secrets, re-create them as
+  Dependabot secrets (see GitHub App token below).
+- The caller keeps top-level `contents: read` and grants `contents: write` and
+  `pull-requests: write` on the job.
+- Behaviour differs from typical hand-copied versions (see Behaviour notes and
+  Security model): majors are manual by default, an unknown update-type is not
+  merged, human re-runs do nothing, and approve and merge are pinned to the
+  triggering head SHA.
+- Dependabot PRs that are already open do not re-run after the migration merges.
+  Comment `@dependabot rebase` on one to trigger the new workflow.
+- If a branch protection rule or ruleset lists the old workflow's job as a
+  required check, update it. The new job's check name differs.
+
 ## Security model
 
 - The caller must use `pull_request`. Under `pull_request_target` a run has write

@@ -18,8 +18,8 @@ jobs:
   auto-merge:
     permissions:
       contents: write  # gh pr merge --auto
-      pull-requests: write  # gh pr review --approve, gh pr merge --auto
-    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@v4.3.0 # x-release-please-version
+      pull-requests: write  # approve via the reviews API, gh pr merge --auto
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@v4.3.0  # x-release-please-version
     with:
       merge-method: squash  # merge | squash | rebase
       approve: true  # false if approving PRs with github.token is not allowed

@@ -55,17 +55,19 @@ on:
 # the job inherits the caller's GITHUB_TOKEN grant. A block declared here would
 # replace the caller's grant.
 
-concurrency:
-  group: dependabot-auto-merge-${{ github.event.pull_request.number || github.ref }}
-  # Never cancel: a maintainer's reopen or edit event shares this group and must
-  # not cancel an in-flight Dependabot run between approve and merge.
-  cancel-in-progress: false
-
 jobs:
   auto-merge:
     name: "Dependabot Auto-Merge"
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Job level on purpose: workflow-level concurrency is taken before the job
+    # `if` is evaluated, so a skipped run (for example a human reopen) could
+    # displace a pending Dependabot run in the group. At job level only runs that
+    # pass the gate below take the group. Never cancel: an in-flight Dependabot
+    # run must not be cancelled between approve and merge.
+    concurrency:
+      group: dependabot-auto-merge-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: false
     # All four must hold: the PR author, the original actor, the triggering
     # actor, and a same-repo head. On a re-run github.actor keeps the original
     # actor (and its privileges); only github.triggering_actor becomes the user
@@ -135,6 +137,28 @@ jobs:
             echo "- include-major: \`$INCLUDE_MAJOR\`"
             echo "- eligible: \`$eligible\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Dependabot can rewrite a PR on the same branch (for example a grouped
+      # update that gains a semver-major or unknown update). Auto-merge enabled by
+      # an earlier eligible run stays armed, so the new, ineligible head would
+      # merge once checks pass. Disarm it. This also disarms auto-merge that a
+      # human enabled on a Dependabot PR; re-enable it manually if intended.
+      # Uses github.token: the App token is minted only for eligible PRs. Fails
+      # closed: a red run is the signal that auto-merge may still be armed.
+      - name: Disarm auto-merge for ineligible update
+        if: steps.decide.outputs.eligible != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          armed=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$armed" = "true" ]; then
+            if ! gh pr merge --disable-auto "$PR_URL"; then
+              echo "::error title=Could not disarm auto-merge::Auto-merge is armed on a head whose update-type is not eligible, and disabling it failed. Disable auto-merge on $PR_URL manually."
+              exit 1
+            fi
+            echo "::notice title=Auto-merge disarmed::Auto-merge was armed by an earlier run, but the new head has an ineligible update-type, so it was disabled."
+          fi
 
       # Secrets cannot be tested in `if:`, so they are passed through env and
       # only their presence is checked; the values are never printed.

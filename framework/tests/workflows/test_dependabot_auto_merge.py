@@ -102,8 +102,9 @@ def test_job_gate_has_author_actor_triggering_actor_and_same_repo():
     )
 
 
-def test_concurrency_is_keyed_on_pr_number():
-    concurrency = load()["concurrency"]
+def test_concurrency_is_job_level_keyed_on_pr_number():
+    assert "concurrency" not in load(), "workflow-level concurrency displaces runs"
+    concurrency = job()["concurrency"]
     assert "github.workflow" not in concurrency["group"]
     assert "github.event.pull_request.number" in concurrency["group"]
     assert concurrency["cancel-in-progress"] is False
@@ -135,7 +136,7 @@ def test_no_run_block_interpolates_expressions():
 
 
 def test_merge_step_uses_auto():
-    merge = [s for s in steps() if "gh pr merge" in s.get("run", "")]
+    merge = [s for s in steps() if "gh pr merge --auto" in s.get("run", "")]
     assert len(merge) == 1
     assert "--auto" in merge[0]["run"]
     assert '--"$MERGE_METHOD"' in merge[0]["run"]
@@ -173,6 +174,23 @@ def test_mint_runs_only_when_eligible_and_after_decide():
     assert "steps.mode.outputs.app == 'true'" in condition
 
 
+def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
+    decide = step_index(lambda s: s.get("id") == "decide")
+    disarm = step_index(lambda s: "--disable-auto" in s.get("run", ""))
+    mint = step_index(lambda s: s.get("id") == "app-token")
+    approve = step_index(lambda s: "/reviews" in s.get("run", ""))
+    merge = step_index(lambda s: "gh pr merge --auto" in s.get("run", ""))
+    assert decide < disarm < mint
+    assert disarm < approve < merge
+    step = steps()[disarm]
+    assert "steps.decide.outputs.eligible != 'true'" in step["if"]
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "autoMergeRequest" in step["run"]
+    assert "::notice title=Auto-merge disarmed" in step["run"]
+    assert "::error title=Could not disarm auto-merge" in step["run"]
+    assert "exit 1" in step["run"]
+
+
 def test_metadata_uses_github_token_not_app_token():
     meta = next(s for s in steps() if s.get("id") == "metadata")
     assert meta["with"]["github-token"] == "${{ github.token }}"
@@ -181,7 +199,7 @@ def test_metadata_uses_github_token_not_app_token():
 def test_required_checks_step_precedes_approve_and_merge():
     check = step_index(lambda s: "required_status_checks" in s.get("run", ""))
     approve = step_index(lambda s: "/reviews" in s.get("run", ""))
-    merge = step_index(lambda s: "gh pr merge" in s.get("run", ""))
+    merge = step_index(lambda s: "gh pr merge --auto" in s.get("run", ""))
     assert check < approve < merge
     step = steps()[check]
     run = step["run"]

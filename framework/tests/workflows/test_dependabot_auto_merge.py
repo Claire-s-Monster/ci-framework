@@ -84,10 +84,18 @@ def test_secrets_are_optional():
         assert secret["required"] is False
 
 
-def test_job_gate_has_all_three_clauses():
+def step_index(predicate) -> int:
+    for index, step in enumerate(steps()):
+        if predicate(step):
+            return index
+    raise AssertionError("no step matched")
+
+
+def test_job_gate_has_author_actor_triggering_actor_and_same_repo():
     condition = " ".join(str(job()["if"]).split())
     assert "github.event.pull_request.user.login == 'dependabot[bot]'" in condition
     assert "github.actor == 'dependabot[bot]'" in condition
+    assert "github.triggering_actor == 'dependabot[bot]'" in condition
     assert (
         "github.event.pull_request.head.repo.full_name == github.repository"
         in condition
@@ -98,7 +106,7 @@ def test_concurrency_is_keyed_on_pr_number():
     concurrency = load()["concurrency"]
     assert "github.workflow" not in concurrency["group"]
     assert "github.event.pull_request.number" in concurrency["group"]
-    assert concurrency["cancel-in-progress"] is True
+    assert concurrency["cancel-in-progress"] is False
 
 
 def test_job_has_timeout():
@@ -133,13 +141,57 @@ def test_merge_step_uses_auto():
     assert '--"$MERGE_METHOD"' in merge[0]["run"]
     assert merge[0]["env"]["MERGE_METHOD"] == "${{ inputs.merge-method }}"
     assert "Allow auto-merge" in merge[0]["run"]
+    assert '--match-head-commit "$HEAD_SHA"' in merge[0]["run"]
+    assert merge[0]["env"]["HEAD_SHA"] == "${{ github.event.pull_request.head.sha }}"
 
 
 def test_approve_step_is_gated_on_input_and_eligibility():
-    approve = [s for s in steps() if "gh pr review --approve" in s.get("run", "")]
+    approve = [s for s in steps() if "/reviews" in s.get("run", "")]
     assert len(approve) == 1
     assert "inputs.approve" in approve[0]["if"]
     assert "eligible == 'true'" in approve[0]["if"]
+
+
+def test_approve_uses_reviews_api_pinned_to_head_sha():
+    approve = next(s for s in steps() if "/reviews" in s.get("run", ""))
+    run = approve["run"]
+    assert "gh api --method POST" in run
+    assert "event=APPROVE" in run
+    assert 'commit_id="$HEAD_SHA"' in run
+    assert approve["env"]["HEAD_SHA"] == "${{ github.event.pull_request.head.sha }}"
+    assert approve["env"]["REPO"] == "${{ github.repository }}"
+    assert approve["env"]["PR_NUMBER"] == "${{ github.event.pull_request.number }}"
+    assert not [r for r in run_blocks() if "gh pr review" in r]
+
+
+def test_mint_runs_only_when_eligible_and_after_decide():
+    decide = step_index(lambda s: s.get("id") == "decide")
+    mint = step_index(lambda s: s.get("id") == "app-token")
+    assert mint > decide
+    condition = steps()[mint]["if"]
+    assert "steps.decide.outputs.eligible == 'true'" in condition
+    assert "steps.mode.outputs.app == 'true'" in condition
+
+
+def test_metadata_uses_github_token_not_app_token():
+    meta = next(s for s in steps() if s.get("id") == "metadata")
+    assert meta["with"]["github-token"] == "${{ github.token }}"
+
+
+def test_required_checks_step_precedes_approve_and_merge():
+    check = step_index(lambda s: "required_status_checks" in s.get("run", ""))
+    approve = step_index(lambda s: "/reviews" in s.get("run", ""))
+    merge = step_index(lambda s: "gh pr merge" in s.get("run", ""))
+    assert check < approve < merge
+    step = steps()[check]
+    run = step["run"]
+    assert "eligible == 'true'" in step["if"]
+    assert 'gh api "repos/$REPO/branches/$BASE_REF"' in run
+    assert 'gh api "repos/$REPO/rules/branches/$BASE_REF"' in run
+    assert "--jq" in run
+    assert "::error title=No required checks" in run
+    assert "::error title=Cannot verify required checks" in run
+    assert "exit 1" in run
 
 
 def test_major_requires_opt_in():
@@ -156,4 +208,4 @@ def test_major_requires_opt_in():
 def test_fetch_metadata_is_sha_pinned():
     meta = next(s for s in steps() if s.get("id") == "metadata")
     assert re.fullmatch(r"dependabot/fetch-metadata@[0-9a-f]{40}", meta["uses"])
-    assert "steps.app-token.outputs.token" in meta["with"]["github-token"]
+    assert "github-token" in meta["with"]

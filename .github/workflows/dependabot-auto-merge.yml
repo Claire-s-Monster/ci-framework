@@ -1,6 +1,8 @@
 ---
-# Auto-merge dependabot PRs for minor and patch updates
-# Major version bumps still require manual review
+# Auto-approve and auto-merge dependabot PRs for patch and minor updates.
+# Major version bumps still require manual review.
+# Thin caller of the reusable workflow shipped to downstream repos, so this
+# repo exercises the same code path (defaults: approve, squash, no majors).
 name: Dependabot Auto-Merge
 
 on: pull_request
@@ -11,28 +13,7 @@ permissions:
 
 jobs:
   auto-merge:
-    runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
     permissions:
       contents: write
       pull-requests: write
-    steps:
-      - name: Fetch Dependabot metadata
-        id: metadata
-        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98  # v3
-        with:
-          github-token: "${{ secrets.GITHUB_TOKEN }}"
-
-      - name: Auto-approve minor and patch updates
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Enable auto-merge for minor and patch updates
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: ./.github/workflows/reusable-dependabot-auto-merge.yml

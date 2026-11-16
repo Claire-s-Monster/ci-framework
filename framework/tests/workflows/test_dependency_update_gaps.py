@@ -359,11 +359,15 @@ def test_lock_refresh_template_has_active_with_block():
     assert with_block == {
         "target-branch": "development",
         "environments": "",
-        "auto-merge": False,
+        "auto-merge": True,
         "labels": "dependencies,pixi",
     }
     inputs = workflow_inputs(load(LOCK_REFRESH))
+    # The template opts in to auto-merge; the workflow's own default stays false.
+    assert inputs["auto-merge"]["default"] is False
     for key, value in with_block.items():
+        if key == "auto-merge":
+            continue
         assert inputs[key]["default"] == value, key
     text = LOCK_REFRESH_TEMPLATE.read_text()
     assert re.search(r"^\s*#\s+APP_CLIENT_ID:", text, re.MULTILINE)

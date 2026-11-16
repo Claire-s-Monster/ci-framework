@@ -20,6 +20,10 @@
       "type": "generic"
     },
     {
+      "path": "templates/github/workflows/dependabot-auto-merge-template.yml",
+      "type": "generic"
+    },
+    {
       "path": "templates/github/workflows/label-sync-template.yml",
       "type": "generic"
     },

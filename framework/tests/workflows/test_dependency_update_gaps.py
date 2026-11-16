@@ -24,6 +24,7 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 TEMPLATES = REPO_ROOT / "templates" / "github"
 LABEL_SYNC = WORKFLOWS / "reusable-label-sync.yml"
 LABEL_SYNC_TEMPLATE = TEMPLATES / "workflows" / "label-sync-template.yml"
+AUTO_MERGE_TEMPLATE = TEMPLATES / "workflows" / "dependabot-auto-merge-template.yml"
 LOCK_REFRESH = WORKFLOWS / "reusable-pixi-lock-refresh.yml"
 LOCK_REFRESH_TEMPLATE = TEMPLATES / "workflows" / "pixi-lock-refresh-template.yml"
 REUSABLE_CI = WORKFLOWS / "reusable-ci.yml"
@@ -160,6 +161,49 @@ def test_label_sync_template_is_registered_with_release_please():
 def test_label_sync_is_documented():
     assert "label-sync.md" in (REPO_ROOT / "docs" / "README.md").read_text()
     assert (REPO_ROOT / "docs" / "label-sync.md").is_file()
+
+
+def test_dependabot_auto_merge_template_shape():
+    doc = load(AUTO_MERGE_TEMPLATE)
+    assert doc.get("on", doc.get(True)) == "pull_request"
+    assert doc["permissions"] == {"contents": "read"}
+    job = doc["jobs"]["auto-merge"]
+    assert job["permissions"] == {"contents": "write", "pull-requests": "write"}
+    assert job["uses"].startswith(
+        "Claire-s-Monster/ci-framework/.github/workflows/"
+        "reusable-dependabot-auto-merge.yml@v"
+    )
+    assert job["with"] == {
+        "merge-method": "squash",
+        "approve": True,
+        "include-major": False,
+    }
+    text = AUTO_MERGE_TEMPLATE.read_text()
+    assert re.search(r"^\s*#\s+APP_CLIENT_ID:", text, re.MULTILINE)
+    assert re.search(r"^\s*#\s+APP_PRIVATE_KEY:", text, re.MULTILINE)
+    assert "secrets" not in job
+    marked = [
+        line
+        for line in text.splitlines()
+        if "reusable-dependabot-auto-merge.yml@" in line
+        and "# x-release-please-version" in line
+    ]
+    assert marked, "the uses: ref lacks the release-please marker"
+
+
+def test_dependabot_auto_merge_template_is_registered_with_release_please():
+    config = json.loads((REPO_ROOT / ".release-please-config.json").read_text())
+    paths = {entry["path"] for entry in config["extra-files"]}
+    assert "templates/github/workflows/dependabot-auto-merge-template.yml" in paths
+
+
+def test_dependabot_auto_merge_is_documented():
+    assert "dependabot-auto-merge.md" in (REPO_ROOT / "docs" / "README.md").read_text()
+    assert (REPO_ROOT / "docs" / "dependabot-auto-merge.md").is_file()
+    assert (
+        "dependabot-auto-merge-template.yml"
+        in (REPO_ROOT / "templates" / "README.md").read_text()
+    )
 
 
 # --- python-dep-audit: audit-task and exit 127 -------------------------------

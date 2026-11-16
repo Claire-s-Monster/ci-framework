@@ -713,6 +713,22 @@ def test_auto_merge_defaults_off_and_is_gated_on_the_input():
     assert "--squash" in step["run"]
 
 
+def test_auto_merge_verifies_required_checks_before_merging():
+    step = _step("Enable auto-merge")
+    run = step["run"]
+    branches = run.index('gh api "repos/$GH_REPO/branches/$TARGET_BRANCH"')
+    rules = run.index('gh api "repos/$GH_REPO/rules/branches/$TARGET_BRANCH"')
+    merge = run.index("gh pr merge")
+    assert branches < merge
+    assert rules < merge
+    assert step["env"]["TARGET_BRANCH"] == "${{ inputs.target-branch }}"
+    assert "::error title=No required checks" in run
+    assert "::error title=Cannot verify required checks" in run
+    assert "::error title=Auto-merge failed" in run
+    assert "Allow auto-merge" in run
+    assert "${{" not in run
+
+
 def test_no_input_is_interpolated_inside_any_run_script():
     offenders = [
         f"{step.get('name')}: {m}"

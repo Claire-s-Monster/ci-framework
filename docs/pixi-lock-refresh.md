@@ -214,8 +214,13 @@ until someone merges them by hand. When `true`, the last step runs
 Prerequisites when `auto-merge: true`:
 
 - "Allow auto-merge" is enabled in the repository settings.
-- The target branch has required status checks. Without checks, auto-merge would
-  merge the lock untested.
+- The target branch has required status checks (branch protection or a ruleset).
+  Without checks, auto-merge would merge the lock untested, so the workflow
+  refuses: the run fails with `No required checks` instead of merging.
+  If it cannot read branch protection or rulesets (for example the token lacks
+  permission), it fails closed with `Cannot verify required checks`.
+  If `gh pr merge` itself fails, the run fails with `Auto-merge failed`; the
+  usual cause is a disabled "Allow auto-merge" repository setting.
 - The required checks actually run on the PR. A PR opened with `github.token`
   does not start workflows, so in default mode the job dispatches `ci-workflow`
   (see "CI on the PR"); if that dispatch is disabled or fails, the required checks

@@ -154,9 +154,12 @@ def test_no_step_checks_out_code():
 
 GIT_FETCH_RE = re.compile(
     r"\bgit\b(?:[ \t]+-{1,2}[^\s;&|]+(?:[ \t]+[^\s;&|-][^\s;&|]*)?)*"
-    r"[ \t]+(fetch|checkout|clone|pull|switch|worktree|submodule)\b"
+    r"[ \t]+(fetch|checkout|clone|pull|switch|worktree|submodule|remote[ \t]+update)\b"
 )
-GH_FETCH_RE = re.compile(r"\bgh[ \t]+(?:pr[ \t]+checkout|repo[ \t]+clone)\b")
+GH_REPO_OPT = r"(?:[ \t]+(?:-R|--repo)(?:[ \t]+|=)[^\s;&|]+)*"
+GH_FETCH_RE = re.compile(
+    rf"\bgh{GH_REPO_OPT}[ \t]+(?:pr[ \t]+checkout|repo[ \t]+clone)\b"
+)
 
 
 def test_git_fetch_regex_handles_global_options():
@@ -168,6 +171,8 @@ def test_git_fetch_regex_handles_global_options():
         "git -C d switch main",
         "git worktree add x",
         "git submodule update",
+        "git remote update",
+        "git -C d remote update",
     )
     for positive in positives:
         assert GIT_FETCH_RE.search(positive), positive
@@ -178,13 +183,20 @@ def test_git_fetch_regex_handles_global_options():
         "git\nfetch",
         "git status",
         "echo pull",
+        "git remote -v",
     )
     for negative in negatives:
         assert not GIT_FETCH_RE.search(negative), negative
 
 
 def test_gh_checkout_and_clone_regex_self_test():
-    for positive in ("gh pr checkout 1", "gh  repo clone o/r"):
+    positives = (
+        "gh pr checkout 1",
+        "gh  repo clone o/r",
+        "gh -R o/r pr checkout 1",
+        "gh --repo=o/r repo clone o/r",
+    )
+    for positive in positives:
         assert GH_FETCH_RE.search(positive), positive
     for negative in ("gh pr view 1", "gh pr merge --auto x", "echo checkout"):
         assert not GH_FETCH_RE.search(negative), negative
@@ -214,8 +226,15 @@ def test_no_run_block_interpolates_expressions():
     assert not offenders, offenders
 
 
-MERGE_CALL_RE = re.compile(r"\bgh[ \t]+pr[ \t]+merge\b[^\n]*")
+MERGE_CALL_RE = re.compile(rf"\bgh{GH_REPO_OPT}[ \t]+pr[ \t]+merge\b[^\n]*")
 AUTO_FLAG_RE = re.compile(r"(?<![\w-])--auto(?![\w-])")
+ENABLE_ALLOWED_FLAGS = frozenset({"--auto", '--"$MERGE_METHOD"', "--match-head-commit"})
+DISARM_ALLOWED_FLAGS = frozenset({"--disable-auto"})
+
+
+def has_only_allowed_flags(call: str, allowed: frozenset[str]) -> bool:
+    """No `-`-prefixed token may remain once the exact known flags are removed."""
+    return all(not t.startswith("-") or t in allowed for t in call.split())
 
 
 def assert_only_auto_enable_or_disarm_merges(runs: list[str]) -> None:
@@ -227,8 +246,17 @@ def assert_only_auto_enable_or_disarm_merges(runs: list[str]) -> None:
         if AUTO_FLAG_RE.search(c)
         and "--disable-auto" not in c
         and '--match-head-commit "$HEAD_SHA"' in c
+        and c.startswith("gh pr merge ")
+        and has_only_allowed_flags(c, ENABLE_ALLOWED_FLAGS)
     ]
-    disarms = [c for c in calls if "--disable-auto" in c and not AUTO_FLAG_RE.search(c)]
+    disarms = [
+        c
+        for c in calls
+        if "--disable-auto" in c
+        and not AUTO_FLAG_RE.search(c)
+        and c.startswith("gh pr merge ")
+        and has_only_allowed_flags(c, DISARM_ALLOWED_FLAGS)
+    ]
     others = [c for c in calls if c not in enables and c not in disarms]
     assert not others, f"unexpected gh pr merge invocations: {others}"
     assert len(enables) == 1, enables
@@ -240,9 +268,24 @@ def test_every_merge_call_is_auto_enable_or_disarm():
 
 
 def test_merge_call_asserter_rejects_extra_and_unpinned_calls():
-    enable = 'gh pr merge --auto --"$M" --match-head-commit "$HEAD_SHA" "$PR_URL"'
+    enable = (
+        'gh pr merge --auto --"$MERGE_METHOD" --match-head-commit "$HEAD_SHA" "$PR_URL"'
+    )
     disarm = 'gh pr merge --disable-auto "$PR_URL"'
     assert_only_auto_enable_or_disarm_merges([f"if ! {enable}; then\nfi", disarm])
+    for flag in ("--admin", "--delete-branch"):
+        with pytest.raises(AssertionError):
+            assert_only_auto_enable_or_disarm_merges(
+                [enable.replace("--auto", f"--auto {flag}"), disarm]
+            )
+    with pytest.raises(AssertionError):
+        assert_only_auto_enable_or_disarm_merges(
+            [enable, disarm.replace("--disable-auto", "--disable-auto --admin")]
+        )
+    with pytest.raises(AssertionError):
+        assert_only_auto_enable_or_disarm_merges(
+            [enable, disarm, 'gh -R o/r pr merge --squash "$PR_URL"']
+        )
     extra = 'gh pr merge --squash "$PR_URL"'
     with pytest.raises(AssertionError):
         assert_only_auto_enable_or_disarm_merges([enable, disarm, extra])

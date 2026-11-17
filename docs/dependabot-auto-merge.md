@@ -82,6 +82,11 @@ Secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are optional (see below).
   previous in-repo file, which merged anything that was not major.
 - The workflow refuses to run the approve and merge steps when the base branch has
   no required status checks (see Troubleshooting).
+- When Dependabot rewrites a PR into an ineligible update (for example a grouped
+  update that gains a semver-major or unknown update), the workflow disables any
+  auto-merge armed by an earlier run. This also disarms auto-merge that a human
+  enabled on a Dependabot PR once Dependabot pushes an ineligible head.
+  Re-enable it manually if intended. If disabling fails the run fails.
 
 **The template's `@vX.Y.Z` ref only contains this workflow from the release that
 introduced it (v4.4.0 or later).** Before that release the template's ref will

@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -91,19 +92,43 @@ def step_index(predicate) -> int:
     raise AssertionError("no step matched")
 
 
-def test_job_gate_has_author_actor_triggering_actor_and_same_repo():
-    condition = " ".join(str(job()["if"]).split())
-    assert "github.event.pull_request.user.login == 'dependabot[bot]'" in condition
-    assert "github.actor == 'dependabot[bot]'" in condition
-    assert "github.triggering_actor == 'dependabot[bot]'" in condition
-    assert (
-        "github.event.pull_request.head.repo.full_name == github.repository"
-        in condition
-    )
+GATE_CLAUSES = {
+    "github.event.pull_request.user.login == 'dependabot[bot]'",
+    "github.actor == 'dependabot[bot]'",
+    "github.triggering_actor == 'dependabot[bot]'",
+    "github.event.pull_request.head.repo.full_name == github.repository",
+}
 
 
-def test_concurrency_is_keyed_on_pr_number():
-    concurrency = load()["concurrency"]
+def gate_clauses(condition: str) -> set[str]:
+    """Normalise whitespace, reject `||`, return the `&&`-separated clauses."""
+    normalised = " ".join(str(condition).split())
+    assert "||" not in normalised, normalised
+    return {clause.strip() for clause in normalised.split("&&")}
+
+
+def test_job_gate_has_exactly_author_actor_triggering_actor_and_same_repo():
+    assert gate_clauses(job()["if"]) == GATE_CLAUSES
+
+
+def test_gate_parser_rejects_or_and_clause_changes():
+    base = " && ".join(sorted(GATE_CLAUSES))
+    assert gate_clauses(base) == GATE_CLAUSES
+    assert gate_clauses(f"  {base.replace(' && ', chr(10) + '&& ')}") == GATE_CLAUSES
+    assert gate_clauses(f"{base} && true") != GATE_CLAUSES
+    dropped = " && ".join(sorted(GATE_CLAUSES)[1:])
+    assert gate_clauses(dropped) != GATE_CLAUSES
+    try:
+        gate_clauses(f"{base} || true")
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("`||` was not rejected")
+
+
+def test_concurrency_is_job_level_keyed_on_pr_number():
+    assert "concurrency" not in load(), "workflow-level concurrency displaces runs"
+    concurrency = job()["concurrency"]
     assert "github.workflow" not in concurrency["group"]
     assert "github.event.pull_request.number" in concurrency["group"]
     assert concurrency["cancel-in-progress"] is False
@@ -127,6 +152,29 @@ def test_no_step_checks_out_code():
     assert not [u for u in uses if u.startswith("actions/checkout")]
 
 
+GIT_FETCH_RE = re.compile(
+    r"\bgit\b(?:[ \t]+-{1,2}[^\s;&|]+(?:[ \t]+[^\s;&|-][^\s;&|]*)?)*"
+    r"[ \t]+(fetch|checkout|clone)\b"
+)
+
+
+def test_git_fetch_regex_handles_global_options():
+    for positive in ("git fetch", "git -C d fetch", "git -c a=b checkout x"):
+        assert GIT_FETCH_RE.search(positive), positive
+    for negative in ("echo git; fetch", "gitfetch", "git log", "git\nfetch"):
+        assert not GIT_FETCH_RE.search(negative), negative
+
+
+def test_no_run_block_fetches_code_with_git():
+    scanned = run_blocks()
+    assert len(scanned) > 0, "no run blocks scanned"
+    offenders = [r for r in scanned if GIT_FETCH_RE.search(r)]
+    assert not offenders, offenders
+    assert GIT_FETCH_RE.search("git  checkout main")
+    assert GIT_FETCH_RE.search("git fetch origin")
+    assert not GIT_FETCH_RE.search("echo gitfetch; gh pr view")
+
+
 def test_no_run_block_interpolates_expressions():
     offenders = [
         s.get("name") for s in steps() if "run" in s and has_interpolation(s["run"])
@@ -135,7 +183,7 @@ def test_no_run_block_interpolates_expressions():
 
 
 def test_merge_step_uses_auto():
-    merge = [s for s in steps() if "gh pr merge" in s.get("run", "")]
+    merge = [s for s in steps() if "gh pr merge --auto" in s.get("run", "")]
     assert len(merge) == 1
     assert "--auto" in merge[0]["run"]
     assert '--"$MERGE_METHOD"' in merge[0]["run"]
@@ -173,6 +221,48 @@ def test_mint_runs_only_when_eligible_and_after_decide():
     assert "steps.mode.outputs.app == 'true'" in condition
 
 
+def disarm_if_runs_after_failure(condition: str) -> bool:
+    """The `if:` must survive an upstream failure and test ineligibility."""
+    expr = str(condition)
+    survives_failure = "!cancelled()" in expr or "always()" in expr
+    return (
+        survives_failure
+        and "||" not in expr
+        and "steps.decide.outputs.eligible != 'true'" in expr
+    )
+
+
+def test_disarm_condition_checker_rejects_the_old_condition():
+    old = "steps.decide.outputs.eligible != 'true'"
+    new = "${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}"
+    assert not disarm_if_runs_after_failure(old)
+    assert not disarm_if_runs_after_failure("${{ !cancelled() }}")
+    assert not disarm_if_runs_after_failure(
+        "${{ !cancelled() || steps.decide.outputs.eligible != 'true' }}"
+    )
+    assert disarm_if_runs_after_failure(new)
+    assert disarm_if_runs_after_failure(
+        "${{ always() && steps.decide.outputs.eligible != 'true' }}"
+    )
+
+
+def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
+    decide = step_index(lambda s: s.get("id") == "decide")
+    disarm = step_index(lambda s: "--disable-auto" in s.get("run", ""))
+    mint = step_index(lambda s: s.get("id") == "app-token")
+    approve = step_index(lambda s: "/reviews" in s.get("run", ""))
+    merge = step_index(lambda s: "gh pr merge --auto" in s.get("run", ""))
+    assert decide < disarm < mint
+    assert disarm < approve < merge
+    step = steps()[disarm]
+    assert disarm_if_runs_after_failure(step["if"]), step["if"]
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "autoMergeRequest" in step["run"]
+    assert "::notice title=Auto-merge disarmed" in step["run"]
+    assert "::error title=Could not disarm auto-merge" in step["run"]
+    assert "exit 1" in step["run"]
+
+
 def test_metadata_uses_github_token_not_app_token():
     meta = next(s for s in steps() if s.get("id") == "metadata")
     assert meta["with"]["github-token"] == "${{ github.token }}"
@@ -181,7 +271,7 @@ def test_metadata_uses_github_token_not_app_token():
 def test_required_checks_step_precedes_approve_and_merge():
     check = step_index(lambda s: "required_status_checks" in s.get("run", ""))
     approve = step_index(lambda s: "/reviews" in s.get("run", ""))
-    merge = step_index(lambda s: "gh pr merge" in s.get("run", ""))
+    merge = step_index(lambda s: "gh pr merge --auto" in s.get("run", ""))
     assert check < approve < merge
     step = steps()[check]
     run = step["run"]
@@ -192,6 +282,63 @@ def test_required_checks_step_precedes_approve_and_merge():
     assert "::error title=No required checks" in run
     assert "::error title=Cannot verify required checks" in run
     assert "exit 1" in run
+    assert_refusal_logic(run, "repos/$REPO")
+
+
+def normalised_lines(run: str) -> list[str]:
+    return [" ".join(line.split()) for line in run.splitlines() if line.strip()]
+
+
+def branch_body(lines: list[str], opener: str) -> list[str]:
+    """Lines of the `if` branch that starts with `opener`, up to its `fi`."""
+    starts = [i for i, line in enumerate(lines) if line.startswith(opener)]
+    assert len(starts) == 1, f"expected exactly one line starting {opener!r}"
+    assert "||" not in lines[starts[0]], (
+        f"guard opener is neutralised: {lines[starts[0]]!r}"
+    )
+    body: list[str] = []
+    for line in lines[starts[0] + 1 :]:
+        if line == "fi":
+            return body
+        body.append(line)
+    raise AssertionError(f"branch {opener!r} is not closed by fi")
+
+
+def assert_refusal_logic(run: str, api_prefix: str) -> None:
+    """Both API-failure branches and the zero-checks branch must `exit 1`."""
+    lines = normalised_lines(run)
+    for opener in (
+        f'if ! protection=$(gh api "{api_prefix}/branches/$BASE_REF"',
+        f'if ! rules=$(gh api "{api_prefix}/rules/branches/$BASE_REF"',
+        'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then',
+    ):
+        body = branch_body(lines, opener)
+        assert body[-1] == "exit 1", (opener, body)
+        assert "exit 0" not in body, (opener, body)
+
+
+def test_refusal_asserter_detects_a_neutralised_guard():
+    good = (
+        'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then\n'
+        '  echo "::error title=No required checks::x"\n'
+        "  exit 1\n"
+        "fi\n"
+    )
+    opener = 'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then'
+    assert branch_body(normalised_lines(good), opener)[-1] == "exit 1"
+    bad = good.replace("exit 1", "exit 0")
+    assert branch_body(normalised_lines(bad), opener)[-1] != "exit 1"
+
+
+def test_refusal_asserter_rejects_or_true_inside_substitution():
+    bad = (
+        'if ! protection=$(gh api "repos/$REPO/branches/$BASE_REF" --jq ".x" || true); then\n'
+        '  echo "::error title=Cannot verify required checks::x"\n'
+        "  exit 1\n"
+        "fi\n"
+    )
+    with pytest.raises(AssertionError, match="neutralised"):
+        assert_refusal_logic(bad, "repos/$REPO")
 
 
 def test_major_requires_opt_in():

@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -151,7 +152,17 @@ def test_no_step_checks_out_code():
     assert not [u for u in uses if u.startswith("actions/checkout")]
 
 
-GIT_FETCH_RE = re.compile(r"\bgit\s+(fetch|checkout|clone)\b")
+GIT_FETCH_RE = re.compile(
+    r"\bgit\b(?:[ \t]+-{1,2}[^\s;&|]+(?:[ \t]+[^\s;&|-][^\s;&|]*)?)*"
+    r"[ \t]+(fetch|checkout|clone)\b"
+)
+
+
+def test_git_fetch_regex_handles_global_options():
+    for positive in ("git fetch", "git -C d fetch", "git -c a=b checkout x"):
+        assert GIT_FETCH_RE.search(positive), positive
+    for negative in ("echo git; fetch", "gitfetch", "git log", "git\nfetch"):
+        assert not GIT_FETCH_RE.search(negative), negative
 
 
 def test_no_run_block_fetches_code_with_git():
@@ -210,6 +221,31 @@ def test_mint_runs_only_when_eligible_and_after_decide():
     assert "steps.mode.outputs.app == 'true'" in condition
 
 
+def disarm_if_runs_after_failure(condition: str) -> bool:
+    """The `if:` must survive an upstream failure and test ineligibility."""
+    expr = str(condition)
+    survives_failure = "!cancelled()" in expr or "always()" in expr
+    return (
+        survives_failure
+        and "||" not in expr
+        and "steps.decide.outputs.eligible != 'true'" in expr
+    )
+
+
+def test_disarm_condition_checker_rejects_the_old_condition():
+    old = "steps.decide.outputs.eligible != 'true'"
+    new = "${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}"
+    assert not disarm_if_runs_after_failure(old)
+    assert not disarm_if_runs_after_failure("${{ !cancelled() }}")
+    assert not disarm_if_runs_after_failure(
+        "${{ !cancelled() || steps.decide.outputs.eligible != 'true' }}"
+    )
+    assert disarm_if_runs_after_failure(new)
+    assert disarm_if_runs_after_failure(
+        "${{ always() && steps.decide.outputs.eligible != 'true' }}"
+    )
+
+
 def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
     decide = step_index(lambda s: s.get("id") == "decide")
     disarm = step_index(lambda s: "--disable-auto" in s.get("run", ""))
@@ -219,7 +255,7 @@ def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
     assert decide < disarm < mint
     assert disarm < approve < merge
     step = steps()[disarm]
-    assert "steps.decide.outputs.eligible != 'true'" in step["if"]
+    assert disarm_if_runs_after_failure(step["if"]), step["if"]
     assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
     assert "autoMergeRequest" in step["run"]
     assert "::notice title=Auto-merge disarmed" in step["run"]
@@ -257,6 +293,9 @@ def branch_body(lines: list[str], opener: str) -> list[str]:
     """Lines of the `if` branch that starts with `opener`, up to its `fi`."""
     starts = [i for i, line in enumerate(lines) if line.startswith(opener)]
     assert len(starts) == 1, f"expected exactly one line starting {opener!r}"
+    assert "||" not in lines[starts[0]], (
+        f"guard opener is neutralised: {lines[starts[0]]!r}"
+    )
     body: list[str] = []
     for line in lines[starts[0] + 1 :]:
         if line == "fi":
@@ -289,6 +328,17 @@ def test_refusal_asserter_detects_a_neutralised_guard():
     assert branch_body(normalised_lines(good), opener)[-1] == "exit 1"
     bad = good.replace("exit 1", "exit 0")
     assert branch_body(normalised_lines(bad), opener)[-1] != "exit 1"
+
+
+def test_refusal_asserter_rejects_or_true_inside_substitution():
+    bad = (
+        'if ! protection=$(gh api "repos/$REPO/branches/$BASE_REF" --jq ".x" || true); then\n'
+        '  echo "::error title=Cannot verify required checks::x"\n'
+        "  exit 1\n"
+        "fi\n"
+    )
+    with pytest.raises(AssertionError, match="neutralised"):
+        assert_refusal_logic(bad, "repos/$REPO")
 
 
 def test_major_requires_opt_in():

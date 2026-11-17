@@ -145,8 +145,10 @@ jobs:
       # human enabled on a Dependabot PR; re-enable it manually if intended.
       # Uses github.token: the App token is minted only for eligible PRs. Fails
       # closed: a red run is the signal that auto-merge may still be armed.
+      # Also runs after an upstream step failure (metadata or decide): decide's
+      # output is then empty, so it counts as ineligible and a stale arm is cleared.
       - name: Disarm auto-merge for ineligible update
-        if: steps.decide.outputs.eligible != 'true'
+        if: ${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}

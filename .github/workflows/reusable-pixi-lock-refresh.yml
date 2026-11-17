@@ -781,9 +781,32 @@ jobs:
         if: steps.changes.outputs.changed == 'true' && inputs.auto-merge
         # A merge done with github.token does not trigger push workflows on the
         # target branch; on the App path the merge does trigger them.
+        # `gh pr merge --auto` merges IMMEDIATELY when the PR is already
+        # mergeable, which is the case when the target branch has no required
+        # status checks. Refuse in that case so the lock never merges without CI.
+        # Required checks can come from classic branch protection or from a
+        # ruleset, so both are queried. Any API failure fails closed.
+        # Twin of "Require base-branch status checks" in
+        # reusable-dependabot-auto-merge.yml; keep the check in sync.
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
+          TARGET_BRANCH: ${{ inputs.target-branch }}
         run: |
-          gh pr merge "$PR_NUMBER" --auto --squash
+          if ! protection=$(gh api "repos/$GH_REPO/branches/$TARGET_BRANCH" --jq '[(.protection.required_status_checks.contexts // []), (.protection.required_status_checks.checks // [])] | map(length) | add'); then
+            echo "::error title=Cannot verify required checks::Could not read branch protection for $TARGET_BRANCH, so it cannot be verified that required status checks exist. Refusing to enable auto-merge. Check that the token can read the branch."
+            exit 1
+          fi
+          if ! rules=$(gh api "repos/$GH_REPO/rules/branches/$TARGET_BRANCH" --jq '[.[] | select(.type == "required_status_checks")] | length'); then
+            echo "::error title=Cannot verify required checks::Could not read the rulesets for $TARGET_BRANCH, so it cannot be verified that required status checks exist. Refusing to enable auto-merge. Check that the token can read repository rules."
+            exit 1
+          fi
+          if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then
+            echo "::error title=No required checks::$TARGET_BRANCH has no required status checks, so auto-merge would merge immediately without CI. Add required status checks to $TARGET_BRANCH (branch protection or a ruleset)."
+            exit 1
+          fi
+          if ! gh pr merge "$PR_NUMBER" --auto --squash; then
+            echo "::error title=Auto-merge failed::Could not enable auto-merge. The most likely cause is that the \"Allow auto-merge\" repository setting (Settings > General > Pull Requests) is disabled."
+            exit 1
+          fi

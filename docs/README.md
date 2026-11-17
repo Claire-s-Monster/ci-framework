@@ -44,6 +44,7 @@
 - **[Release Tracking](release-tracking.md)** - Label issues fixed-in-development, then released
 - **[Pixi Lock Refresh](pixi-lock-refresh.md)** - Scheduled pixi.lock refresh through a signed bot PR
 - **[Label Sync](label-sync.md)** - Create the labels Dependabot and the lock refresh apply
+- **[Dependabot Auto-Merge](dependabot-auto-merge.md)** - Reusable workflow that approves and auto-merges Dependabot PRs
 
 ---
 

@@ -206,11 +206,26 @@ once in the log as `skipped local source: <name> (<location>)`.
 
 ## Auto-merge
 
-`auto-merge` defaults to `false`. When `true`, the last step runs
+`auto-merge` defaults to `false`. Callers should set it to `true` explicitly,
+as the template does: unattended refresh PRs otherwise sit green and unmerged
+until someone merges them by hand. When `true`, the last step runs
 `gh pr merge --auto --squash`, so the PR merges once its required checks pass.
-That needs "Allow auto-merge" enabled on the repository and required status
-checks on the target branch; without checks, auto-merge would merge the lock
-untested.
+
+Prerequisites when `auto-merge: true`:
+
+- "Allow auto-merge" is enabled in the repository settings.
+- The target branch has required status checks (branch protection or a ruleset).
+  Without checks, auto-merge would merge the lock untested, so the workflow
+  refuses: the run fails with `No required checks` instead of merging.
+  If it cannot read branch protection or rulesets (for example the token lacks
+  permission), it fails closed with `Cannot verify required checks`.
+  If `gh pr merge` itself fails, the run fails with `Auto-merge failed`; the
+  usual cause is a disabled "Allow auto-merge" repository setting.
+- The required checks actually run on the PR. A PR opened with `github.token`
+  does not start workflows, so in default mode the job dispatches `ci-workflow`
+  (see "CI on the PR"); if that dispatch is disabled or fails, the required checks
+  never report and auto-merge waits forever. With the GitHub App secrets
+  (`APP_CLIENT_ID`, `APP_PRIVATE_KEY`) the PR starts CI natively.
 
 ## Consumer example
 
@@ -236,6 +251,8 @@ jobs:
       pull-requests: write   # open the PR and enable auto-merge
       actions: write         # dispatch CI on the refresh branch (github.token PRs don't trigger workflows)
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-pixi-lock-refresh.yml@<tag>
+    with:
+      auto-merge: true          # see "Auto-merge" for prerequisites
 ```
 
 **Until the first release containing this workflow, callers must pin
@@ -244,7 +261,7 @@ jobs:
 release time.
 
 Optional inputs: `target-branch` (default `development`), `branch-name`
-(`chore/pixi-lock-refresh`), `environments` (space-separated; empty = all), `auto-merge`,
+(`chore/pixi-lock-refresh`), `environments` (space-separated; empty = all), `auto-merge` (default `false`; set `true`),
 `pixi-version` (default matches `reusable-ci.yml`), `package-path` (`.`),
 `conda-first-check` (`enforce`), `conda-first-allow` (`hb-*`), `ci-workflow`
 (`ci.yml`; the workflow file dispatched on `branch-name`, empty disables it),

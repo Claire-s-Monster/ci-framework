@@ -42,7 +42,7 @@ jobs:
     with:
       target-branch: development
       environments: ''          # space-separated; empty updates all
-      auto-merge: false
+      auto-merge: true          # needs "Allow auto-merge" in repo settings and required status checks on target-branch
       labels: 'dependencies,pixi'  # comma-separated; '' = none; see label-sync-template.yml
     # Less commonly tuned inputs (shown with their defaults):
     #   branch-name: chore/pixi-lock-refresh   # bot-owned, force-pushed

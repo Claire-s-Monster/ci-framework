@@ -1,0 +1,29 @@
+# Dependabot Auto-Merge Template - CI Framework
+# Approves Dependabot PRs and enables auto-merge on them. Major updates stay
+# manual unless include-major is true. Requires the repository setting
+# "Allow auto-merge" and required status checks on the base branch.
+# Until the first release containing reusable-dependabot-auto-merge.yml, replace
+# the ref below with @development. See docs/dependabot-auto-merge.md.
+
+name: Dependabot Auto-Merge
+
+# Must be pull_request, never pull_request_target.
+on: pull_request
+
+# Top level grants no write (OpenSSF Token-Permissions); writes are job-scoped.
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    permissions:
+      contents: write  # gh pr merge --auto
+      pull-requests: write  # approve via the reviews API, gh pr merge --auto
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@v4.3.0  # x-release-please-version
+    with:
+      merge-method: squash  # merge | squash | rebase
+      approve: true  # false if approving PRs with github.token is not allowed
+      include-major: false  # true also auto-merges semver-major updates
+    # secrets:  # optional GitHub App token; store these as Dependabot secrets
+    #   APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
+    #   APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

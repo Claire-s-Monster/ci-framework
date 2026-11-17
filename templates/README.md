@@ -14,6 +14,7 @@ This directory contains centralized configuration templates for consistent proje
 - **dependabot.yml**: Automated dependency updates
 - **security.yml**: Security policy template
 - **workflow-templates/**: GitHub Actions workflow templates
+- **github/workflows/dependabot-auto-merge-template.yml**: Caller for the reusable Dependabot auto-merge workflow (see `docs/dependabot-auto-merge.md`)
 
 ## Usage
 

@@ -5,6 +5,46 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.3.0...v4.4.0) (2026-11-17)
+
+
+### 🚀 Features
+
+* **workflows:** add reusable Dependabot auto-merge workflow ([1a40ae4](https://github.com/Claire-s-Monster/ci-framework/commit/1a40ae45f1319725043aeb4f0bb9bdb74d51cca8))
+* **workflows:** reusable Dependabot auto-merge; lock-refresh callers opt in to auto-merge ([0216423](https://github.com/Claire-s-Monster/ci-framework/commit/0216423da6ca9766e9b7732c9fc9a2a12352cf95))
+
+
+### 🐛 Bug Fixes
+
+* **pixi-lock-refresh:** refuse auto-merge when the base branch has no required checks ([0ba9c0a](https://github.com/Claire-s-Monster/ci-framework/commit/0ba9c0aaeb92ce645a180e0100bc89f24ab00325))
+* **workflows:** disarm stale auto-merge and scope concurrency to gated runs ([07ec04b](https://github.com/Claire-s-Monster/ci-framework/commit/07ec04b498c3254957be4ed85506a310e25c93ec))
+* **workflows:** disarm stale auto-merge even after an upstream step fails ([d445fff](https://github.com/Claire-s-Monster/ci-framework/commit/d445fffb22ffb887e329f1335d605b2c6ead4890))
+* **workflows:** disarm stale Dependabot auto-merge; job-level concurrency; non-vacuous guard tests ([ef97c05](https://github.com/Claire-s-Monster/ci-framework/commit/ef97c05ccb295357523360d8eb86545279b5ece8))
+* **workflows:** harden Dependabot auto-merge (re-runs, head races, CI prerequisite) ([35c6868](https://github.com/Claire-s-Monster/ci-framework/commit/35c686825c5e151aa334faa2eb7c8424c267f7d7))
+
+
+### 📚 Documentation
+
+* **dependabot-auto-merge:** add migration guide, fix template comments ([d77ac3c](https://github.com/Claire-s-Monster/ci-framework/commit/d77ac3c4826ac80c7869c91af0cc6e8ecd196405))
+* **dependabot-auto-merge:** add migration guide, fix template comments ([afa94f7](https://github.com/Claire-s-Monster/ci-framework/commit/afa94f7557b2d5bd2dc165eaf1bfd9f7e73fc17e))
+* **pixi-lock-refresh:** have callers set auto-merge: true explicitly ([cdd9a3a](https://github.com/Claire-s-Monster/ci-framework/commit/cdd9a3a45e5df8b9634e1615eddfc375ddbb0160))
+
+
+### 🔧 Maintenance
+
+* sync main back to development ([05c170b](https://github.com/Claire-s-Monster/ci-framework/commit/05c170be8d2f1ecb9345daaee8995c60169d29c8))
+
+
+### 🧪 Tests
+
+* **workflows:** make auto-merge guard tests non-vacuous ([e4f306f](https://github.com/Claire-s-Monster/ci-framework/commit/e4f306fa0ba61a7849dac8b47acc7fb943bf01a5))
+
+
+### 👷 CI/CD
+
+* **deps:** bump trufflesecurity/trufflehog from 3.99.8 to 3.99.9 ([#446](https://github.com/Claire-s-Monster/ci-framework/issues/446)) ([19527cb](https://github.com/Claire-s-Monster/ci-framework/commit/19527cb2d165d187ef4c39e1b7b9c44f06757fcd))
+* route own Dependabot auto-merge through the reusable workflow ([e42c51e](https://github.com/Claire-s-Monster/ci-framework/commit/e42c51ee520f74bbd38633938deeeb9c05ed78da))
+
 ## [4.3.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.2.1...v4.3.0) (2026-11-14)
 
 

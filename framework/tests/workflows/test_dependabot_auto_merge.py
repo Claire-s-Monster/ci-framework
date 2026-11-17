@@ -154,15 +154,47 @@ def test_no_step_checks_out_code():
 
 GIT_FETCH_RE = re.compile(
     r"\bgit\b(?:[ \t]+-{1,2}[^\s;&|]+(?:[ \t]+[^\s;&|-][^\s;&|]*)?)*"
-    r"[ \t]+(fetch|checkout|clone)\b"
+    r"[ \t]+(fetch|checkout|clone|pull|switch|worktree|submodule)\b"
 )
+GH_FETCH_RE = re.compile(r"\bgh[ \t]+(?:pr[ \t]+checkout|repo[ \t]+clone)\b")
 
 
 def test_git_fetch_regex_handles_global_options():
-    for positive in ("git fetch", "git -C d fetch", "git -c a=b checkout x"):
+    positives = (
+        "git fetch",
+        "git -C d fetch",
+        "git -c a=b checkout x",
+        "git pull",
+        "git -C d switch main",
+        "git worktree add x",
+        "git submodule update",
+    )
+    for positive in positives:
         assert GIT_FETCH_RE.search(positive), positive
-    for negative in ("echo git; fetch", "gitfetch", "git log", "git\nfetch"):
+    negatives = (
+        "echo git; fetch",
+        "gitfetch",
+        "git log",
+        "git\nfetch",
+        "git status",
+        "echo pull",
+    )
+    for negative in negatives:
         assert not GIT_FETCH_RE.search(negative), negative
+
+
+def test_gh_checkout_and_clone_regex_self_test():
+    for positive in ("gh pr checkout 1", "gh  repo clone o/r"):
+        assert GH_FETCH_RE.search(positive), positive
+    for negative in ("gh pr view 1", "gh pr merge --auto x", "echo checkout"):
+        assert not GH_FETCH_RE.search(negative), negative
+
+
+def test_no_run_block_uses_gh_to_fetch_code():
+    scanned = run_blocks()
+    assert len(scanned) > 0, "no run blocks scanned"
+    offenders = [r for r in scanned if GH_FETCH_RE.search(r)]
+    assert not offenders, offenders
 
 
 def test_no_run_block_fetches_code_with_git():
@@ -180,6 +212,48 @@ def test_no_run_block_interpolates_expressions():
         s.get("name") for s in steps() if "run" in s and has_interpolation(s["run"])
     ]
     assert not offenders, offenders
+
+
+MERGE_CALL_RE = re.compile(r"\bgh[ \t]+pr[ \t]+merge\b[^\n]*")
+AUTO_FLAG_RE = re.compile(r"(?<![\w-])--auto(?![\w-])")
+
+
+def assert_only_auto_enable_or_disarm_merges(runs: list[str]) -> None:
+    """Every `gh pr merge` is the pinned `--auto` enable or the `--disable-auto`."""
+    calls = [call for run in runs for call in MERGE_CALL_RE.findall(run)]
+    enables = [
+        c
+        for c in calls
+        if AUTO_FLAG_RE.search(c)
+        and "--disable-auto" not in c
+        and '--match-head-commit "$HEAD_SHA"' in c
+    ]
+    disarms = [c for c in calls if "--disable-auto" in c and not AUTO_FLAG_RE.search(c)]
+    others = [c for c in calls if c not in enables and c not in disarms]
+    assert not others, f"unexpected gh pr merge invocations: {others}"
+    assert len(enables) == 1, enables
+    assert len(disarms) == 1, disarms
+
+
+def test_every_merge_call_is_auto_enable_or_disarm():
+    assert_only_auto_enable_or_disarm_merges(run_blocks())
+
+
+def test_merge_call_asserter_rejects_extra_and_unpinned_calls():
+    enable = 'gh pr merge --auto --"$M" --match-head-commit "$HEAD_SHA" "$PR_URL"'
+    disarm = 'gh pr merge --disable-auto "$PR_URL"'
+    assert_only_auto_enable_or_disarm_merges([f"if ! {enable}; then\nfi", disarm])
+    extra = 'gh pr merge --squash "$PR_URL"'
+    with pytest.raises(AssertionError):
+        assert_only_auto_enable_or_disarm_merges([enable, disarm, extra])
+    with pytest.raises(AssertionError):
+        assert_only_auto_enable_or_disarm_merges([enable, f"{disarm}\n{extra}"])
+    with pytest.raises(AssertionError):
+        assert_only_auto_enable_or_disarm_merges(
+            ['gh pr merge --auto --squash "$PR_URL"', disarm]
+        )
+    with pytest.raises(AssertionError):
+        assert_only_auto_enable_or_disarm_merges([enable])
 
 
 def test_merge_step_uses_auto():
@@ -246,6 +320,48 @@ def test_disarm_condition_checker_rejects_the_old_condition():
     )
 
 
+ARMED_QUERY = (
+    'armed=$(gh pr view "$PR_URL" --json autoMergeRequest '
+    "--jq '.autoMergeRequest != null')"
+)
+ARMED_OPENER = 'if [ "$armed" = "true" ]; then'
+DISARM_CALL = "gh pr merge --disable-auto"
+
+
+def assert_disarm_gated_on_boolean_armed(run: str) -> None:
+    """`armed` must be a jq boolean and the disarm must run only when it is true."""
+    lines = normalised_lines(run)
+    assert ARMED_QUERY in lines, "armed is not the `!= null` boolean jq expression"
+    assert ARMED_OPENER in lines, 'no `[ "$armed" = "true" ]` branch'
+    assert lines.index(ARMED_QUERY) < lines.index(ARMED_OPENER), "armed set too late"
+    body = branch_body(lines, ARMED_OPENER)
+    assert any(DISARM_CALL in line for line in body), "disarm is outside armed branch"
+    assert run.count(DISARM_CALL) == 1, "disarm call appears outside the armed branch"
+
+
+def test_armed_assertion_rejects_inverted_or_non_boolean_checks():
+    good = (
+        f"{ARMED_QUERY}\n"
+        f"{ARMED_OPENER}\n"
+        f'  if ! {DISARM_CALL} "$PR_URL"; then\n'
+        "    exit 1\n"
+        "  fi\n"
+        "fi\n"
+    )
+    assert_disarm_gated_on_boolean_armed(good)
+    for bad in (
+        good.replace('= "true"', '= "false"'),
+        good.replace(".autoMergeRequest != null", ".autoMergeRequest"),
+        good.replace(".autoMergeRequest != null", ".autoMergeRequest == null"),
+        good.replace(
+            f'  if ! {DISARM_CALL} "$PR_URL"; then\n    exit 1\n  fi\n',
+            f'  echo x\nfi\n{DISARM_CALL} "$PR_URL"\nif true; then\n  :\n',
+        ),
+    ):
+        with pytest.raises(AssertionError):
+            assert_disarm_gated_on_boolean_armed(bad)
+
+
 def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
     decide = step_index(lambda s: s.get("id") == "decide")
     disarm = step_index(lambda s: "--disable-auto" in s.get("run", ""))
@@ -257,7 +373,7 @@ def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
     step = steps()[disarm]
     assert disarm_if_runs_after_failure(step["if"]), step["if"]
     assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
-    assert "autoMergeRequest" in step["run"]
+    assert_disarm_gated_on_boolean_armed(step["run"])
     assert "::notice title=Auto-merge disarmed" in step["run"]
     assert "::error title=Could not disarm auto-merge" in step["run"]
     assert "exit 1" in step["run"]
@@ -289,19 +405,43 @@ def normalised_lines(run: str) -> list[str]:
     return [" ".join(line.split()) for line in run.splitlines() if line.strip()]
 
 
+def opens_if(line: str) -> bool:
+    """A multi-line `if ...; then` opener (a one-line `if ...; fi` is not)."""
+    return line.startswith("if ") and not line.endswith(" fi")
+
+
 def branch_body(lines: list[str], opener: str) -> list[str]:
-    """Lines of the `if` branch that starts with `opener`, up to its `fi`."""
+    """Lines of the `if` branch that starts with `opener`, up to its matching `fi`."""
     starts = [i for i, line in enumerate(lines) if line.startswith(opener)]
     assert len(starts) == 1, f"expected exactly one line starting {opener!r}"
     assert "||" not in lines[starts[0]], (
         f"guard opener is neutralised: {lines[starts[0]]!r}"
     )
     body: list[str] = []
+    depth = 1
     for line in lines[starts[0] + 1 :]:
         if line == "fi":
-            return body
+            depth -= 1
+            if depth == 0:
+                return body
+        elif opens_if(line):
+            depth += 1
         body.append(line)
     raise AssertionError(f"branch {opener!r} is not closed by fi")
+
+
+def top_level_lines(body: list[str]) -> list[str]:
+    """Lines of a branch body that sit at nesting depth 0 (nested ifs dropped)."""
+    top: list[str] = []
+    depth = 0
+    for line in body:
+        if line == "fi":
+            depth -= 1
+        elif opens_if(line):
+            depth += 1
+        elif depth == 0:
+            top.append(line)
+    return top
 
 
 def assert_refusal_logic(run: str, api_prefix: str) -> None:
@@ -313,21 +453,77 @@ def assert_refusal_logic(run: str, api_prefix: str) -> None:
         'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then',
     ):
         body = branch_body(lines, opener)
+        assert body, (opener, "empty branch")
         assert body[-1] == "exit 1", (opener, body)
+        assert top_level_lines(body)[-1:] == ["exit 1"], (
+            opener,
+            "final exit 1 is not at nesting depth 0",
+            body,
+        )
         assert "exit 0" not in body, (opener, body)
 
 
+REFUSAL_OPENERS = (
+    'if ! protection=$(gh api "repos/$REPO/branches/$BASE_REF" --jq ".x"); then',
+    'if ! rules=$(gh api "repos/$REPO/rules/branches/$BASE_REF" --jq ".y"); then',
+    'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then',
+)
+
+
+def refusal_fixture(final: str = "exit 1", prefix: str = "") -> str:
+    """A well-formed run script; `prefix` lines go before `final` in branch 3."""
+    return (
+        f"{REFUSAL_OPENERS[0]}\n  echo x\n  exit 1\nfi\n"
+        f"{REFUSAL_OPENERS[1]}\n  echo y\n  exit 1\nfi\n"
+        f"{REFUSAL_OPENERS[2]}\n{prefix}  {final}\nfi\n"
+    )
+
+
 def test_refusal_asserter_detects_a_neutralised_guard():
-    good = (
-        'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then\n'
-        '  echo "::error title=No required checks::x"\n'
+    good = refusal_fixture()
+    assert_refusal_logic(good, "repos/$REPO")
+    opener = REFUSAL_OPENERS[2]
+    assert branch_body(normalised_lines(good), opener)[-1] == "exit 1"
+
+    neutralised = refusal_fixture(final="exit 0")
+    assert branch_body(normalised_lines(neutralised), opener)[-1] != "exit 1"
+    with pytest.raises(AssertionError):
+        assert_refusal_logic(neutralised, "repos/$REPO")
+    with pytest.raises(AssertionError):
+        assert_refusal_logic(refusal_fixture(final="echo done"), "repos/$REPO")
+    with pytest.raises(AssertionError):
+        assert_refusal_logic(refusal_fixture(final="exit 1\n  exit 0"), "repos/$REPO")
+
+
+def test_branch_body_tracks_nested_if_depth():
+    nested = (
+        "if [ a ]; then\n"
+        "  if [ b ]; then\n"
+        "    echo inner\n"
+        "  fi\n"
         "  exit 1\n"
         "fi\n"
+        "echo after\n"
     )
-    opener = 'if [ "${protection:-0}" -eq 0 ] && [ "${rules:-0}" -eq 0 ]; then'
-    assert branch_body(normalised_lines(good), opener)[-1] == "exit 1"
-    bad = good.replace("exit 1", "exit 0")
-    assert branch_body(normalised_lines(bad), opener)[-1] != "exit 1"
+    body = branch_body(normalised_lines(nested), "if [ a ]; then")
+    assert body[-1] == "exit 1"
+    assert "echo after" not in body
+    assert top_level_lines(body) == ["exit 1"]
+    assert top_level_lines(["if [ x ]; then", "exit 1", "fi"]) == []
+
+
+def test_refusal_asserter_rejects_exit_1_only_inside_nested_if():
+    multiline = refusal_fixture(
+        final="echo done", prefix="  if [ x ]; then\n    exit 1\n  fi\n"
+    )
+    with pytest.raises(AssertionError):
+        assert_refusal_logic(multiline, "repos/$REPO")
+    oneline = refusal_fixture(final="if [ x ]; then exit 1; fi")
+    with pytest.raises(AssertionError):
+        assert_refusal_logic(oneline, "repos/$REPO")
+    unconditional_last = refusal_fixture(final="exit 1", prefix="  if [ x ]; then\n")
+    with pytest.raises(AssertionError):
+        assert_refusal_logic(unconditional_last, "repos/$REPO")
 
 
 def test_refusal_asserter_rejects_or_true_inside_substitution():

@@ -108,6 +108,25 @@ triggered by Dependabot cannot read Actions secrets. Then pass them in the calle
 
 Set both or neither; one alone fails the run.
 
+## Push runs on the merge commit
+
+In `github.token` mode the merge is authored by `github-actions[bot]`, and GitHub
+does not run push workflows (CI, Security) for it, so the new base-branch tip has
+no push runs. When auto-merge is actually being enabled in this mode, the
+"Warn: no push runs after merge" step logs a `No push runs after merge` warning.
+The App token mode fixes this: the merge is App-authored and push runs fire.
+Without an App, re-validate the tip by hand with `workflow_dispatch`. CI can be
+re-run if your `ci.yml` declares it (`standard-ci-template.yml` and
+`comprehensive-ci-template.yml` do), and Security via
+`templates/github/workflows/security-template.yml`.
+
+### Migrating a local auto-merge workflow
+
+If a repository still runs a LOCAL workflow that calls `gh pr merge --auto` with
+`secrets.GITHUB_TOKEN`, it has this gap and none of the guards here. Replace it
+with a caller of the reusable workflow (see "Caller") and configure the App
+secrets as above.
+
 ## Troubleshooting
 
 - **Approval failed**: enable "Allow GitHub Actions to create and approve pull

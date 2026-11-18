@@ -682,6 +682,86 @@ def test_ci_templates_declare_workflow_dispatch(path):
     assert "workflow_dispatch" in (doc.get(True) or doc["on"])
 
 
+# --- push runs after a github.token auto-merge (#455) -------------------------
+
+WARN_STEP = "Warn: no push runs after merge"
+ENABLE_STEP = "Enable auto-merge"
+APP_CLAUSE = "steps.mode.outputs.app != 'true'"
+WARNING_PREFIX = "::warning title=No push runs after merge::"
+
+
+def _assert_warn_step_precedes_enable(step_list: list[dict]) -> None:
+    """The warn step sits directly before Enable and fires exactly when it does,
+    minus App mode. The warning is one static echo."""
+    names = [s.get("name") for s in step_list]
+    assert names.count(ENABLE_STEP) == 1, f"expected one {ENABLE_STEP!r} step"
+    assert names.count(WARN_STEP) == 1, f"expected one {WARN_STEP!r} step"
+    enable = names.index(ENABLE_STEP)
+    assert names.index(WARN_STEP) == enable - 1, (
+        "warn step is not directly before Enable"
+    )
+    warn = step_list[enable - 1]
+    condition = " ".join(str(warn.get("if", "")).split())
+    base = " ".join(str(step_list[enable]["if"]).split())
+    assert base in condition, f"warn if: lacks the Enable condition {base!r}"
+    assert APP_CLAUSE in condition, f"warn if: lacks {APP_CLAUSE!r}"
+    run = warn.get("run", "")
+    assert run.count(WARNING_PREFIX) == 1, "expected exactly one push-runs warning"
+    assert "${{" not in run, "warning must be static"
+    assert not warn.get("env"), "warn step must take no env"
+
+
+def test_warn_step_precedes_enable_and_matches_its_condition():
+    _assert_warn_step_precedes_enable(_steps())
+
+
+def _fixture_steps(
+    *,
+    warn: bool = True,
+    between: bool = False,
+    clause: bool = True,
+    base: bool = True,
+    text: bool = True,
+) -> list[dict]:
+    enable_if = "steps.changes.outputs.changed == 'true' && inputs.auto-merge"
+    condition = enable_if if base else "always()"
+    if clause:
+        condition += f" && {APP_CLAUSE}"
+    warn_step = {
+        "name": WARN_STEP,
+        "if": condition,
+        "run": f'echo "{WARNING_PREFIX}x"' if text else 'echo "x"',
+    }
+    out: list[dict] = [{"name": MODE_STEP}]
+    if warn:
+        out.append(warn_step)
+    if between:
+        out.append({"name": "Other"})
+    out.append({"name": ENABLE_STEP, "if": enable_if})
+    return out
+
+
+def test_warn_step_asserter_rejects_broken_variants():
+    _assert_warn_step_precedes_enable(_fixture_steps())
+    for broken in (
+        {"warn": False},
+        {"between": True},
+        {"clause": False},
+        {"base": False},
+        {"text": False},
+    ):
+        with pytest.raises(AssertionError):
+            _assert_warn_step_precedes_enable(_fixture_steps(**broken))
+    doubled = _fixture_steps()
+    doubled[1]["run"] += f'\necho "{WARNING_PREFIX}y"'
+    with pytest.raises(AssertionError, match="exactly one"):
+        _assert_warn_step_precedes_enable(doubled)
+    templated = _fixture_steps()
+    templated[1]["run"] += " ${{ github.actor }}"
+    with pytest.raises(AssertionError, match="static"):
+        _assert_warn_step_precedes_enable(templated)
+
+
 def test_branch_name_may_never_equal_the_target_branch():
     run = _step("Validate branch inputs")["run"]
     assert '"$BRANCH_NAME" = "$TARGET_BRANCH"' in run

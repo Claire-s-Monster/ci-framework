@@ -227,6 +227,22 @@ Prerequisites when `auto-merge: true`:
   never report and auto-merge waits forever. With the GitHub App secrets
   (`APP_CLIENT_ID`, `APP_PRIVATE_KEY`) the PR starts CI natively.
 
+### Push runs on the merge commit
+
+With `auto-merge: true` and no App, the merge is authored by
+`github-actions[bot]`, and GitHub does not run push workflows (CI, Security) for
+it. The new tip of the target branch then has no push runs. When a PR changed
+and auto-merge is being enabled in this mode, the "Warn: no push runs after
+merge" step logs a `No push runs after merge` warning. Pass the App secrets to
+the reusable workflow (`APP_CLIENT_ID` / `APP_PRIVATE_KEY` in the caller's
+`secrets:`) to make the merge App-authored so push runs fire. With the template
+this means creating the repo secrets `LOCK_REFRESH_APP_CLIENT_ID` /
+`LOCK_REFRESH_APP_PRIVATE_KEY` and uncommenting its `secrets:` block; see
+"GitHub App setup" above. Otherwise re-run
+by hand with `workflow_dispatch`: CI works if your `ci.yml` declares it
+(`standard-ci-template.yml` and `comprehensive-ci-template.yml` do), and
+Security via `templates/github/workflows/security-template.yml`.
+
 ## Consumer example
 
 Copy `templates/github/workflows/pixi-lock-refresh-template.yml`. It runs

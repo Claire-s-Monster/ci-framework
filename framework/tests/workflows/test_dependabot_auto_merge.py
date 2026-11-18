@@ -684,8 +684,10 @@ def test_security_template_declares_workflow_dispatch():
         "id-token": "write",  # pragma: allowlist secret
         "security-events": "write",
     }
-    assert job["uses"].startswith(
-        "Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@"
+    assert re.search(
+        r"uses: Claire-s-Monster/ci-framework/\.github/workflows/"
+        r"reusable-security\.yml@v\d+\.\d+\.\d+\s+#\s*x-release-please-version",
+        path.read_text(encoding="utf-8"),
     )
 
 

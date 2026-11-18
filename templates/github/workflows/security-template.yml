@@ -1,0 +1,43 @@
+# Security Template - CI Framework
+# Runs the reusable security scans (dependency audit, SAST, secret scanning,
+# OpenSSF Scorecard) on push, pull requests, weekly, and on demand.
+# workflow_dispatch matters when auto-merge is done with github.token: GitHub
+# does not run push workflows for a github-actions[bot] merge, so the new tip of
+# the base branch has no Security run. Run this workflow by hand on that branch
+# to re-validate it, or use a GitHub App for auto-merge (docs/dependabot-auto-merge.md).
+# The ref below is bumped by release-please. See docs/security-scanning.md.
+
+name: Security
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# Top level grants no write (OpenSSF Token-Permissions); the job scopes writes.
+permissions:
+  contents: read
+
+jobs:
+  security:
+    permissions:
+      contents: read
+      actions: read
+      id-token: write  # scorecard publish_results
+      security-events: write  # SAST + Scorecard upload SARIF
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@v4.4.0  # x-release-please-version
+    # with:  # optional inputs, shown with their defaults
+    #   pixi-version: v0.82.0
+    #   pixi-environment: ci
+    #   languages: ''  # comma-separated; empty auto-detects
+    #   codeql-languages: ''  # empty auto-detects
+    #   fail-on-cve: true
+    #   fail-on-sast: false
+    #   fail-on-secrets: true
+    #   scorecard: true
+    # secrets:  # optional PAT with security_events scope for SARIF uploads
+    #   CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}

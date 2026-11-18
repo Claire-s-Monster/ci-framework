@@ -591,6 +591,104 @@ def test_major_requires_opt_in():
     assert "GITHUB_STEP_SUMMARY" in run
 
 
+# --- push runs after a github.token merge (#455) ------------------------------
+
+WARN_STEP = "Warn: no push runs after merge"
+ENABLE_STEP = "Enable auto-merge"
+APP_CLAUSE = "steps.mode.outputs.app != 'true'"
+WARNING_PREFIX = "::warning title=No push runs after merge::"
+
+
+def assert_warn_step_precedes_enable(step_list: list[dict]) -> None:
+    """The warn step sits directly before Enable and fires exactly when it does,
+    minus App mode. The warning is one static echo."""
+    names = [s.get("name") for s in step_list]
+    assert names.count(ENABLE_STEP) == 1, f"expected one {ENABLE_STEP!r} step"
+    assert names.count(WARN_STEP) == 1, f"expected one {WARN_STEP!r} step"
+    enable = names.index(ENABLE_STEP)
+    assert names.index(WARN_STEP) == enable - 1, (
+        "warn step is not directly before Enable"
+    )
+    warn = step_list[enable - 1]
+    condition = " ".join(str(warn.get("if", "")).split())
+    base = " ".join(str(step_list[enable]["if"]).split())
+    assert base in condition, f"warn if: lacks the Enable condition {base!r}"
+    assert APP_CLAUSE in condition, f"warn if: lacks {APP_CLAUSE!r}"
+    run = warn.get("run", "")
+    assert run.count(WARNING_PREFIX) == 1, "expected exactly one push-runs warning"
+    assert "${{" not in run, "warning must be static"
+    assert not warn.get("env"), "warn step must take no env"
+
+
+def test_warn_step_precedes_enable_and_matches_its_condition():
+    assert_warn_step_precedes_enable(steps())
+
+
+def _fixture_steps(
+    *,
+    warn: bool = True,
+    between: bool = False,
+    clause: bool = True,
+    base: bool = True,
+    text: bool = True,
+) -> list[dict]:
+    enable_if = "steps.decide.outputs.eligible == 'true'"
+    condition = enable_if if base else "always()"
+    if clause:
+        condition += f" && {APP_CLAUSE}"
+    warn_step = {
+        "name": WARN_STEP,
+        "if": condition,
+        "run": f'echo "{WARNING_PREFIX}x"' if text else 'echo "x"',
+    }
+    out: list[dict] = [{"name": "Select token mode"}]
+    if warn:
+        out.append(warn_step)
+    if between:
+        out.append({"name": "Other"})
+    out.append({"name": ENABLE_STEP, "if": enable_if})
+    return out
+
+
+def test_warn_step_asserter_rejects_broken_variants():
+    assert_warn_step_precedes_enable(_fixture_steps())
+    for broken in (
+        {"warn": False},
+        {"between": True},
+        {"clause": False},
+        {"base": False},
+        {"text": False},
+    ):
+        with pytest.raises(AssertionError):
+            assert_warn_step_precedes_enable(_fixture_steps(**broken))
+    doubled = _fixture_steps()
+    doubled[1]["run"] += f'\necho "{WARNING_PREFIX}y"'
+    with pytest.raises(AssertionError, match="exactly one"):
+        assert_warn_step_precedes_enable(doubled)
+    templated = _fixture_steps()
+    templated[1]["run"] += " ${{ github.actor }}"
+    with pytest.raises(AssertionError, match="static"):
+        assert_warn_step_precedes_enable(templated)
+
+
+def test_security_template_declares_workflow_dispatch():
+    path = REPO_ROOT / "templates" / "github" / "workflows" / "security-template.yml"
+    assert path.is_file(), f"{path} is missing"
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    on = doc.get(True) or doc["on"]
+    assert {"push", "pull_request", "schedule", "workflow_dispatch"} <= set(on)
+    job = next(iter(doc["jobs"].values()))
+    assert job["permissions"] == {
+        "contents": "read",
+        "actions": "read",
+        "id-token": "write",  # pragma: allowlist secret
+        "security-events": "write",
+    }
+    assert job["uses"].startswith(
+        "Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@"
+    )
+
+
 def test_fetch_metadata_is_sha_pinned():
     meta = next(s for s in steps() if s.get("id") == "metadata")
     assert re.fullmatch(r"dependabot/fetch-metadata@[0-9a-f]{40}", meta["uses"])

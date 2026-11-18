@@ -777,6 +777,11 @@ jobs:
             exit 1
           fi
 
+      - name: "Warn: no push runs after merge"
+        if: steps.changes.outputs.changed == 'true' && inputs.auto-merge && steps.mode.outputs.app != 'true'
+        run: |
+          echo "::warning title=No push runs after merge::The merge will be authored by github-actions[bot], so GitHub will not run push workflows (CI, Security) on the resulting base-branch commit. Set APP_CLIENT_ID and APP_PRIVATE_KEY as secrets to make the merge App-authored."
+
       - name: Enable auto-merge
         if: steps.changes.outputs.changed == 'true' && inputs.auto-merge
         # A merge done with github.token does not trigger push workflows on the

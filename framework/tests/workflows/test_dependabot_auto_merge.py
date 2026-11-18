@@ -226,7 +226,7 @@ def test_no_run_block_interpolates_expressions():
     assert not offenders, offenders
 
 
-MERGE_CALL_RE = re.compile(rf"\bgh{GH_REPO_OPT}[ \t]+pr[ \t]+merge\b[^\n]*")
+MERGE_CALL_RE = re.compile(rf"\bgh{GH_REPO_OPT}[ \t]+pr[ \t]+merge\b[^\n;&|]*")
 AUTO_FLAG_RE = re.compile(r"(?<![\w-])--auto(?![\w-])")
 ENABLE_ALLOWED_FLAGS = frozenset({"--auto", '--"$MERGE_METHOD"', "--match-head-commit"})
 DISARM_ALLOWED_FLAGS = frozenset({"--disable-auto"})
@@ -297,6 +297,15 @@ def test_merge_call_asserter_rejects_extra_and_unpinned_calls():
         )
     with pytest.raises(AssertionError):
         assert_only_auto_enable_or_disarm_merges([enable])
+    for chained in (
+        f'{disarm}; gh pr merge "$PR_URL"',
+        f'{disarm} && gh pr merge "$PR_URL"',
+        f'{disarm} || gh pr merge --admin "$PR_URL"',
+        f'{disarm} | gh pr merge "$PR_URL"',
+        f'{disarm} & gh pr merge "$PR_URL"',
+    ):
+        with pytest.raises(AssertionError, match="unexpected"):
+            assert_only_auto_enable_or_disarm_merges([enable, chained])
 
 
 def test_merge_step_uses_auto():
@@ -425,6 +434,48 @@ def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
 def test_metadata_uses_github_token_not_app_token():
     meta = next(s for s in steps() if s.get("id") == "metadata")
     assert meta["with"]["github-token"] == "${{ github.token }}"
+
+
+APP_TOKEN_EXPR = "${{ steps.app-token.outputs.token || github.token }}"
+
+
+APP_IDENTITY_STEPS = (
+    "Require base-branch status checks",
+    "Approve pull request",
+    "Enable auto-merge",
+)
+
+
+def assert_app_identity_steps_pin_token(step_list: list[dict]) -> None:
+    """Each targeted step exists exactly once and carries the App token expression."""
+    names = [s.get("name") for s in step_list]
+    for name in APP_IDENTITY_STEPS:
+        assert names.count(name) == 1, f"expected exactly one {name!r} step"
+        step = step_list[names.index(name)]
+        assert step["env"]["GH_TOKEN"] == APP_TOKEN_EXPR, name
+
+
+def test_app_identity_steps_use_app_token_with_github_token_fallback():
+    assert_app_identity_steps_pin_token(steps())
+
+
+def test_app_identity_token_asserter_rejects_duplicates_and_missing():
+    good = [
+        {"name": n, "env": {"GH_TOKEN": APP_TOKEN_EXPR}} for n in APP_IDENTITY_STEPS
+    ]
+    assert_app_identity_steps_pin_token(good)
+    duplicated = [
+        {"name": APP_IDENTITY_STEPS[0], "env": {"GH_TOKEN": "${{ github.token }}"}},
+        *good,
+    ]
+    with pytest.raises(AssertionError, match="exactly one"):
+        assert_app_identity_steps_pin_token(duplicated)
+    with pytest.raises(AssertionError, match="exactly one"):
+        assert_app_identity_steps_pin_token(good[1:])
+    wrong = [dict(s) for s in good]
+    wrong[2] = {"name": APP_IDENTITY_STEPS[2], "env": {"GH_TOKEN": "x"}}
+    with pytest.raises(AssertionError):
+        assert_app_identity_steps_pin_token(wrong)
 
 
 def test_required_checks_step_precedes_approve_and_merge():
@@ -612,8 +663,10 @@ def assert_warn_step_precedes_enable(step_list: list[dict]) -> None:
     warn = step_list[enable - 1]
     condition = " ".join(str(warn.get("if", "")).split())
     base = " ".join(str(step_list[enable]["if"]).split())
-    assert base in condition, f"warn if: lacks the Enable condition {base!r}"
-    assert APP_CLAUSE in condition, f"warn if: lacks {APP_CLAUSE!r}"
+    guarded = f"({base})" if "||" in base else base
+    assert condition == f"{guarded} && {APP_CLAUSE}", (
+        f"warn if: {condition!r} is not exactly the Enable condition and {APP_CLAUSE!r}"
+    )
     run = warn.get("run", "")
     assert run.count(WARNING_PREFIX) == 1, "expected exactly one push-runs warning"
     assert "${{" not in run, "warning must be static"
@@ -650,6 +703,22 @@ def _fixture_steps(
     return out
 
 
+def test_warn_step_asserter_requires_parentheses_around_or_conditions():
+    base = "a || b"
+    for condition, ok in (
+        (f"{base} && {APP_CLAUSE}", False),
+        (f"({base}) && {APP_CLAUSE}", True),
+    ):
+        fixture = _fixture_steps()
+        fixture[1]["if"] = condition
+        fixture[2]["if"] = base
+        if ok:
+            assert_warn_step_precedes_enable(fixture)
+        else:
+            with pytest.raises(AssertionError, match="not exactly"):
+                assert_warn_step_precedes_enable(fixture)
+
+
 def test_warn_step_asserter_rejects_broken_variants():
     assert_warn_step_precedes_enable(_fixture_steps())
     for broken in (
@@ -661,6 +730,11 @@ def test_warn_step_asserter_rejects_broken_variants():
     ):
         with pytest.raises(AssertionError):
             assert_warn_step_precedes_enable(_fixture_steps(**broken))
+    for extra in (" && github.event_name == 'push'", " || always()"):
+        widened = _fixture_steps()
+        widened[1]["if"] += extra
+        with pytest.raises(AssertionError, match="not exactly"):
+            assert_warn_step_precedes_enable(widened)
     doubled = _fixture_steps()
     doubled[1]["run"] += f'\necho "{WARNING_PREFIX}y"'
     with pytest.raises(AssertionError, match="exactly one"):

@@ -439,15 +439,43 @@ def test_metadata_uses_github_token_not_app_token():
 APP_TOKEN_EXPR = "${{ steps.app-token.outputs.token || github.token }}"
 
 
+APP_IDENTITY_STEPS = (
+    "Require base-branch status checks",
+    "Approve pull request",
+    "Enable auto-merge",
+)
+
+
+def assert_app_identity_steps_pin_token(step_list: list[dict]) -> None:
+    """Each targeted step exists exactly once and carries the App token expression."""
+    names = [s.get("name") for s in step_list]
+    for name in APP_IDENTITY_STEPS:
+        assert names.count(name) == 1, f"expected exactly one {name!r} step"
+        step = step_list[names.index(name)]
+        assert step["env"]["GH_TOKEN"] == APP_TOKEN_EXPR, name
+
+
 def test_app_identity_steps_use_app_token_with_github_token_fallback():
-    named = {s.get("name"): s for s in steps()}
-    for name in (
-        "Require base-branch status checks",
-        "Approve pull request",
-        ENABLE_STEP,
-    ):
-        assert name in named, f"step {name!r} is missing"
-        assert named[name]["env"]["GH_TOKEN"] == APP_TOKEN_EXPR, name
+    assert_app_identity_steps_pin_token(steps())
+
+
+def test_app_identity_token_asserter_rejects_duplicates_and_missing():
+    good = [
+        {"name": n, "env": {"GH_TOKEN": APP_TOKEN_EXPR}} for n in APP_IDENTITY_STEPS
+    ]
+    assert_app_identity_steps_pin_token(good)
+    duplicated = [
+        {"name": APP_IDENTITY_STEPS[0], "env": {"GH_TOKEN": "${{ github.token }}"}},
+        *good,
+    ]
+    with pytest.raises(AssertionError, match="exactly one"):
+        assert_app_identity_steps_pin_token(duplicated)
+    with pytest.raises(AssertionError, match="exactly one"):
+        assert_app_identity_steps_pin_token(good[1:])
+    wrong = [dict(s) for s in good]
+    wrong[2] = {"name": APP_IDENTITY_STEPS[2], "env": {"GH_TOKEN": "x"}}
+    with pytest.raises(AssertionError):
+        assert_app_identity_steps_pin_token(wrong)
 
 
 def test_required_checks_step_precedes_approve_and_merge():
@@ -635,7 +663,8 @@ def assert_warn_step_precedes_enable(step_list: list[dict]) -> None:
     warn = step_list[enable - 1]
     condition = " ".join(str(warn.get("if", "")).split())
     base = " ".join(str(step_list[enable]["if"]).split())
-    assert condition == f"{base} && {APP_CLAUSE}", (
+    guarded = f"({base})" if "||" in base else base
+    assert condition == f"{guarded} && {APP_CLAUSE}", (
         f"warn if: {condition!r} is not exactly the Enable condition and {APP_CLAUSE!r}"
     )
     run = warn.get("run", "")
@@ -672,6 +701,22 @@ def _fixture_steps(
         out.append({"name": "Other"})
     out.append({"name": ENABLE_STEP, "if": enable_if})
     return out
+
+
+def test_warn_step_asserter_requires_parentheses_around_or_conditions():
+    base = "a || b"
+    for condition, ok in (
+        (f"{base} && {APP_CLAUSE}", False),
+        (f"({base}) && {APP_CLAUSE}", True),
+    ):
+        fixture = _fixture_steps()
+        fixture[1]["if"] = condition
+        fixture[2]["if"] = base
+        if ok:
+            assert_warn_step_precedes_enable(fixture)
+        else:
+            with pytest.raises(AssertionError, match="not exactly"):
+                assert_warn_step_precedes_enable(fixture)
 
 
 def test_warn_step_asserter_rejects_broken_variants():

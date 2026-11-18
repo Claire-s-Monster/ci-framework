@@ -703,7 +703,8 @@ def _assert_warn_step_precedes_enable(step_list: list[dict]) -> None:
     warn = step_list[enable - 1]
     condition = " ".join(str(warn.get("if", "")).split())
     base = " ".join(str(step_list[enable]["if"]).split())
-    assert condition == f"{base} && {APP_CLAUSE}", (
+    guarded = f"({base})" if "||" in base else base
+    assert condition == f"{guarded} && {APP_CLAUSE}", (
         f"warn if: {condition!r} is not exactly the Enable condition and {APP_CLAUSE!r}"
     )
     run = warn.get("run", "")
@@ -740,6 +741,22 @@ def _fixture_steps(
         out.append({"name": "Other"})
     out.append({"name": ENABLE_STEP, "if": enable_if})
     return out
+
+
+def test_warn_step_asserter_requires_parentheses_around_or_conditions():
+    base = "a || b"
+    for condition, ok in (
+        (f"{base} && {APP_CLAUSE}", False),
+        (f"({base}) && {APP_CLAUSE}", True),
+    ):
+        fixture = _fixture_steps()
+        fixture[1]["if"] = condition
+        fixture[2]["if"] = base
+        if ok:
+            _assert_warn_step_precedes_enable(fixture)
+        else:
+            with pytest.raises(AssertionError, match="not exactly"):
+                _assert_warn_step_precedes_enable(fixture)
 
 
 def test_warn_step_asserter_rejects_broken_variants():

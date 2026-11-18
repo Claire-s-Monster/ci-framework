@@ -226,7 +226,7 @@ def test_no_run_block_interpolates_expressions():
     assert not offenders, offenders
 
 
-MERGE_CALL_RE = re.compile(rf"\bgh{GH_REPO_OPT}[ \t]+pr[ \t]+merge\b[^\n]*")
+MERGE_CALL_RE = re.compile(rf"\bgh{GH_REPO_OPT}[ \t]+pr[ \t]+merge\b[^\n;&|]*")
 AUTO_FLAG_RE = re.compile(r"(?<![\w-])--auto(?![\w-])")
 ENABLE_ALLOWED_FLAGS = frozenset({"--auto", '--"$MERGE_METHOD"', "--match-head-commit"})
 DISARM_ALLOWED_FLAGS = frozenset({"--disable-auto"})
@@ -297,6 +297,15 @@ def test_merge_call_asserter_rejects_extra_and_unpinned_calls():
         )
     with pytest.raises(AssertionError):
         assert_only_auto_enable_or_disarm_merges([enable])
+    for chained in (
+        f'{disarm}; gh pr merge "$PR_URL"',
+        f'{disarm} && gh pr merge "$PR_URL"',
+        f'{disarm} || gh pr merge --admin "$PR_URL"',
+        f'{disarm} | gh pr merge "$PR_URL"',
+        f'{disarm} & gh pr merge "$PR_URL"',
+    ):
+        with pytest.raises(AssertionError, match="unexpected"):
+            assert_only_auto_enable_or_disarm_merges([enable, chained])
 
 
 def test_merge_step_uses_auto():
@@ -425,6 +434,20 @@ def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
 def test_metadata_uses_github_token_not_app_token():
     meta = next(s for s in steps() if s.get("id") == "metadata")
     assert meta["with"]["github-token"] == "${{ github.token }}"
+
+
+APP_TOKEN_EXPR = "${{ steps.app-token.outputs.token || github.token }}"
+
+
+def test_app_identity_steps_use_app_token_with_github_token_fallback():
+    named = {s.get("name"): s for s in steps()}
+    for name in (
+        "Require base-branch status checks",
+        "Approve pull request",
+        ENABLE_STEP,
+    ):
+        assert name in named, f"step {name!r} is missing"
+        assert named[name]["env"]["GH_TOKEN"] == APP_TOKEN_EXPR, name
 
 
 def test_required_checks_step_precedes_approve_and_merge():
@@ -612,8 +635,9 @@ def assert_warn_step_precedes_enable(step_list: list[dict]) -> None:
     warn = step_list[enable - 1]
     condition = " ".join(str(warn.get("if", "")).split())
     base = " ".join(str(step_list[enable]["if"]).split())
-    assert base in condition, f"warn if: lacks the Enable condition {base!r}"
-    assert APP_CLAUSE in condition, f"warn if: lacks {APP_CLAUSE!r}"
+    assert condition == f"{base} && {APP_CLAUSE}", (
+        f"warn if: {condition!r} is not exactly the Enable condition and {APP_CLAUSE!r}"
+    )
     run = warn.get("run", "")
     assert run.count(WARNING_PREFIX) == 1, "expected exactly one push-runs warning"
     assert "${{" not in run, "warning must be static"
@@ -661,6 +685,11 @@ def test_warn_step_asserter_rejects_broken_variants():
     ):
         with pytest.raises(AssertionError):
             assert_warn_step_precedes_enable(_fixture_steps(**broken))
+    for extra in (" && github.event_name == 'push'", " || always()"):
+        widened = _fixture_steps()
+        widened[1]["if"] += extra
+        with pytest.raises(AssertionError, match="not exactly"):
+            assert_warn_step_precedes_enable(widened)
     doubled = _fixture_steps()
     doubled[1]["run"] += f'\necho "{WARNING_PREFIX}y"'
     with pytest.raises(AssertionError, match="exactly one"):

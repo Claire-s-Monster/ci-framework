@@ -5,6 +5,27 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.1](https://github.com/Claire-s-Monster/ci-framework/compare/v4.4.0...v4.4.1) (2026-11-18)
+
+
+### 🐛 Bug Fixes
+
+* **workflows:** address [#456](https://github.com/Claire-s-Monster/ci-framework/issues/456) review on push-runs warning and security template ([d855a60](https://github.com/Claire-s-Monster/ci-framework/commit/d855a60ae3d9a2b36f90d3462a38a10fbb0db669)), closes [#455](https://github.com/Claire-s-Monster/ci-framework/issues/455)
+* **workflows:** warn when a github.token auto-merge will get no push runs ([b766af0](https://github.com/Claire-s-Monster/ci-framework/commit/b766af0d6802faf7d99abee589300a1b2cf3b5db))
+* **workflows:** warn when a github.token auto-merge will get no push runs ([0959ddd](https://github.com/Claire-s-Monster/ci-framework/commit/0959dddb19b37d9cec23eb89bfcdc9c326cd0543)), closes [#455](https://github.com/Claire-s-Monster/ci-framework/issues/455)
+
+
+### 🔧 Maintenance
+
+* sync main back to development ([d79a110](https://github.com/Claire-s-Monster/ci-framework/commit/d79a110673c8251bd53a5e3f4a1c522b0a87e86a))
+
+
+### 🧪 Tests
+
+* **workflows:** harden Dependabot auto-merge guard tests against vacuous passes ([9c99908](https://github.com/Claire-s-Monster/ci-framework/commit/9c99908b33be094e5416c830decb50b0c245ef7e))
+* **workflows:** harden Dependabot auto-merge guard tests against vacuous passes ([1533d60](https://github.com/Claire-s-Monster/ci-framework/commit/1533d60b5974be28aaf6f3424a2254b9b01e73e5))
+* **workflows:** pin merge-call flags, cover gh -R and git remote update ([2988730](https://github.com/Claire-s-Monster/ci-framework/commit/29887307e58840df083c10188a8d219c28ea6992))
+
 ## [4.4.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.3.0...v4.4.0) (2026-11-17)
 
 

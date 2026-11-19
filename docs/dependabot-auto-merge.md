@@ -98,7 +98,11 @@ With the default `github.token`, an auto-merge does not start workflows on the
 base branch. To use an App token instead, install a GitHub App with Contents and
 Pull requests write, and store `APP_CLIENT_ID` and `APP_PRIVATE_KEY` as
 **Dependabot secrets** (Settings > Secrets and variables > Dependabot). Runs
-triggered by Dependabot cannot read Actions secrets. Then pass them in the caller:
+triggered by Dependabot cannot read Actions secrets. To avoid one copy per
+repository, store them once as organization-level Dependabot secrets
+(Organization settings > Secrets and variables > Dependabot) limited to the
+selected repositories; this copy is separate from the Actions secrets that
+pixi lock-refresh reads. Then pass them in the caller:
 
 ```yaml
     secrets:

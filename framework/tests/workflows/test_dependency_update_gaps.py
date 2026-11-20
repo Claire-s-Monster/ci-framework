@@ -195,6 +195,7 @@ def test_dependabot_auto_merge_template_is_registered_with_release_please():
     config = json.loads((REPO_ROOT / ".release-please-config.json").read_text())
     paths = {entry["path"] for entry in config["extra-files"]}
     assert "templates/github/workflows/dependabot-auto-merge-template.yml" in paths
+    assert "templates/github/workflows/dependabot-auto-merge-app-template.yml" in paths
 
 
 def test_dependabot_auto_merge_is_documented():

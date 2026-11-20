@@ -338,13 +338,18 @@ def test_approve_uses_reviews_api_pinned_to_head_sha():
     assert not [r for r in run_blocks() if "gh pr review" in r]
 
 
-def test_mint_runs_only_when_eligible_and_after_decide():
+def test_mint_runs_in_app_mode_after_decide_before_disarm():
     decide = step_index(lambda s: s.get("id") == "decide")
+    mode = step_index(lambda s: s.get("id") == "mode")
     mint = step_index(lambda s: s.get("id") == "app-token")
-    assert mint > decide
+    disarm = step_index(lambda s: "--disable-auto" in s.get("run", ""))
+    assert mode < mint
+    assert decide < mint < disarm
     condition = steps()[mint]["if"]
-    assert "steps.decide.outputs.eligible == 'true'" in condition
     assert "steps.mode.outputs.app == 'true'" in condition
+    assert "!cancelled()" in condition
+    assert "eligible" not in condition
+    assert "!cancelled()" in steps()[mode]["if"]
 
 
 def disarm_if_runs_after_failure(condition: str) -> bool:
@@ -414,17 +419,19 @@ def test_armed_assertion_rejects_inverted_or_non_boolean_checks():
             assert_disarm_gated_on_boolean_armed(bad)
 
 
-def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
+def test_disarm_step_runs_for_ineligible_after_mint_before_approve_and_merge():
     decide = step_index(lambda s: s.get("id") == "decide")
     disarm = step_index(lambda s: "--disable-auto" in s.get("run", ""))
     mint = step_index(lambda s: s.get("id") == "app-token")
     approve = step_index(lambda s: "/reviews" in s.get("run", ""))
     merge = step_index(lambda s: "gh pr merge --auto" in s.get("run", ""))
-    assert decide < disarm < mint
-    assert disarm < approve < merge
+    assert decide < mint < disarm < approve < merge
     step = steps()[disarm]
     assert disarm_if_runs_after_failure(step["if"]), step["if"]
-    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert (
+        step["env"]["GH_TOKEN"]
+        == "${{ steps.app-token.outputs.token || github.token }}"
+    )
     assert_disarm_gated_on_boolean_armed(step["run"])
     assert "::notice title=Auto-merge disarmed" in step["run"]
     assert "::error title=Could not disarm auto-merge" in step["run"]
@@ -440,6 +447,7 @@ APP_TOKEN_EXPR = "${{ steps.app-token.outputs.token || github.token }}"
 
 
 APP_IDENTITY_STEPS = (
+    "Disarm auto-merge for ineligible update",
     "Require base-branch status checks",
     "Approve pull request",
     "Enable auto-merge",
@@ -473,9 +481,49 @@ def test_app_identity_token_asserter_rejects_duplicates_and_missing():
     with pytest.raises(AssertionError, match="exactly one"):
         assert_app_identity_steps_pin_token(good[1:])
     wrong = [dict(s) for s in good]
-    wrong[2] = {"name": APP_IDENTITY_STEPS[2], "env": {"GH_TOKEN": "x"}}
+    wrong[3] = {"name": APP_IDENTITY_STEPS[3], "env": {"GH_TOKEN": "x"}}
     with pytest.raises(AssertionError):
         assert_app_identity_steps_pin_token(wrong)
+
+
+# --- no bare github.token outside metadata (#462) ----------------------------
+
+BARE_TOKEN_RE = re.compile(r"\$\{\{\s*github\.token\s*\}\}")
+METADATA_STEP = "Fetch Dependabot metadata"
+
+
+def bare_github_token_steps(step_list: list[dict]) -> list[str]:
+    """Names of steps (other than metadata) whose env/with is a bare github.token."""
+    offenders = []
+    for step in step_list:
+        if step.get("name") == METADATA_STEP:
+            continue
+        values = [*(step.get("env") or {}).values(), *(step.get("with") or {}).values()]
+        if any(BARE_TOKEN_RE.fullmatch(str(v).strip()) for v in values):
+            offenders.append(str(step.get("name")))
+    return offenders
+
+
+def test_only_metadata_uses_bare_github_token_462():
+    step_list = steps()
+    assert bare_github_token_steps(step_list) == []
+    token_steps = [
+        s
+        for s in step_list
+        if APP_TOKEN_EXPR
+        in [*(s.get("env") or {}).values(), *(s.get("with") or {}).values()]
+    ]
+    assert len(token_steps) == len(APP_IDENTITY_STEPS)
+
+
+def test_bare_github_token_detector_fires_on_synthetic_step():
+    bare = {"name": "X", "env": {"GH_TOKEN": "${{ github.token }}"}}
+    spaced = {"name": "Y", "with": {"github-token": "${{ github.token}}"}}
+    meta = {"name": METADATA_STEP, "with": {"github-token": "${{ github.token }}"}}
+    ok = {"name": "Z", "env": {"GH_TOKEN": APP_TOKEN_EXPR}}
+    assert bare_github_token_steps([bare]) == ["X"]
+    assert bare_github_token_steps([spaced]) == ["Y"]
+    assert bare_github_token_steps([meta, ok]) == []
 
 
 def test_required_checks_step_precedes_approve_and_merge():

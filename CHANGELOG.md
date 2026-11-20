@@ -5,6 +5,35 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.2](https://github.com/Claire-s-Monster/ci-framework/compare/v4.4.1...v4.4.2) (2026-11-20)
+
+
+### 🐛 Bug Fixes
+
+* **workflows:** address [#463](https://github.com/Claire-s-Monster/ci-framework/issues/463) review on App token gating and guard exactness ([7e023ca](https://github.com/Claire-s-Monster/ci-framework/commit/7e023ca72dbadb9f44ac74ef61099b15f7944fc8))
+* **workflows:** fail fast when the read-only App template has no App secrets ([2f5cd4c](https://github.com/Claire-s-Monster/ci-framework/commit/2f5cd4c376466213a613d98e836237f6f59596f1))
+* **workflows:** fail fast when the read-only App template has no App secrets ([b42cf79](https://github.com/Claire-s-Monster/ci-framework/commit/b42cf79dd809ac17ea9839192995576d34e993c5))
+* **workflows:** use the App token in auto-merge Disarm so App callers can grant read-only scopes ([2be9761](https://github.com/Claire-s-Monster/ci-framework/commit/2be9761e0efa1a8585a32f05cd904c919b6f734b))
+* **workflows:** use the App token in auto-merge Disarm so App callers can grant read-only scopes ([1b44851](https://github.com/Claire-s-Monster/ci-framework/commit/1b4485139da0b4f1dc59bff59c7fc7444d46e392)), closes [#462](https://github.com/Claire-s-Monster/ci-framework/issues/462)
+
+
+### 📚 Documentation
+
+* **auto-merge:** mention org-level Dependabot secrets for the App token ([582a48d](https://github.com/Claire-s-Monster/ci-framework/commit/582a48da8b68b91afae6c056eca044951d3a34d9))
+* **auto-merge:** mention org-level Dependabot secrets for the App token ([577209e](https://github.com/Claire-s-Monster/ci-framework/commit/577209ea0128b11895ca4e337e4a5f7b7f1999f1))
+
+
+### 🔧 Maintenance
+
+* sync main back to development ([73528b6](https://github.com/Claire-s-Monster/ci-framework/commit/73528b6fb5738a513335b03e9ba39eeda9d60441))
+
+
+### 🧪 Tests
+
+* **workflows:** close guard gaps found in [#457](https://github.com/Claire-s-Monster/ci-framework/issues/457) review ([10ad0dc](https://github.com/Claire-s-Monster/ci-framework/commit/10ad0dc5a2f15eb207941bfb36d839f1c74ec538))
+* **workflows:** execute the token-mode script to prove require-app-token fails closed ([56fdb54](https://github.com/Claire-s-Monster/ci-framework/commit/56fdb540768d24c4bf396eb277615cc49d65254b))
+* **workflows:** reject duplicate token steps and ungrouped || conditions ([4373933](https://github.com/Claire-s-Monster/ci-framework/commit/437393344d1bb8601c5518ef407e107596186682)), closes [#455](https://github.com/Claire-s-Monster/ci-framework/issues/455)
+
 ## [4.4.1](https://github.com/Claire-s-Monster/ci-framework/compare/v4.4.0...v4.4.1) (2026-11-18)
 
 

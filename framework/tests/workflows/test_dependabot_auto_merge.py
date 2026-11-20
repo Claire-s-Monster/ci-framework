@@ -69,7 +69,15 @@ def test_has_no_top_level_permissions():
 
 def test_inputs_names_types_and_defaults():
     inputs = on_block(load())["workflow_call"]["inputs"]
-    assert set(inputs) == {"merge-method", "approve", "include-major"}
+    assert set(inputs) == {
+        "merge-method",
+        "approve",
+        "include-major",
+        "require-app-token",
+    }
+    assert inputs["require-app-token"]["type"] == "boolean"
+    assert inputs["require-app-token"]["default"] is False
+    assert inputs["require-app-token"]["required"] is False
     assert inputs["merge-method"]["type"] == "string"
     assert inputs["merge-method"]["default"] == "squash"
     assert inputs["approve"]["type"] == "boolean"
@@ -371,28 +379,22 @@ def test_if_matcher_rejects_mutated_conditions():
     assert not if_matches(MODE_IF.replace(" }}", " || true }}"), MODE_IF)
 
 
-def disarm_if_runs_after_failure(condition: str) -> bool:
-    """The `if:` must be `!cancelled()` (not always()) and test ineligibility."""
-    expr = str(condition)
-    return (
-        "!cancelled()" in expr
-        and "always()" not in expr
-        and "||" not in expr
-        and "steps.decide.outputs.eligible != 'true'" in expr
-    )
+DISARM_IF = "${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}"
 
 
-def test_disarm_condition_checker_rejects_the_old_condition():
+def test_disarm_condition_matcher_rejects_mutated_conditions():
+    assert if_matches(f"  {DISARM_IF}\n", DISARM_IF)
     old = "steps.decide.outputs.eligible != 'true'"
-    new = "${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}"
-    assert not disarm_if_runs_after_failure(old)
-    assert not disarm_if_runs_after_failure("${{ !cancelled() }}")
-    assert not disarm_if_runs_after_failure(
-        "${{ !cancelled() || steps.decide.outputs.eligible != 'true' }}"
+    assert not if_matches(old, DISARM_IF)
+    assert not if_matches("${{ !cancelled() }}", DISARM_IF)
+    assert not if_matches(
+        "${{ !cancelled() || steps.decide.outputs.eligible != 'true' }}", DISARM_IF
     )
-    assert disarm_if_runs_after_failure(new)
-    assert not disarm_if_runs_after_failure(
-        "${{ always() && steps.decide.outputs.eligible != 'true' }}"
+    assert not if_matches(DISARM_IF.replace(" }}", " && false }}"), DISARM_IF)
+    assert not if_matches(DISARM_IF.replace(" }}", " || true }}"), DISARM_IF)
+    assert not if_matches(DISARM_IF.replace("!cancelled()", "always()"), DISARM_IF)
+    assert not if_matches(
+        "${{ always() && steps.decide.outputs.eligible != 'true' }}", DISARM_IF
     )
 
 
@@ -446,7 +448,7 @@ def test_disarm_step_runs_for_ineligible_after_mint_before_approve_and_merge():
     merge = step_index(lambda s: "gh pr merge --auto" in s.get("run", ""))
     assert decide < mint < disarm < approve < merge
     step = steps()[disarm]
-    assert disarm_if_runs_after_failure(step["if"]), step["if"]
+    assert if_matches(step["if"], DISARM_IF), step["if"]
     assert (
         step["env"]["GH_TOKEN"]
         == "${{ steps.app-token.outputs.token || github.token }}"
@@ -455,6 +457,45 @@ def test_disarm_step_runs_for_ineligible_after_mint_before_approve_and_merge():
     assert "::notice title=Auto-merge disarmed" in step["run"]
     assert "::error title=Could not disarm auto-merge" in step["run"]
     assert "exit 1" in step["run"]
+
+
+def test_mode_step_reads_require_app_through_env_and_fails_closed():
+    mode = next(s for s in steps() if s.get("id") == "mode")
+    assert mode["env"]["REQUIRE_APP"] == "${{ inputs.require-app-token }}"
+    assert "inputs.require-app-token" not in mode["run"]
+    assert not has_interpolation(mode["run"])
+    lines = normalised_lines(mode["run"])
+    body = branch_body(lines, 'if [ "$REQUIRE_APP" = "true" ]; then')
+    assert any("::error title=App token required::" in line for line in body)
+    assert top_level_lines(body)[-1:] == ["exit 1"], body
+    assert "app=false" not in " ".join(body)
+
+
+APP_TEMPLATE = (
+    REPO_ROOT
+    / "templates"
+    / "github"
+    / "workflows"
+    / "dependabot-auto-merge-app-template.yml"
+)
+TOKEN_TEMPLATE = (
+    REPO_ROOT
+    / "templates"
+    / "github"
+    / "workflows"
+    / "dependabot-auto-merge-template.yml"
+)
+
+
+def template_with(path: Path) -> dict:
+    assert path.is_file(), f"{path} is missing"
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return next(iter(doc["jobs"].values())).get("with") or {}
+
+
+def test_app_template_requires_app_token_and_token_template_does_not():
+    assert template_with(APP_TEMPLATE).get("require-app-token") is True
+    assert "require-app-token" not in template_with(TOKEN_TEMPLATE)
 
 
 def test_metadata_uses_github_token_not_app_token():

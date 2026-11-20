@@ -40,13 +40,16 @@ jobs:
       contents: read
       pull-requests: read
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@vX.Y.Z
+    with:
+      require-app-token: true
     secrets:
       APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 
-Read-only scopes need a ci-framework release carrying #462 (the next release
-after v4.4.1).
+Read-only scopes need a ci-framework release that includes the App-token Disarm
+fix (Claire-s-Monster/ci-framework#462, released after v4.4.1). With `@v4.4.1` or
+older, keep the write permissions from the `github.token` template instead.
 
 ## Inputs
 
@@ -55,6 +58,7 @@ after v4.4.1).
 | `merge-method` | string | `squash` | `merge`, `squash` or `rebase`. Anything else fails the run. |
 | `approve` | boolean | `true` | Approve the PR before enabling auto-merge. |
 | `include-major` | boolean | `false` | Also handle semver-major updates. |
+| `require-app-token` | boolean | `false` | Fail unless both `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are set, instead of falling back to `github.token`. Use it with read-only caller permissions. |
 
 Secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are optional (see below).
 
@@ -66,7 +70,8 @@ Secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are optional (see below).
   pull requests", when approving with `github.token`. Otherwise set `approve: false`.
 - Without App secrets the calling job grants `contents: write` and
   `pull-requests: write`. With App secrets it may grant `contents: read` and
-  `pull-requests: read` (needs the release after v4.4.1).
+  `pull-requests: read` (needs a release that includes
+  Claire-s-Monster/ci-framework#462, released after v4.4.1).
 
 ## Migrating from a hand-copied workflow
 
@@ -142,17 +147,24 @@ them and grants read-only job permissions:
       contents: read
       pull-requests: read
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@vX.Y.Z
+    with:
+      require-app-token: true
     secrets:
       APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 
-Set both or neither; one alone fails the run.
+Set both or neither; one alone fails the run. With read-only job permissions,
+also set `require-app-token: true`. Without it, missing App secrets silently fall
+back to the read-only `github.token`, and the writes then fail later with
+misleading approval or settings errors. With it, the "Select token mode" step
+fails at once with an `App token required` error when the secrets are missing.
 
 In App mode the token is minted once, after the eligibility decision, for every
 PR, and every write step (disarm, require-checks, approve, enable) uses it. The
 caller therefore needs no job-level write permissions. This requires a
-ci-framework release carrying #462 (the next release after v4.4.1); earlier
+ci-framework release that includes Claire-s-Monster/ci-framework#462 (released
+after v4.4.1); earlier
 releases mint the token only for eligible PRs, so the disarm step needs
 `contents: write` and `pull-requests: write` on the job.
 

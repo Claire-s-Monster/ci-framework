@@ -6,8 +6,11 @@ pass. Major updates are left for manual review unless you opt in.
 
 ## Caller
 
-Copy `templates/github/workflows/dependabot-auto-merge-template.yml` to
-`.github/workflows/dependabot-auto-merge.yml`:
+Copy a template to `.github/workflows/dependabot-auto-merge.yml`. There are two
+modes.
+
+**`github.token` mode**: `templates/github/workflows/dependabot-auto-merge-template.yml`.
+The job needs write permissions:
 
 ```yaml
 name: Dependabot Auto-Merge
@@ -22,6 +25,32 @@ jobs:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@vX.Y.Z
 ```
 
+**App mode**: `templates/github/workflows/dependabot-auto-merge-app-template.yml`.
+The job is read-only because the App token does every write; the secrets must be
+Dependabot secrets (see GitHub App token below):
+
+```yaml
+name: Dependabot Auto-Merge
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  auto-merge:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@vX.Y.Z
+    with:
+      require-app-token: true
+    secrets:
+      APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+```
+
+Read-only scopes need a ci-framework release that includes the App-token Disarm
+fix (Claire-s-Monster/ci-framework#462, released after v4.4.1). With `@v4.4.1` or
+older, keep the write permissions from the `github.token` template instead.
+
 ## Inputs
 
 | Input | Type | Default | Meaning |
@@ -29,6 +58,7 @@ jobs:
 | `merge-method` | string | `squash` | `merge`, `squash` or `rebase`. Anything else fails the run. |
 | `approve` | boolean | `true` | Approve the PR before enabling auto-merge. |
 | `include-major` | boolean | `false` | Also handle semver-major updates. |
+| `require-app-token` | boolean | `false` | Fail unless both `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are set, instead of falling back to `github.token`. Use it with read-only caller permissions. |
 
 Secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are optional (see below).
 
@@ -38,7 +68,10 @@ Secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are optional (see below).
 - Required status checks on the base branch. Without them auto-merge merges at once.
 - Settings > Actions > General > "Allow GitHub Actions to create and approve
   pull requests", when approving with `github.token`. Otherwise set `approve: false`.
-- The calling job grants `contents: write` and `pull-requests: write`.
+- Without App secrets the calling job grants `contents: write` and
+  `pull-requests: write`. With App secrets it may grant `contents: read` and
+  `pull-requests: read` (needs a release that includes
+  Claire-s-Monster/ci-framework#462, released after v4.4.1).
 
 ## Migrating from a hand-copied workflow
 
@@ -48,8 +81,9 @@ Secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are optional (see below).
   hand-copied `pull_request_target` version is the riskier pattern this replaces.
 - If the old file used App secrets stored as Actions secrets, re-create them as
   Dependabot secrets (see GitHub App token below).
-- The caller keeps top-level `contents: read` and grants `contents: write` and
-  `pull-requests: write` on the job.
+- The caller keeps top-level `contents: read`. On the job it grants
+  `contents: write` and `pull-requests: write` (`github.token` mode), or
+  `contents: read` and `pull-requests: read` (App mode).
 - Behaviour differs from typical hand-copied versions (see Behaviour notes and
   Security model): majors are manual by default, an unknown update-type is not
   merged, human re-runs do nothing, and approve and merge are pinned to the
@@ -70,7 +104,9 @@ Secrets `APP_CLIENT_ID` and `APP_PRIVATE_KEY` are optional (see below).
   humans and fork PRs are therefore skipped.
 - Approve and merge are pinned to the event's head SHA (`commit_id` on the review,
   `--match-head-commit` on the merge), so a push after the decision is not merged.
-- The App token, when configured, is minted only after the PR is judged eligible.
+- The App token, when configured, is minted once after the eligibility decision,
+  for every PR, scoped to this repository with Contents and Pull requests write.
+  Metadata and the decision use only the read-scoped `github.token`.
 - The workflow never checks out code, so no PR content is ever executed.
 - No `${{ }}` expression appears in a `run:` script; values pass through `env:`.
 
@@ -98,15 +134,42 @@ With the default `github.token`, an auto-merge does not start workflows on the
 base branch. To use an App token instead, install a GitHub App with Contents and
 Pull requests write, and store `APP_CLIENT_ID` and `APP_PRIVATE_KEY` as
 **Dependabot secrets** (Settings > Secrets and variables > Dependabot). Runs
-triggered by Dependabot cannot read Actions secrets. Then pass them in the caller:
+triggered by Dependabot cannot read Actions secrets. To avoid one copy per
+repository, store them once as organization-level Dependabot secrets
+(Organization settings > Secrets and variables > Dependabot) limited to the
+selected repositories; this copy is separate from the Actions secrets that
+pixi lock-refresh reads. Then use
+`templates/github/workflows/dependabot-auto-merge-app-template.yml`, which passes
+them and grants read-only job permissions:
 
 ```yaml
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@vX.Y.Z
+    with:
+      require-app-token: true
     secrets:
       APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 
-Set both or neither; one alone fails the run.
+Set both or neither; one alone fails the run. With read-only job permissions,
+also set `require-app-token: true`. Without it, missing App secrets silently fall
+back to the read-only `github.token`, and the writes then fail later with
+misleading approval or settings errors. With it, the "Select token mode" step
+fails at once with an `App token required` error when the secrets are missing.
+
+In App mode the token is minted once, after the eligibility decision, for every
+PR, and every write step (disarm, require-checks, approve, enable) uses it. The
+caller therefore needs no job-level write permissions. This requires a
+ci-framework release that includes Claire-s-Monster/ci-framework#462 (released
+after v4.4.1); earlier
+releases mint the token only for eligible PRs, so the disarm step needs
+`contents: write` and `pull-requests: write` on the job.
+
+OpenSSF Scorecard's Token-Permissions check scores the caller's job-level
+writes. App mode removes them.
 
 ## Push runs on the merge commit
 

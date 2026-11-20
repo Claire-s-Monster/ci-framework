@@ -10,7 +10,10 @@ parse, so a non-vacuity test asserts steps and run blocks were actually found.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -69,7 +72,15 @@ def test_has_no_top_level_permissions():
 
 def test_inputs_names_types_and_defaults():
     inputs = on_block(load())["workflow_call"]["inputs"]
-    assert set(inputs) == {"merge-method", "approve", "include-major"}
+    assert set(inputs) == {
+        "merge-method",
+        "approve",
+        "include-major",
+        "require-app-token",
+    }
+    assert inputs["require-app-token"]["type"] == "boolean"
+    assert inputs["require-app-token"]["default"] is False
+    assert inputs["require-app-token"]["required"] is False
     assert inputs["merge-method"]["type"] == "string"
     assert inputs["merge-method"]["default"] == "squash"
     assert inputs["approve"]["type"] == "boolean"
@@ -226,7 +237,7 @@ def test_no_run_block_interpolates_expressions():
     assert not offenders, offenders
 
 
-MERGE_CALL_RE = re.compile(rf"\bgh{GH_REPO_OPT}[ \t]+pr[ \t]+merge\b[^\n]*")
+MERGE_CALL_RE = re.compile(rf"\bgh{GH_REPO_OPT}[ \t]+pr[ \t]+merge\b[^\n;&|]*")
 AUTO_FLAG_RE = re.compile(r"(?<![\w-])--auto(?![\w-])")
 ENABLE_ALLOWED_FLAGS = frozenset({"--auto", '--"$MERGE_METHOD"', "--match-head-commit"})
 DISARM_ALLOWED_FLAGS = frozenset({"--disable-auto"})
@@ -297,6 +308,15 @@ def test_merge_call_asserter_rejects_extra_and_unpinned_calls():
         )
     with pytest.raises(AssertionError):
         assert_only_auto_enable_or_disarm_merges([enable])
+    for chained in (
+        f'{disarm}; gh pr merge "$PR_URL"',
+        f'{disarm} && gh pr merge "$PR_URL"',
+        f'{disarm} || gh pr merge --admin "$PR_URL"',
+        f'{disarm} | gh pr merge "$PR_URL"',
+        f'{disarm} & gh pr merge "$PR_URL"',
+    ):
+        with pytest.raises(AssertionError, match="unexpected"):
+            assert_only_auto_enable_or_disarm_merges([enable, chained])
 
 
 def test_merge_step_uses_auto():
@@ -329,37 +349,55 @@ def test_approve_uses_reviews_api_pinned_to_head_sha():
     assert not [r for r in run_blocks() if "gh pr review" in r]
 
 
-def test_mint_runs_only_when_eligible_and_after_decide():
+def test_mint_runs_in_app_mode_after_decide_before_disarm():
     decide = step_index(lambda s: s.get("id") == "decide")
+    mode = step_index(lambda s: s.get("id") == "mode")
     mint = step_index(lambda s: s.get("id") == "app-token")
-    assert mint > decide
-    condition = steps()[mint]["if"]
-    assert "steps.decide.outputs.eligible == 'true'" in condition
-    assert "steps.mode.outputs.app == 'true'" in condition
+    disarm = step_index(lambda s: "--disable-auto" in s.get("run", ""))
+    assert mode < mint
+    assert decide < mint < disarm
+    assert if_matches(steps()[mint]["if"], MINT_IF)
+    assert if_matches(steps()[mode]["if"], MODE_IF)
 
 
-def disarm_if_runs_after_failure(condition: str) -> bool:
-    """The `if:` must survive an upstream failure and test ineligibility."""
-    expr = str(condition)
-    survives_failure = "!cancelled()" in expr or "always()" in expr
-    return (
-        survives_failure
-        and "||" not in expr
-        and "steps.decide.outputs.eligible != 'true'" in expr
+MODE_IF = "${{ !cancelled() && steps.trigger.outcome == 'success' }}"
+MINT_IF = (
+    "${{ !cancelled() && steps.trigger.outcome == 'success' "
+    "&& steps.mode.outputs.app == 'true' }}"
+)
+
+
+def if_matches(condition: object, expected: str) -> bool:
+    """Exact equality after whitespace normalisation."""
+    return " ".join(str(condition).split()) == " ".join(expected.split())
+
+
+def test_if_matcher_rejects_mutated_conditions():
+    assert if_matches(f"  {MINT_IF}\n", MINT_IF)
+    assert not if_matches(MINT_IF.replace(" }}", " || true }}"), MINT_IF)
+    assert not if_matches(
+        "${{ !cancelled() && steps.mode.outputs.app == 'true' }}", MINT_IF
     )
+    assert not if_matches("${{ !cancelled() }}", MODE_IF)
+    assert not if_matches(MODE_IF.replace(" }}", " || true }}"), MODE_IF)
 
 
-def test_disarm_condition_checker_rejects_the_old_condition():
+DISARM_IF = "${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}"
+
+
+def test_disarm_condition_matcher_rejects_mutated_conditions():
+    assert if_matches(f"  {DISARM_IF}\n", DISARM_IF)
     old = "steps.decide.outputs.eligible != 'true'"
-    new = "${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}"
-    assert not disarm_if_runs_after_failure(old)
-    assert not disarm_if_runs_after_failure("${{ !cancelled() }}")
-    assert not disarm_if_runs_after_failure(
-        "${{ !cancelled() || steps.decide.outputs.eligible != 'true' }}"
+    assert not if_matches(old, DISARM_IF)
+    assert not if_matches("${{ !cancelled() }}", DISARM_IF)
+    assert not if_matches(
+        "${{ !cancelled() || steps.decide.outputs.eligible != 'true' }}", DISARM_IF
     )
-    assert disarm_if_runs_after_failure(new)
-    assert disarm_if_runs_after_failure(
-        "${{ always() && steps.decide.outputs.eligible != 'true' }}"
+    assert not if_matches(DISARM_IF.replace(" }}", " && false }}"), DISARM_IF)
+    assert not if_matches(DISARM_IF.replace(" }}", " || true }}"), DISARM_IF)
+    assert not if_matches(DISARM_IF.replace("!cancelled()", "always()"), DISARM_IF)
+    assert not if_matches(
+        "${{ always() && steps.decide.outputs.eligible != 'true' }}", DISARM_IF
     )
 
 
@@ -405,26 +443,267 @@ def test_armed_assertion_rejects_inverted_or_non_boolean_checks():
             assert_disarm_gated_on_boolean_armed(bad)
 
 
-def test_disarm_step_runs_for_ineligible_between_decide_and_mint():
+def test_disarm_step_runs_for_ineligible_after_mint_before_approve_and_merge():
     decide = step_index(lambda s: s.get("id") == "decide")
     disarm = step_index(lambda s: "--disable-auto" in s.get("run", ""))
     mint = step_index(lambda s: s.get("id") == "app-token")
     approve = step_index(lambda s: "/reviews" in s.get("run", ""))
     merge = step_index(lambda s: "gh pr merge --auto" in s.get("run", ""))
-    assert decide < disarm < mint
-    assert disarm < approve < merge
+    assert decide < mint < disarm < approve < merge
     step = steps()[disarm]
-    assert disarm_if_runs_after_failure(step["if"]), step["if"]
-    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert if_matches(step["if"], DISARM_IF), step["if"]
+    assert (
+        step["env"]["GH_TOKEN"]
+        == "${{ steps.app-token.outputs.token || github.token }}"
+    )
     assert_disarm_gated_on_boolean_armed(step["run"])
     assert "::notice title=Auto-merge disarmed" in step["run"]
     assert "::error title=Could not disarm auto-merge" in step["run"]
     assert "exit 1" in step["run"]
 
 
+def test_mode_step_reads_require_app_through_env_and_fails_closed():
+    mode = next(s for s in steps() if s.get("id") == "mode")
+    assert mode["env"]["REQUIRE_APP"] == "${{ inputs.require-app-token }}"
+    assert "inputs.require-app-token" not in mode["run"]
+    assert not has_interpolation(mode["run"])
+    lines = normalised_lines(mode["run"])
+    body = branch_body(lines, 'if [ "$REQUIRE_APP" = "true" ]; then')
+    assert any("::error title=App token required::" in line for line in body)
+    assert top_level_lines(body)[-1:] == ["exit 1"], body
+    assert "app=false" not in " ".join(body)
+
+
+# --- behavioural: execute the real "Select token mode" script -----------------
+
+BASH = shutil.which("bash")
+requires_bash = pytest.mark.skipif(BASH is None, reason="bash is not available")
+REQUIRE_BRANCH_OPENER = '          if [ "$REQUIRE_APP" = "true" ]; then\n'
+
+
+def mode_script() -> str:
+    run = next(s for s in steps() if s.get("id") == "mode")["run"]
+    assert not has_interpolation(run), "mode run: must not contain ${{ }} expressions"
+    return run
+
+
+def run_mode(
+    script: str, tmp_path: Path, client_id: str, key: str, require: str
+) -> tuple[int, str, list[str]]:
+    """Run `script` like GitHub's `bash --noprofile --norc -eo pipefail {0}`."""
+    assert BASH is not None
+    out = tmp_path / "github_output"
+    out.write_text("", encoding="utf-8")
+    env = {
+        "APP_CLIENT_ID": client_id,
+        "APP_PRIVATE_KEY": key,
+        "REQUIRE_APP": require,
+        "GITHUB_OUTPUT": str(out),
+        "PATH": os.environ["PATH"],
+    }
+    proc = subprocess.run(  # noqa: S603
+        [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    return proc.returncode, proc.stdout, out.read_text(encoding="utf-8").splitlines()
+
+
+@requires_bash
+@pytest.mark.parametrize("require", ["true", "false"])
+def test_mode_script_both_secrets_selects_app(tmp_path: Path, require: str):
+    code, _, outputs = run_mode(mode_script(), tmp_path, "id", "key", require)
+    assert code == 0
+    assert outputs == ["app=true"]
+
+
+@requires_bash
+def test_mode_script_no_secrets_not_required_selects_token(tmp_path: Path):
+    code, _, outputs = run_mode(mode_script(), tmp_path, "", "", "false")
+    assert code == 0
+    assert outputs == ["app=false"]
+
+
+@requires_bash
+def test_mode_script_no_secrets_required_fails_closed(tmp_path: Path):
+    code, stdout, outputs = run_mode(mode_script(), tmp_path, "", "", "true")
+    assert code != 0
+    assert "title=App token required" in stdout
+    assert not any(line.startswith("app=") for line in outputs)
+
+
+@requires_bash
+@pytest.mark.parametrize("require", ["true", "false"])
+@pytest.mark.parametrize(
+    ("client_id", "key", "missing"),
+    [("", "key", "APP_CLIENT_ID"), ("id", "", "APP_PRIVATE_KEY")],
+)
+def test_mode_script_partial_secrets_fail(
+    tmp_path: Path, client_id: str, key: str, missing: str, require: str
+):
+    code, stdout, outputs = run_mode(mode_script(), tmp_path, client_id, key, require)
+    assert code != 0
+    assert "title=App credentials incomplete" in stdout
+    assert f"{missing} is not set" in stdout
+    assert not any(line.startswith("app=") for line in outputs)
+
+
+@requires_bash
+def test_mode_harness_catches_early_exit_zero_in_require_branch(tmp_path: Path):
+    script = mode_script()
+    assert script.count(REQUIRE_BRANCH_OPENER.strip()) == 1
+    indent = " " * 4
+    mutated = script.replace(
+        REQUIRE_BRANCH_OPENER.strip() + "\n",
+        REQUIRE_BRANCH_OPENER.strip() + f"\n{indent}exit 0\n",
+    )
+    assert mutated != script
+    code, _, _ = run_mode(mutated, tmp_path, "", "", "true")
+    assert code == 0, "harness failed to observe the injected `exit 0`"
+
+
+APP_TEMPLATE = (
+    REPO_ROOT
+    / "templates"
+    / "github"
+    / "workflows"
+    / "dependabot-auto-merge-app-template.yml"
+)
+TOKEN_TEMPLATE = (
+    REPO_ROOT
+    / "templates"
+    / "github"
+    / "workflows"
+    / "dependabot-auto-merge-template.yml"
+)
+
+
+def template_with(path: Path) -> dict:
+    assert path.is_file(), f"{path} is missing"
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return next(iter(doc["jobs"].values())).get("with") or {}
+
+
+def test_app_template_requires_app_token_and_token_template_does_not():
+    assert template_with(APP_TEMPLATE).get("require-app-token") is True
+    assert "require-app-token" not in template_with(TOKEN_TEMPLATE)
+
+
 def test_metadata_uses_github_token_not_app_token():
     meta = next(s for s in steps() if s.get("id") == "metadata")
     assert meta["with"]["github-token"] == "${{ github.token }}"
+
+
+APP_TOKEN_EXPR = "${{ steps.app-token.outputs.token || github.token }}"
+
+
+APP_IDENTITY_STEPS = (
+    "Disarm auto-merge for ineligible update",
+    "Require base-branch status checks",
+    "Approve pull request",
+    "Enable auto-merge",
+)
+
+
+def assert_app_identity_steps_pin_token(step_list: list[dict]) -> None:
+    """Each targeted step exists exactly once and carries the App token expression."""
+    names = [s.get("name") for s in step_list]
+    for name in APP_IDENTITY_STEPS:
+        assert names.count(name) == 1, f"expected exactly one {name!r} step"
+        step = step_list[names.index(name)]
+        assert step["env"]["GH_TOKEN"] == APP_TOKEN_EXPR, name
+
+
+def test_app_identity_steps_use_app_token_with_github_token_fallback():
+    assert_app_identity_steps_pin_token(steps())
+
+
+def test_app_identity_token_asserter_rejects_duplicates_and_missing():
+    good = [
+        {"name": n, "env": {"GH_TOKEN": APP_TOKEN_EXPR}} for n in APP_IDENTITY_STEPS
+    ]
+    assert_app_identity_steps_pin_token(good)
+    duplicated = [
+        {"name": APP_IDENTITY_STEPS[0], "env": {"GH_TOKEN": "${{ github.token }}"}},
+        *good,
+    ]
+    with pytest.raises(AssertionError, match="exactly one"):
+        assert_app_identity_steps_pin_token(duplicated)
+    with pytest.raises(AssertionError, match="exactly one"):
+        assert_app_identity_steps_pin_token(good[1:])
+    wrong = [dict(s) for s in good]
+    wrong[3] = {"name": APP_IDENTITY_STEPS[3], "env": {"GH_TOKEN": "x"}}
+    with pytest.raises(AssertionError):
+        assert_app_identity_steps_pin_token(wrong)
+
+
+# --- no bare github.token outside metadata (#462) ----------------------------
+
+BARE_TOKEN_RE = re.compile(r"\$\{\{\s*github\.token\s*\}\}")
+METADATA_STEP = "Fetch Dependabot metadata"
+METADATA_USES = "dependabot/fetch-metadata@"
+
+
+def is_metadata_step(step: dict) -> bool:
+    return step.get("id") == "metadata" and str(step.get("uses", "")).startswith(
+        METADATA_USES
+    )
+
+
+def bare_github_token_steps(step_list: list[dict]) -> list[str]:
+    """Names of steps (other than metadata) whose env/with is a bare github.token."""
+    offenders = []
+    for step in step_list:
+        if is_metadata_step(step):
+            continue
+        values = [*(step.get("env") or {}).values(), *(step.get("with") or {}).values()]
+        if any(BARE_TOKEN_RE.fullmatch(str(v).strip()) for v in values):
+            offenders.append(str(step.get("name")))
+    return offenders
+
+
+def test_only_metadata_uses_bare_github_token_462():
+    step_list = steps()
+    assert bare_github_token_steps(step_list) == []
+    assert len([s for s in step_list if is_metadata_step(s)]) == 1
+    token_steps = [
+        s
+        for s in step_list
+        if APP_TOKEN_EXPR
+        in [*(s.get("env") or {}).values(), *(s.get("with") or {}).values()]
+    ]
+    assert len(token_steps) == len(APP_IDENTITY_STEPS)
+
+
+def test_bare_github_token_detector_fires_on_synthetic_step():
+    bare = {"name": "X", "env": {"GH_TOKEN": "${{ github.token }}"}}
+    spaced = {"name": "Y", "with": {"github-token": "${{ github.token}}"}}
+    meta = {
+        "name": METADATA_STEP,
+        "id": "metadata",
+        "uses": f"{METADATA_USES}abc  # v3",
+        "with": {"github-token": "${{ github.token }}"},
+    }
+    ok = {"name": "Z", "env": {"GH_TOKEN": APP_TOKEN_EXPR}}
+    assert bare_github_token_steps([bare]) == ["X"]
+    assert bare_github_token_steps([spaced]) == ["Y"]
+    assert bare_github_token_steps([meta, ok]) == []
+    impostor = {
+        "name": METADATA_STEP,
+        "id": "other",
+        "uses": f"{METADATA_USES}abc",
+        "with": {"github-token": "${{ github.token }}"},
+    }
+    no_uses = {
+        "name": METADATA_STEP,
+        "id": "metadata",
+        "env": {"GH_TOKEN": "${{ github.token }}"},
+    }
+    assert bare_github_token_steps([meta, impostor]) == [METADATA_STEP]
+    assert bare_github_token_steps([meta, no_uses]) == [METADATA_STEP]
 
 
 def test_required_checks_step_precedes_approve_and_merge():
@@ -612,8 +891,10 @@ def assert_warn_step_precedes_enable(step_list: list[dict]) -> None:
     warn = step_list[enable - 1]
     condition = " ".join(str(warn.get("if", "")).split())
     base = " ".join(str(step_list[enable]["if"]).split())
-    assert base in condition, f"warn if: lacks the Enable condition {base!r}"
-    assert APP_CLAUSE in condition, f"warn if: lacks {APP_CLAUSE!r}"
+    guarded = f"({base})" if "||" in base else base
+    assert condition == f"{guarded} && {APP_CLAUSE}", (
+        f"warn if: {condition!r} is not exactly the Enable condition and {APP_CLAUSE!r}"
+    )
     run = warn.get("run", "")
     assert run.count(WARNING_PREFIX) == 1, "expected exactly one push-runs warning"
     assert "${{" not in run, "warning must be static"
@@ -650,6 +931,22 @@ def _fixture_steps(
     return out
 
 
+def test_warn_step_asserter_requires_parentheses_around_or_conditions():
+    base = "a || b"
+    for condition, ok in (
+        (f"{base} && {APP_CLAUSE}", False),
+        (f"({base}) && {APP_CLAUSE}", True),
+    ):
+        fixture = _fixture_steps()
+        fixture[1]["if"] = condition
+        fixture[2]["if"] = base
+        if ok:
+            assert_warn_step_precedes_enable(fixture)
+        else:
+            with pytest.raises(AssertionError, match="not exactly"):
+                assert_warn_step_precedes_enable(fixture)
+
+
 def test_warn_step_asserter_rejects_broken_variants():
     assert_warn_step_precedes_enable(_fixture_steps())
     for broken in (
@@ -661,6 +958,11 @@ def test_warn_step_asserter_rejects_broken_variants():
     ):
         with pytest.raises(AssertionError):
             assert_warn_step_precedes_enable(_fixture_steps(**broken))
+    for extra in (" && github.event_name == 'push'", " || always()"):
+        widened = _fixture_steps()
+        widened[1]["if"] += extra
+        with pytest.raises(AssertionError, match="not exactly"):
+            assert_warn_step_precedes_enable(widened)
     doubled = _fixture_steps()
     doubled[1]["run"] += f'\necho "{WARNING_PREFIX}y"'
     with pytest.raises(AssertionError, match="exactly one"):

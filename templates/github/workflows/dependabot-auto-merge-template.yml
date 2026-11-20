@@ -1,9 +1,11 @@
 # Dependabot Auto-Merge Template - CI Framework
 # Approves Dependabot PRs and enables auto-merge on them. Major updates stay
 # manual unless include-major is true. Requires the repository setting
-# "Allow auto-merge" and required status checks on the base branch.
-# Until the first release containing reusable-dependabot-auto-merge.yml, replace
-# the ref below with @development. See docs/dependabot-auto-merge.md.
+# "Allow auto-merge" and required status checks on the base branch. See
+# docs/dependabot-auto-merge.md.
+# This is the github.token-mode caller, so the job needs write permissions. To
+# use a GitHub App token with read-only job permissions, use
+# dependabot-auto-merge-app-template.yml instead.
 
 name: Dependabot Auto-Merge
 

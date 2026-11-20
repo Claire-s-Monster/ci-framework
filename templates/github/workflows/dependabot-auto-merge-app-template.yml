@@ -1,0 +1,38 @@
+# Dependabot Auto-Merge Template (GitHub App mode) - CI Framework
+# Approves Dependabot PRs and enables auto-merge on them. Major updates stay
+# manual unless include-major is true. Requires the repository setting
+# "Allow auto-merge" and required status checks on the base branch. See
+# docs/dependabot-auto-merge.md.
+# The job permissions are read-only because the GitHub App token does every
+# write (disarm, require-checks, approve, enable). This read-only caller requires
+# a ci-framework release that includes the App-token Disarm fix
+# (Claire-s-Monster/ci-framework#462, released after v4.4.1). With @v4.4.1 or
+# older, keep the write permissions from dependabot-auto-merge-template.yml
+# instead. APP_CLIENT_ID and APP_PRIVATE_KEY must be Dependabot
+# secrets (Settings > Secrets and variables > Dependabot; org-level is allowed),
+# since runs triggered by Dependabot cannot read Actions secrets. For the
+# github.token mode use dependabot-auto-merge-template.yml instead.
+
+name: Dependabot Auto-Merge
+
+# Must be pull_request, never pull_request_target.
+on: pull_request
+
+# Top level grants no write (OpenSSF Token-Permissions).
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    permissions:
+      contents: read  # writes are done by the App token
+      pull-requests: read  # writes are done by the App token
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@v4.4.1  # x-release-please-version
+    with:
+      merge-method: squash  # merge | squash | rebase
+      approve: true  # false if approving PRs is not wanted
+      include-major: false  # true also auto-merges semver-major updates
+      require-app-token: true  # fail loudly if the App secrets are missing, instead of falling back to a read-only github.token
+    secrets:  # store these as Dependabot secrets
+      APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

@@ -703,8 +703,10 @@ def _assert_warn_step_precedes_enable(step_list: list[dict]) -> None:
     warn = step_list[enable - 1]
     condition = " ".join(str(warn.get("if", "")).split())
     base = " ".join(str(step_list[enable]["if"]).split())
-    assert base in condition, f"warn if: lacks the Enable condition {base!r}"
-    assert APP_CLAUSE in condition, f"warn if: lacks {APP_CLAUSE!r}"
+    guarded = f"({base})" if "||" in base else base
+    assert condition == f"{guarded} && {APP_CLAUSE}", (
+        f"warn if: {condition!r} is not exactly the Enable condition and {APP_CLAUSE!r}"
+    )
     run = warn.get("run", "")
     assert run.count(WARNING_PREFIX) == 1, "expected exactly one push-runs warning"
     assert "${{" not in run, "warning must be static"
@@ -741,6 +743,22 @@ def _fixture_steps(
     return out
 
 
+def test_warn_step_asserter_requires_parentheses_around_or_conditions():
+    base = "a || b"
+    for condition, ok in (
+        (f"{base} && {APP_CLAUSE}", False),
+        (f"({base}) && {APP_CLAUSE}", True),
+    ):
+        fixture = _fixture_steps()
+        fixture[1]["if"] = condition
+        fixture[2]["if"] = base
+        if ok:
+            _assert_warn_step_precedes_enable(fixture)
+        else:
+            with pytest.raises(AssertionError, match="not exactly"):
+                _assert_warn_step_precedes_enable(fixture)
+
+
 def test_warn_step_asserter_rejects_broken_variants():
     _assert_warn_step_precedes_enable(_fixture_steps())
     for broken in (
@@ -752,6 +770,11 @@ def test_warn_step_asserter_rejects_broken_variants():
     ):
         with pytest.raises(AssertionError):
             _assert_warn_step_precedes_enable(_fixture_steps(**broken))
+    for extra in (" && github.event_name == 'push'", " || always()"):
+        widened = _fixture_steps()
+        widened[1]["if"] += extra
+        with pytest.raises(AssertionError, match="not exactly"):
+            _assert_warn_step_precedes_enable(widened)
     doubled = _fixture_steps()
     doubled[1]["run"] += f'\necho "{WARNING_PREFIX}y"'
     with pytest.raises(AssertionError, match="exactly one"):

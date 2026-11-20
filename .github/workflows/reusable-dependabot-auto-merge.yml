@@ -83,6 +83,7 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Check trigger event
+        id: trigger
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -145,10 +146,11 @@ jobs:
 
       # Secrets cannot be tested in `if:`, so they are passed through env and
       # only their presence is checked; the values are never printed. Runs after
-      # an upstream failure too, so Disarm (which fails closed) can use the App.
+      # an upstream metadata/decide failure so the fail-closed Disarm can use the
+      # App, but never after a rejected trigger.
       - name: Select token mode
         id: mode
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.trigger.outcome == 'success' }}
         env:
           APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
@@ -172,9 +174,10 @@ jobs:
       # disarm, approve and merge steps need. Minted for every PR in App mode (not
       # only eligible ones) so Disarm can use it too and callers can grant
       # read-only job permissions. The action's post step revokes the token.
+      # Never minted after a rejected trigger; still minted after a metadata/decide failure.
       - name: Mint GitHub App token
         id: app-token
-        if: ${{ !cancelled() && steps.mode.outputs.app == 'true' }}
+        if: ${{ !cancelled() && steps.trigger.outcome == 'success' && steps.mode.outputs.app == 'true' }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
         with:
           client-id: ${{ secrets.APP_CLIENT_ID }}

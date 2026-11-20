@@ -5,7 +5,9 @@ name: Dependabot Auto-Merge (Reusable)
 #   1. The caller triggers on `pull_request`, NOT `pull_request_target`. A
 #      pull_request_target run has write access and secrets while a PR is open;
 #      this workflow rejects that event in its first step.
-#   2. The calling job grants `contents: write` and `pull-requests: write`.
+#   2. Without App secrets the calling job grants `contents: write` and
+#      `pull-requests: write` (the github.token fallback). With App secrets it may
+#      grant read-only `contents: read` and `pull-requests: read`.
 #   3. Required repository settings:
 #        a. Settings > General > Pull Requests > "Allow auto-merge";
 #        b. required status checks on the base branch, otherwise auto-merge
@@ -15,7 +17,8 @@ name: Dependabot Auto-Merge (Reusable)
 #   4. Major updates are manual by default; set `include-major: true` to opt in.
 #   5. The optional App secrets (APP_CLIENT_ID, APP_PRIVATE_KEY) must be stored
 #      as Dependabot secrets: runs triggered by Dependabot cannot read Actions
-#      secrets.
+#      secrets. In App mode the token is minted once after the eligibility
+#      decision, for every PR, and used by every write step.
 # The workflow never checks out code. See docs/dependabot-auto-merge.md.
 
 on:
@@ -44,8 +47,9 @@ on:
         description: >-
           Client ID of a GitHub App with Contents and Pull requests write,
           installed on the repository. Set together with APP_PRIVATE_KEY to use
-          the App token path; leave both unset to use github.token. Store it as
-          a Dependabot secret.
+          the App token path (the caller may then grant read-only job
+          permissions); leave both unset to use github.token. Store it as a
+          Dependabot secret.
         required: false
       APP_PRIVATE_KEY:
         description: "Private key (PEM) of the GitHub App. Required with APP_CLIENT_ID."
@@ -79,6 +83,7 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Check trigger event
+        id: trigger
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -100,8 +105,9 @@ jobs:
           esac
 
       # Least privilege: metadata and the eligibility decision need only the
-      # read-scoped github.token. The App token is minted after Decide, and only
-      # for an eligible PR.
+      # read-scoped github.token. In App mode the App token is minted once after
+      # Decide, for every PR, and used by every write step. Steps after the mint
+      # are first-party `gh` calls only.
       - name: Fetch Dependabot metadata
         id: metadata
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98  # v3
@@ -138,34 +144,13 @@ jobs:
             echo "- eligible: \`$eligible\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Dependabot can rewrite a PR on the same branch (for example a grouped
-      # update that gains a semver-major or unknown update). Auto-merge enabled by
-      # an earlier eligible run stays armed, so the new, ineligible head would
-      # merge once checks pass. Disarm it. This also disarms auto-merge that a
-      # human enabled on a Dependabot PR; re-enable it manually if intended.
-      # Uses github.token: the App token is minted only for eligible PRs. Fails
-      # closed: a red run is the signal that auto-merge may still be armed.
-      # Also runs after an upstream step failure (metadata or decide): decide's
-      # output is then empty, so it counts as ineligible and a stale arm is cleared.
-      - name: Disarm auto-merge for ineligible update
-        if: ${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          armed=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
-          if [ "$armed" = "true" ]; then
-            if ! gh pr merge --disable-auto "$PR_URL"; then
-              echo "::error title=Could not disarm auto-merge::Auto-merge is armed on a head whose update-type is not eligible, and disabling it failed. Disable auto-merge on $PR_URL manually."
-              exit 1
-            fi
-            echo "::notice title=Auto-merge disarmed::Auto-merge was armed by an earlier run, but the new head has an ineligible update-type, so it was disabled."
-          fi
-
       # Secrets cannot be tested in `if:`, so they are passed through env and
-      # only their presence is checked; the values are never printed.
+      # only their presence is checked; the values are never printed. Runs after
+      # an upstream metadata/decide failure so the fail-closed Disarm can use the
+      # App, but never after a rejected trigger.
       - name: Select token mode
         id: mode
+        if: ${{ !cancelled() && steps.trigger.outcome == 'success' }}
         env:
           APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
@@ -186,17 +171,43 @@ jobs:
           fi
 
       # Scoped to this repository only and to the two write permissions the
-      # approve and merge steps need. Minted only for an eligible PR. The
-      # action's post step revokes the token.
+      # disarm, approve and merge steps need. Minted for every PR in App mode (not
+      # only eligible ones) so Disarm can use it too and callers can grant
+      # read-only job permissions. The action's post step revokes the token.
+      # Never minted after a rejected trigger; still minted after a metadata/decide failure.
       - name: Mint GitHub App token
         id: app-token
-        if: steps.decide.outputs.eligible == 'true' && steps.mode.outputs.app == 'true'
+        if: ${{ !cancelled() && steps.trigger.outcome == 'success' && steps.mode.outputs.app == 'true' }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
         with:
           client-id: ${{ secrets.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
+
+      # Dependabot can rewrite a PR on the same branch (for example a grouped
+      # update that gains a semver-major or unknown update). Auto-merge enabled by
+      # an earlier eligible run stays armed, so the new, ineligible head would
+      # merge once checks pass. Disarm it. This also disarms auto-merge that a
+      # human enabled on a Dependabot PR; re-enable it manually if intended.
+      # Uses the App token in App mode, else github.token. Fails closed: a red
+      # run is the signal that auto-merge may still be armed.
+      # Also runs after an upstream step failure (metadata or decide): decide's
+      # output is then empty, so it counts as ineligible and a stale arm is cleared.
+      - name: Disarm auto-merge for ineligible update
+        if: ${{ !cancelled() && steps.decide.outputs.eligible != 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          armed=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$armed" = "true" ]; then
+            if ! gh pr merge --disable-auto "$PR_URL"; then
+              echo "::error title=Could not disarm auto-merge::Auto-merge is armed on a head whose update-type is not eligible, and disabling it failed. Disable auto-merge on $PR_URL manually."
+              exit 1
+            fi
+            echo "::notice title=Auto-merge disarmed::Auto-merge was armed by an earlier run, but the new head has an ineligible update-type, so it was disabled."
+          fi
 
       # Prerequisite for auto-merge: `gh pr merge --auto` merges IMMEDIATELY when
       # the PR is already mergeable, which is the case when the base branch has no

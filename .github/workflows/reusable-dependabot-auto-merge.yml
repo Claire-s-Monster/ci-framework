@@ -42,6 +42,14 @@ on:
         required: false
         type: boolean
         default: false
+      require-app-token:
+        description: >-
+          When true, fail unless both APP_CLIENT_ID and APP_PRIVATE_KEY are set,
+          instead of falling back to github.token. Use it with read-only caller
+          permissions.
+        required: false
+        type: boolean
+        default: false
     secrets:
       APP_CLIENT_ID:
         description: >-
@@ -154,11 +162,16 @@ jobs:
         env:
           APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          REQUIRE_APP: ${{ inputs.require-app-token }}
         run: |
           if [ -n "$APP_CLIENT_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
             echo "::notice title=Token mode::Using a GitHub App token."
             echo "app=true" >> "$GITHUB_OUTPUT"
           elif [ -z "$APP_CLIENT_ID" ] && [ -z "$APP_PRIVATE_KEY" ]; then
+            if [ "$REQUIRE_APP" = "true" ]; then
+              echo "::error title=App token required::require-app-token is true but APP_CLIENT_ID / APP_PRIVATE_KEY are not both available. Store them as Dependabot secrets (Settings > Secrets and variables > Dependabot, or org-level) and pass them in the caller."
+              exit 1
+            fi
             echo "app=false" >> "$GITHUB_OUTPUT"
           else
             if [ -z "$APP_CLIENT_ID" ]; then

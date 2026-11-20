@@ -10,7 +10,10 @@ parse, so a non-vacuity test asserts steps and run blocks were actually found.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -469,6 +472,97 @@ def test_mode_step_reads_require_app_through_env_and_fails_closed():
     assert any("::error title=App token required::" in line for line in body)
     assert top_level_lines(body)[-1:] == ["exit 1"], body
     assert "app=false" not in " ".join(body)
+
+
+# --- behavioural: execute the real "Select token mode" script -----------------
+
+BASH = shutil.which("bash")
+requires_bash = pytest.mark.skipif(BASH is None, reason="bash is not available")
+REQUIRE_BRANCH_OPENER = '          if [ "$REQUIRE_APP" = "true" ]; then\n'
+
+
+def mode_script() -> str:
+    run = next(s for s in steps() if s.get("id") == "mode")["run"]
+    assert not has_interpolation(run), "mode run: must not contain ${{ }} expressions"
+    return run
+
+
+def run_mode(
+    script: str, tmp_path: Path, client_id: str, key: str, require: str
+) -> tuple[int, str, list[str]]:
+    """Run `script` like GitHub's `bash --noprofile --norc -eo pipefail {0}`."""
+    assert BASH is not None
+    out = tmp_path / "github_output"
+    out.write_text("", encoding="utf-8")
+    env = {
+        "APP_CLIENT_ID": client_id,
+        "APP_PRIVATE_KEY": key,
+        "REQUIRE_APP": require,
+        "GITHUB_OUTPUT": str(out),
+        "PATH": os.environ["PATH"],
+    }
+    proc = subprocess.run(  # noqa: S603
+        [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    return proc.returncode, proc.stdout, out.read_text(encoding="utf-8").splitlines()
+
+
+@requires_bash
+@pytest.mark.parametrize("require", ["true", "false"])
+def test_mode_script_both_secrets_selects_app(tmp_path: Path, require: str):
+    code, _, outputs = run_mode(mode_script(), tmp_path, "id", "key", require)
+    assert code == 0
+    assert outputs == ["app=true"]
+
+
+@requires_bash
+def test_mode_script_no_secrets_not_required_selects_token(tmp_path: Path):
+    code, _, outputs = run_mode(mode_script(), tmp_path, "", "", "false")
+    assert code == 0
+    assert outputs == ["app=false"]
+
+
+@requires_bash
+def test_mode_script_no_secrets_required_fails_closed(tmp_path: Path):
+    code, stdout, outputs = run_mode(mode_script(), tmp_path, "", "", "true")
+    assert code != 0
+    assert "title=App token required" in stdout
+    assert not any(line.startswith("app=") for line in outputs)
+
+
+@requires_bash
+@pytest.mark.parametrize("require", ["true", "false"])
+@pytest.mark.parametrize(
+    ("client_id", "key", "missing"),
+    [("", "key", "APP_CLIENT_ID"), ("id", "", "APP_PRIVATE_KEY")],
+)
+def test_mode_script_partial_secrets_fail(
+    tmp_path: Path, client_id: str, key: str, missing: str, require: str
+):
+    code, stdout, outputs = run_mode(mode_script(), tmp_path, client_id, key, require)
+    assert code != 0
+    assert "title=App credentials incomplete" in stdout
+    assert f"{missing} is not set" in stdout
+    assert not any(line.startswith("app=") for line in outputs)
+
+
+@requires_bash
+def test_mode_harness_catches_early_exit_zero_in_require_branch(tmp_path: Path):
+    script = mode_script()
+    assert script.count(REQUIRE_BRANCH_OPENER.strip()) == 1
+    indent = " " * 4
+    mutated = script.replace(
+        REQUIRE_BRANCH_OPENER.strip() + "\n",
+        REQUIRE_BRANCH_OPENER.strip() + f"\n{indent}exit 0\n",
+    )
+    assert mutated != script
+    code, _, _ = run_mode(mutated, tmp_path, "", "", "true")
+    assert code == 0, "harness failed to observe the injected `exit 0`"
 
 
 APP_TEMPLATE = (

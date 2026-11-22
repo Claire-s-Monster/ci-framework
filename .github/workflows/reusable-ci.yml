@@ -215,6 +215,23 @@ on:
         required: false
         type: string
         default: ''
+      codeql-config-file:
+        description: >-
+          Repo-relative path to a CodeQL configuration file (for example
+          .github/codeql/codeql-config.yml), passed to codeql-action/init
+          `config-file`. Empty (default) = no custom config.
+        required: false
+        type: string
+        default: ''
+      codeql-packs:
+        description: >-
+          Comma-separated CodeQL packs to run in addition to the default
+          suite (for example a repo-local models-as-data pack declaring
+          barrierModel sanitizers), passed to codeql-action/init `packs`.
+          Empty (default) = no extra packs.
+        required: false
+        type: string
+        default: ''
       # --- Quality inputs ---
       fail-on-lint:
         description: "Fail on lint violations"
@@ -1315,6 +1332,9 @@ jobs:
           # hard-failed by autobuild, which would cascade into a required CI
           # failure (issue #227). Other languages keep the default build mode.
           build-mode: ${{ matrix.language == 'c-cpp' && 'none' || '' }}
+          # codeql-action reads empty optional inputs as unset, so the '' defaults leave init unchanged.
+          config-file: ${{ inputs.codeql-config-file }}
+          packs: ${{ inputs.codeql-packs }}
       - if: matrix.language != 'c-cpp'
         uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4

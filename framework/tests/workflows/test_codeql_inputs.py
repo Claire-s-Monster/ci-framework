@@ -73,6 +73,17 @@ def test_packs_description_documents_per_language_scope(inputs):
     assert "codeql-config-file" in desc
 
 
+def test_codeql_token_preflight_is_fail_closed_with_explicit_message(doc):
+    steps = doc["jobs"]["sast-codeql"]["steps"]
+    pre = [s for s in steps if s.get("name") == "Verify CI_BOT_TOKEN is valid"]
+    assert len(pre) == 1
+    run = pre[0]["run"]
+    assert "exit 1" in run
+    assert "CI_BOT_TOKEN invalid" in run
+    assert "Rotate it, or delete the secret to fall back to github.token" in run
+    assert not pre[0].get("continue-on-error")
+
+
 def test_reusable_ci_codeql_defaults_true(inputs):
     spec = inputs["codeql"]
     assert spec["type"] == "boolean"

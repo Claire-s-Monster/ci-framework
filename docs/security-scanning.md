@@ -266,6 +266,7 @@ emits a `CodeQL moved to reusable-ci` warning and a step-summary note.
 - **Repos calling only `reusable-security.yml`:** add `codeql: true` to keep CodeQL.
 - **Repos calling both:** update both workflow references to v5 together; then no further action is needed and the duplicate uploads disappear. If you must stagger the upgrade, a `reusable-ci.yml` at v5 alongside a pre-v5 `reusable-security.yml` runs CodeQL in both and re-creates the duplicate `codeql-<lang>` uploads, so set `codeql: false` on `reusable-ci.yml` until `reusable-security.yml` is also on v5.
 - **Repos with their own CodeQL workflow:** set `codeql: false` on `reusable-ci.yml` to avoid running it twice.
+- **Repos with an expired or revoked `CI_BOT_TOKEN`:** the CodeQL job runs the same fail-closed `Verify CI_BOT_TOKEN is valid` preflight as the Semgrep job, so a stale token fails the run with an error naming `CI_BOT_TOKEN`. Python repos already hit this through Semgrep; repos whose only CodeQL languages are `c-cpp` or `javascript-typescript` now hit it too. Rotate the secret, or delete it to fall back to `github.token`.
 
 ## Troubleshooting
 

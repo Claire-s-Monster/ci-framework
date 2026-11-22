@@ -264,7 +264,7 @@ emits a `CodeQL moved to reusable-ci` warning and a step-summary note.
 
 - **Upgrading from v2.9.1, or from any version after 64aedd1 that did not set `codeql: true`:** you (re)gain CodeQL in `reusable-ci.yml` and may see NEW code-scanning alerts. Uploads use `upload-sarif` with `continue-on-error`, so repos without Code Security or without `security-events: write` stay green.
 - **Repos calling only `reusable-security.yml`:** add `codeql: true` to keep CodeQL.
-- **Repos calling both:** no action needed; the duplicate uploads disappear.
+- **Repos calling both:** update both workflow references to v5 together; then no further action is needed and the duplicate uploads disappear. If you must stagger the upgrade, a `reusable-ci.yml` at v5 alongside a pre-v5 `reusable-security.yml` runs CodeQL in both and re-creates the duplicate `codeql-<lang>` uploads, so set `codeql: false` on `reusable-ci.yml` until `reusable-security.yml` is also on v5.
 - **Repos with their own CodeQL workflow:** set `codeql: false` on `reusable-ci.yml` to avoid running it twice.
 
 ## Troubleshooting

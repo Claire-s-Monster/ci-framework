@@ -47,6 +47,17 @@ def test_init_receives_config_and_packs(doc):
 
 
 def test_job_condition_keeps_codeql_opt_in_and_language_gate(doc):
-    cond = doc["jobs"]["sast-codeql"]["if"]
-    assert "inputs.codeql " in cond
-    assert "needs.detect-changes.outputs.has_codeql" in cond
+    cond = " ".join(str(doc["jobs"]["sast-codeql"]["if"]).split())
+    # Both gates must be required: no OR, and exactly these two AND operands.
+    assert "||" not in cond
+    operands = {part.strip() for part in cond.split("&&")}
+    assert operands == {
+        "inputs.codeql",
+        "needs.detect-changes.outputs.has_codeql == 'true'",
+    }
+
+
+def test_packs_description_documents_per_language_scope(inputs):
+    desc = " ".join(inputs["codeql-packs"]["description"].split())
+    assert "EVERY language" in desc
+    assert "codeql-config-file" in desc

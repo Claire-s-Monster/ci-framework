@@ -228,7 +228,11 @@ on:
           Comma-separated CodeQL packs to run in addition to the default
           suite (for example a repo-local models-as-data pack declaring
           barrierModel sanitizers), passed to codeql-action/init `packs`.
-          Empty (default) = no extra packs.
+          The same value is passed to EVERY language in the CodeQL matrix,
+          so list only packs that apply to all detected languages; for
+          language-specific packs, restrict the matrix with
+          `codeql-languages` or declare the packs per language in the
+          `codeql-config-file`. Empty (default) = no extra packs.
         required: false
         type: string
         default: ''

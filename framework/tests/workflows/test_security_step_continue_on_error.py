@@ -814,8 +814,8 @@ def test_reusable_security_codeql_keeps_the_native_upload_path():
     consumer PR to this job running `analyze` with `upload: false` plus a
     decoupled `upload-sarif` step: only `analyze` with `upload: true` sets the
     native check conclusion. reusable-ci.yml's `sast-codeql` legitimately uses
-    the split shape because its CodeQL is gated off by default (#215), so the
-    two jobs are NOT interchangeable - copying one into the other reintroduces
+    the split shape because it is the single CodeQL owner (v5, #215) and must
+    stay green without code-scanning, so the two jobs are NOT interchangeable - copying one into the other reintroduces
     #222, which is how it was reintroduced once already while fixing #304.
     """
     doc = yaml.safe_load((WORKFLOWS_DIR / "reusable-security.yml").read_text())

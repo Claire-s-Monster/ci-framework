@@ -4,7 +4,7 @@
 # ============================================================================
 # Auto-detects languages and runs appropriate security scans:
 # - Dependency audits (pixi safety-check, cargo-audit, cargo-deny, npm audit)
-# - SAST (Semgrep, CodeQL)
+# - SAST (Semgrep; CodeQL only when `codeql: true`, see below)
 # - Secret scanning (TruffleHog)
 # - Security posture (OpenSSF Scorecard)
 #
@@ -23,6 +23,11 @@
 #                                   # Token-Permissions score (verified, #353)
 #        secrets: inherit           # optional: passes CI_BOT_TOKEN (PAT)
 #    ```
+#
+# CODEQL OWNERSHIP (v5): reusable-ci.yml owns CodeQL (on by default). Here it is
+# opt-in via `codeql: true` - set it only if this repo does NOT call
+# reusable-ci.yml, otherwise codeql-<lang> is uploaded twice (issue #215).
+# When skipped, the summary job emits a "CodeQL moved to reusable-ci" warning.
 #
 # See docs/security-scanning.md for full documentation.
 # ============================================================================
@@ -64,6 +69,33 @@ on:
           autodetect for dependency/secret scans while pinning CodeQL to
           specific languages (issue #227). Valid values: python, c-cpp,
           javascript-typescript. Empty (default) = autodetect from sources.
+        required: false
+        type: string
+        default: ''
+      codeql:
+        description: "Run CodeQL SAST in this workflow. Default false: CodeQL moved to reusable-ci.yml as of v5. Set true only if this repo does NOT call reusable-ci.yml; setting it while also calling a v5 reusable-ci duplicates codeql-<lang> uploads (issue #215). Staged upgrade: if this workflow moves to v5 BEFORE reusable-ci.yml does, set codeql: true here until reusable-ci.yml is also on v5 (a pre-v5 reusable-ci defaults CodeQL off), then remove it. Language limits (languages, codeql-languages) apply only when this input is true; with reusable-ci as owner use its codeql-languages."
+        required: false
+        type: boolean
+        default: false
+      codeql-config-file:
+        description: >-
+          Repo-relative path to a CodeQL configuration file (for example
+          .github/codeql/codeql-config.yml), passed to codeql-action/init
+          `config-file`. Only used when `codeql` is true. Empty (default) =
+          no custom config.
+        required: false
+        type: string
+        default: ''
+      codeql-packs:
+        description: >-
+          Comma-separated CodeQL packs (published `scope/name[@version]`
+          references; checked-in pack paths are not supported), passed to
+          codeql-action/init `packs`. Only used when `codeql` is true. A
+          non-empty value REPLACES the `packs` of `codeql-config-file`; prefix
+          the list with `+` to add to them instead. The same value is passed to
+          EVERY language in the CodeQL matrix, so a language-specific pack can
+          break the other analyses: for multi-language repos declare packs per
+          language in `codeql-config-file`. Empty (default) = no extra packs.
         required: false
         type: string
         default: ''
@@ -288,7 +320,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+      - uses: EmbarkStudios/cargo-deny-action@17aeb3c839e42274e2b8adf721c8c65edfdc74dd  # v2
 
   js-dep-audit:
     name: "📦 JS/TS Dependency Audit"
@@ -369,7 +401,9 @@ jobs:
   sast-codeql:
     name: "🔬 CodeQL Analysis"
     needs: detect-languages
-    if: needs.detect-languages.outputs.has_codeql == 'true'
+    # Opt-in since v5: reusable-ci.yml owns CodeQL. Running both would upload
+    # the same codeql-<lang> category twice (issue #215).
+    if: inputs.codeql && needs.detect-languages.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
     # No job-level `permissions:` block on purpose. Such a block REPLACES the
     # caller's grant instead of extending it, so pinning `contents: read` here
@@ -421,6 +455,9 @@ jobs:
           # hard-failed by autobuild, which would cascade into a required CI
           # failure (issue #227). Other languages keep the default build mode.
           build-mode: ${{ matrix.language == 'c-cpp' && 'none' || '' }}
+          # codeql-action reads empty optional inputs as unset, so the '' defaults leave init unchanged.
+          config-file: ${{ inputs.codeql-config-file }}
+          packs: ${{ inputs.codeql-packs }}
       - if: matrix.language != 'c-cpp'
         uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
       # upload: true uses the native code-scanning path so the aggregate `CodeQL`
@@ -446,7 +483,7 @@ jobs:
           fetch-depth: 0
       - name: TruffleHog scan
         id: trufflehog
-        uses: trufflesecurity/trufflehog@3bd2b5887eb0efb8fa18bfd1d296032924e4ffdc  # v3.99.9
+        uses: trufflesecurity/trufflehog@d232362a64a09a9e7d58267b8f5acef00ae90e23  # v3.100.0
         with:
           extra_args: --only-verified
         continue-on-error: true
@@ -483,7 +520,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           persist-credentials: false
-      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e  # v2.5.0
+      - uses: ossf/scorecard-action@23f22cd43608bae7a1f1fa2603d7314dee9538a5  # v2.6.0
         with:
           results_file: scorecard.sarif
           results_format: sarif
@@ -511,6 +548,15 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # security-summary runs on every call (if: always()), so the notice
+      # reaches every caller whose CodeQL is skipped by the v5 opt-in default.
+      - name: Announce CodeQL move
+        if: ${{ !inputs.codeql && needs.detect-languages.outputs.has_codeql == 'true' }}
+        run: |
+          msg="CodeQL now runs in reusable-ci.yml and is skipped here."
+          msg="${msg} If this repo does not call reusable-ci.yml, set 'codeql: true' on this workflow."
+          echo "::warning title=CodeQL moved to reusable-ci::${msg}"
+          echo "> **CodeQL moved to reusable-ci.yml.** It is skipped in this workflow. If this repo does not call reusable-ci.yml, set \`codeql: true\` here." >> "$GITHUB_STEP_SUMMARY"
       - name: Generate Security Summary
         env:
           PYTHON_DEP_AUDIT_RESULT: ${{ needs.python-dep-audit.result }}

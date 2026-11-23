@@ -61,6 +61,18 @@ env:
   PACKAGE_PATH: '.'
   ALLOWED_LICENSES: 'MIT, Apache-2.0, BSD-3-Clause'
   EDITABLE_INSTALL: 'true'
+  # CODEQL_CONFIG_FILE: repo-relative path to a CodeQL config file (e.g.
+  # .github/codeql/codeql-config.yml), passed to codeql-action/init `config-file`.
+  # Default '' = no custom config. Mirrors reusable-ci input `codeql-config-file`.
+  CODEQL_CONFIG_FILE: ''  # repo-relative CodeQL config path; empty = none
+  # CODEQL_PACKS: comma-separated CodeQL packs run in addition to the default
+  # suite, passed to codeql-action/init `packs`. Use published scope/name[@version]
+  # references (checked-in pack paths are not supported). A non-empty value
+  # REPLACES the config file's `packs`; prefix it with `+` to add to them. The
+  # same value applies to EVERY language analysed, so list only packs valid for
+  # all of them.
+  # Default '' = no extra packs. Mirrors reusable-ci input `codeql-packs`.
+  CODEQL_PACKS: ''  # comma-separated CodeQL packs; empty = none
 
 jobs:
   # ==========================================================================
@@ -298,13 +310,16 @@ jobs:
           pixi run -e quality-extended safety-check
       - name: "Automated License Compliance Scanning"
         if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec  # v5
         with:
           allow-licenses: ${{ env.ALLOWED_LICENSES }}
       - name: "Initialize CodeQL"
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         with:
           languages: 'python'
+          # codeql-action reads empty optional inputs as unset, so '' is a no-op.
+          config-file: ${{ env.CODEQL_CONFIG_FILE }}
+          packs: ${{ env.CODEQL_PACKS }}
       - name: "Perform CodeQL Analysis"
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
 

@@ -20,7 +20,7 @@ import yaml
 WORKFLOW = Path(".github/workflows/reusable-ci.yml")
 MIN_CHECKS = 16
 # Jobs the summary deliberately does not gate on (warn-only or manual).
-UNGATED = {"sast-semgrep", "sast-codeql", "scorecard", "performance", "self-heal"}
+UNGATED = {"sast-semgrep", "scorecard", "performance", "self-heal"}
 CHECK_RE = re.compile(r'^\s*check "([^"]+)" "\$(\w+)" "(\$\w+|true)"$', re.MULTILINE)
 RESULT_RE = re.compile(r"^\$\{\{ needs\.([\w-]+)\.result \}\}$")
 
@@ -158,6 +158,25 @@ def test_detect_changes_failure_fails(tmp_path):
 
 def test_ungated_job_does_not_fail_summary(tmp_path):
     proc = _run(tmp_path, SAST_SEMGREP_RESULT="cancelled")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_codeql_failure_fails_summary(tmp_path):
+    # CodeQL is the default-on SAST owner (v5): a failed run must not be green.
+    proc = _run(tmp_path, SAST_CODEQL_RESULT="failure")
+    assert proc.returncode == 1
+    assert "CodeQL finished with result 'failure'" in proc.stdout
+
+
+def test_codeql_unexpected_skip_fails_summary(tmp_path):
+    proc = _run(tmp_path, SAST_CODEQL_RESULT="skipped")
+    assert proc.returncode == 1
+    assert "CodeQL was skipped but was expected to run" in proc.stdout
+
+
+def test_codeql_intentional_skip_passes(tmp_path):
+    # codeql: false, or no CodeQL-supported language detected.
+    proc = _run(tmp_path, SAST_CODEQL_RESULT="skipped", CODEQL_EXPECTED="false")
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 

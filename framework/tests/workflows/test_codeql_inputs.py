@@ -73,6 +73,45 @@ def test_packs_description_documents_per_language_scope(inputs):
     assert "codeql-config-file" in desc
 
 
+def test_packs_description_documents_replace_and_plus_prefix(inputs):
+    desc = " ".join(inputs["codeql-packs"]["description"].split())
+    assert "REPLACES" in desc
+    assert "`+`" in desc
+    assert "scope/name[@version]" in desc
+    assert "models-as-data" not in desc
+
+
+def test_sarif_upload_reads_analyze_output_directory(doc):
+    """analyze names SARIF by CodeQL language (cpp, javascript), not by matrix
+    alias (c-cpp, javascript-typescript), so the uploader must read the
+    directory rather than build `<matrix.language>.sarif`."""
+    steps = doc["jobs"]["sast-codeql"]["steps"]
+    analyze = [s for s in steps if "codeql-action/analyze" in s.get("uses", "")]
+    upload = [s for s in steps if "codeql-action/upload-sarif" in s.get("uses", "")]
+    assert len(analyze) == 1
+    assert len(upload) == 1
+    assert upload[0]["with"]["sarif_file"] == analyze[0]["with"]["output"]
+    assert "matrix.language" not in upload[0]["with"]["sarif_file"]
+
+
+def test_codeql_languages_description_names_sole_language_control(inputs):
+    desc = " ".join(inputs["codeql-languages"]["description"].split())
+    assert "reusable-security.yml no longer affect" in desc
+
+
+def test_codeql_description_covers_default_setup_and_old_opt_out(inputs):
+    desc = " ".join(inputs["codeql"]["description"].split())
+    assert "default setup" in desc
+    assert "must remove it" in desc
+
+
+def test_summary_gates_codeql(doc):
+    summary = doc["jobs"]["summary"]
+    assert "sast-codeql" in summary["needs"]
+    step = next(s for s in summary["steps"] if s["name"] == "Generate Run Summary")
+    assert 'check "CodeQL" "$SAST_CODEQL_RESULT" "$CODEQL_EXPECTED"' in step["run"]
+
+
 def test_codeql_token_preflight_is_fail_closed_with_explicit_message(doc):
     steps = doc["jobs"]["sast-codeql"]["steps"]
     pre = [s for s in steps if s.get("name") == "Verify CI_BOT_TOKEN is valid"]
@@ -120,6 +159,20 @@ def test_security_codeql_tuning_input_shape(sec_inputs, name):
     assert spec["type"] == "string"
     assert spec["default"] == ""
     assert spec["required"] is False
+
+
+def test_security_packs_description_documents_scope_and_plus_prefix(sec_inputs):
+    desc = " ".join(sec_inputs["codeql-packs"]["description"].split())
+    assert "EVERY language" in desc
+    assert "codeql-config-file" in desc
+    assert "REPLACES" in desc
+    assert "`+`" in desc
+
+
+def test_security_codeql_description_documents_staged_upgrade(sec_inputs):
+    desc = " ".join(sec_inputs["codeql"]["description"].split())
+    assert "Staged upgrade" in desc
+    assert "codeql: true" in desc
 
 
 def test_security_job_condition_requires_input_and_language(sec_doc):

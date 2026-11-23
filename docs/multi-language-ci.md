@@ -121,6 +121,7 @@ jobs:
       actions: read
       id-token: write         # OpenSSF Scorecard
       security-events: write  # CodeQL SARIF upload; or omit and pass CI_BOT_TOKEN
+      # pull-requests: write  # only for C/C++ lint PR comments (cpp-linter)
     secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
@@ -179,7 +180,7 @@ jobs:
 ```
 
 - `contents: read`, `actions: read` — Read source and workflow metadata
-- `security-events: write` — Upload SARIF to Security tab. Does not lower your Scorecard Token-Permissions score (verified, #353).
+- `security-events: write` — Upload SARIF to Security tab. Does not lower your Scorecard Token-Permissions score (verified, #353). Omit it if you pass a valid `CI_BOT_TOKEN` with the `security_events` scope; the token uploads SARIF instead. The reusable workflow has no job-level `permissions:`, so the caller's grant applies to every job.
 - `id-token: write` — Scorecard `publish_results`
 - `pull-requests: write` (only if C/C++ files are present) — cpp-linter PR comments
 - `contents: write` and `checks: write` are not needed
@@ -312,11 +313,11 @@ jobs:
       pixi-environment: 'ci'
       python-versions: '["3.11", "3.12"]'
     permissions:
-      contents: write
-      pull-requests: write
-      # security-events: write  # optional — enables SARIF upload to Security tab
-      id-token: write
-      checks: write
+      contents: read
+      actions: read
+      security-events: write  # SARIF upload; or omit and pass a valid CI_BOT_TOKEN
+      id-token: write         # Scorecard publish_results
+      # pull-requests: write  # only for C/C++ lint PR comments (cpp-linter)
     secrets: inherit
 ```
 

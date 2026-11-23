@@ -90,7 +90,7 @@ This skips JavaScript, C/C++, and Cython even if present.
 | **Rust Licenses (cargo-deny)** | ✓ | — | ✓ |
 | **JS/TS CVE Audit (npm audit)** | ✓ | — | ✓ |
 | **SAST (Semgrep)** | ✓ | — | ✓ |
-| **SAST (CodeQL)** | ✓ | — | ✓ |
+| **SAST (CodeQL)** | ✓ (default on) | — | opt-in (`codeql: true`) |
 | **Secret Scan (TruffleHog)** | ✓ | — | ✓ |
 | **Posture (Scorecard)** | ✓ | — | ✓ |
 | **Testing (pytest, cargo test, etc.)** | ✓ | — | — |
@@ -99,7 +99,7 @@ This skips JavaScript, C/C++, and Cython even if present.
 
 ## Migration Guide: Existing Consumers
 
-**No changes required!** The framework is backward compatible.
+**Mostly no changes required.** The one v5 exception is CodeQL ownership (see below).
 
 ### Current Setup (Still Works)
 
@@ -118,7 +118,10 @@ jobs:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
 ```
 
-Continue using this approach as-is. No action needed.
+Continue using this approach. As of v5, CodeQL is owned by `reusable-ci.yml`
+(on by default) and `reusable-security.yml` runs it only with `codeql: true`.
+Calling both needs no action. Calling `reusable-security.yml` alone requires
+`codeql: true`. See [Upgrading to v5](security-scanning.md#upgrading-to-v5--codeql-ownership).
 
 ### Recommended: Consolidated to `reusable-ci.yml`
 

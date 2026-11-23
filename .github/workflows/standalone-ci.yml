@@ -61,7 +61,14 @@ env:
   PACKAGE_PATH: '.'
   ALLOWED_LICENSES: 'MIT, Apache-2.0, BSD-3-Clause'
   EDITABLE_INSTALL: 'true'
+  # CODEQL_CONFIG_FILE: repo-relative path to a CodeQL config file (e.g.
+  # .github/codeql/codeql-config.yml), passed to codeql-action/init `config-file`.
+  # Default '' = no custom config. Mirrors reusable-ci input `codeql-config-file`.
   CODEQL_CONFIG_FILE: ''  # repo-relative CodeQL config path; empty = none
+  # CODEQL_PACKS: comma-separated CodeQL packs run in addition to the default
+  # suite, passed to codeql-action/init `packs`. The same value applies to EVERY
+  # language in the CodeQL matrix, so list only packs valid for all of them.
+  # Default '' = no extra packs. Mirrors reusable-ci input `codeql-packs`.
   CODEQL_PACKS: ''  # comma-separated CodeQL packs; empty = none
 
 jobs:

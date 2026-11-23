@@ -199,10 +199,10 @@ on:
         type: boolean
         default: true
       codeql:
-        description: "Run CodeQL SAST in this workflow. Default false: CodeQL is owned by reusable-security.yml so the two workflows don't upload the same codeql-<lang> category and produce a neutral CodeQL check (issue #215). Enable only when consuming reusable-ci.yml WITHOUT reusable-security.yml."
+        description: "Run CodeQL SAST in this workflow. Default true: reusable-ci.yml is the single CodeQL owner for every detected language (python, c-cpp, javascript-typescript). Results go up via upload-sarif with continue-on-error, so repos without Code Security or without security-events: write stay green. Set false only if the repo runs its own CodeQL workflow."
         required: false
         type: boolean
-        default: false
+        default: true
       codeql-languages:
         description: >-
           Comma-separated CodeQL language allowlist (e.g. "python" or
@@ -1281,9 +1281,10 @@ jobs:
   sast-codeql:
     name: "🔬 CodeQL Analysis"
     needs: detect-changes
-    # Gated off by default to avoid colliding with reusable-security.yml on the
-    # codeql-<lang> SARIF category (issue #215). Opt in via the `codeql` input
-    # when using this workflow standalone (no reusable-security.yml).
+    # This workflow is the single CodeQL owner (on by default). reusable-security.yml
+    # only runs CodeQL when its own `codeql` input is set, so callers of both
+    # no longer upload the same codeql-<lang> category twice (issue #215).
+    # Set `codeql: false` only if the repo runs its own CodeQL workflow.
     if: inputs.codeql && needs.detect-changes.outputs.has_codeql == 'true'
     runs-on: ubuntu-latest
     # No job-level `permissions:` block on purpose. Such a block REPLACES the

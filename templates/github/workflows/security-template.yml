@@ -30,7 +30,13 @@ jobs:
       id-token: write  # scorecard publish_results
       security-events: write  # SAST + Scorecard upload SARIF
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@v4.4.2  # x-release-please-version
-    # with:  # optional inputs, shown with their defaults
+    with:
+      # This template calls reusable-security alone, so it owns CodeQL. Since v5
+      # CodeQL lives in reusable-ci.yml; drop this line if you also call it.
+      codeql: true
+    # Optional inputs, shown with their defaults:
+    #   codeql-config-file: ''
+    #   codeql-packs: ''
     #   pixi-version: v0.82.0
     #   pixi-environment: ci
     #   languages: ''  # comma-separated; empty auto-detects

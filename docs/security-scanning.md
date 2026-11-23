@@ -16,6 +16,8 @@ Add to your consumer repository's workflow:
 jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
+    with:
+      codeql: true  # this example does not call reusable-ci.yml, so it owns CodeQL
     permissions:
       security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
@@ -23,6 +25,10 @@ jobs:
       id-token: write
     secrets: inherit  # optional: CI_BOT_TOKEN
 ```
+
+Since v5 CodeQL is off by default in `reusable-security.yml` (it is owned by
+`reusable-ci.yml`). Drop `codeql: true` if you also call `reusable-ci.yml`;
+without it, and without `reusable-ci.yml`, the SAST coverage is Semgrep only.
 
 **Required permissions:**
 - `contents: read` — Read source code
@@ -41,9 +47,9 @@ All inputs are optional. The workflow will auto-detect your languages and use se
 | `languages` | string | `` (empty) | Comma-separated languages to check. If empty, auto-detects from: `python` (pyproject.toml/setup.py), `rust` (Cargo.toml), `c_cpp` (CMakeLists.txt/C/C++ source files), `cython` (.pyx/.pxd files), `js_ts` (package.json). Example: `python,rust` |
 | `pixi-environment` | string | `ci` | Pixi environment the Python dependency audit installs and runs `safety-check` in. If the audit tool is not installed there (exit code 127) the audit is skipped with a `::warning::` and `fail-on-cve` does not fail the job. If the audit tool crashes (non-zero exit with a Python `Traceback` in its output, or an exit code above 128 meaning it was killed by a signal, e.g. 139 segfault or 137 SIGKILL/OOM) the step reports `status=crashed` with a `::error title=Dependency audit tool crashed::` annotation: the audit did not complete and this is not a vulnerability finding. A crash always fails the job (via the `Fail on audit tool crash` step), regardless of `fail-on-cve`, because the dependencies were not audited at all. Other non-zero exits report `status=findings`. |
 | `codeql` | boolean | `false` | Run CodeQL here. CodeQL moved to `reusable-ci.yml` as of v5; set `true` only if this repo does NOT call `reusable-ci.yml`. Setting it while also calling `reusable-ci.yml` duplicates `codeql-<lang>` uploads (#215). When skipped, the summary job emits a `CodeQL moved to reusable-ci` warning. |
-| `codeql-languages` | string | `` (empty) | CodeQL-only language allowlist (`python`, `c-cpp`, `javascript-typescript`). Empty auto-detects. |
+| `codeql-languages` | string | `` (empty) | CodeQL-only language allowlist (`python`, `c-cpp`, `javascript-typescript`). Empty auto-detects. Only used when `codeql: true`; the owner `reusable-ci.yml` has its own `codeql-languages`. |
 | `codeql-config-file` | string | `` (empty) | Path to a CodeQL config file, passed to `codeql-action/init`. Only used when `codeql: true`. |
-| `codeql-packs` | string | `` (empty) | Comma-separated extra CodeQL packs, passed to `codeql-action/init`. Only used when `codeql: true`. |
+| `codeql-packs` | string | `` (empty) | Comma-separated published CodeQL packs (`scope/name[@version]`; checked-in pack paths are not supported), passed to `codeql-action/init`. Only used when `codeql: true`. A non-empty value replaces the `packs` of `codeql-config-file` unless prefixed with `+`. The same value goes to EVERY language in the CodeQL matrix, so a language-specific pack can break the other analyses; multi-language repos should declare packs per language in `codeql-config-file`. |
 | `fail-on-cve` | boolean | `true` | Fail the workflow on known dependency CVEs. Set to `false` to warn only. |
 | `fail-on-sast` | boolean | `false` | Fail the workflow on SAST findings (Semgrep, CodeQL). Default warns only due to false-positive rates. |
 | `fail-on-secrets` | boolean | `true` | Fail the workflow on detected secrets (TruffleHok). Set to `false` to warn only. |
@@ -106,12 +112,18 @@ Uploads run with `continue-on-error: true`, so a failed upload leaves the job gr
 
 ## Example Configurations
 
+The examples below call `reusable-security.yml` alone. CodeQL is off by default
+there (since v5 it belongs to `reusable-ci.yml`), so add `codeql: true` to any of
+them that should keep CodeQL and does not also call `reusable-ci.yml`.
+
 ### Minimal: Auto-detect with defaults (recommended)
 
 ```yaml
 jobs:
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
+    with:
+      codeql: true  # only if this repo does not also call reusable-ci.yml
     permissions:
       security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
@@ -120,7 +132,8 @@ jobs:
     secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
-Detects languages, blocks on CVEs and secrets, warns on SAST, runs Scorecard.
+Detects languages, blocks on CVEs and secrets, warns on SAST (Semgrep, plus
+CodeQL because of `codeql: true`), runs Scorecard.
 
 ### Strict: Block everything
 
@@ -237,7 +250,12 @@ Combine with `reusable-ci.yml` for comprehensive checks:
 jobs:
   quality:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
-    secrets: inherit
+    permissions:
+      contents: read
+      actions: read
+      id-token: write  # OpenSSF Scorecard
+      security-events: write  # CodeQL/Semgrep/Scorecard SARIF upload
+    secrets: inherit  # optional: CI_BOT_TOKEN
 
   security:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
@@ -254,6 +272,11 @@ Both run independently and report together in the PR. CodeQL runs only in
 skips it, so `codeql-<lang>` is uploaded once. Use `codeql: true` on
 `reusable-security.yml` only when you do not call `reusable-ci.yml`.
 
+CodeQL uploads from the `reusable-ci.yml` caller job, so that job needs
+`security-events: write` (as above) or a valid `CI_BOT_TOKEN`; the grant on the
+`security` job does not carry over. Without either, the CodeQL upload fails
+non-fatally and the results never reach the Security tab.
+
 ## Upgrading to v5 — CodeQL ownership
 
 As of v5, `reusable-ci.yml` is the single CodeQL owner (`codeql` defaults to
@@ -264,8 +287,12 @@ emits a `CodeQL moved to reusable-ci` warning and a step-summary note.
 
 - **Upgrading from v2.9.1, or from any version after 64aedd1 that did not set `codeql: true`:** you (re)gain CodeQL in `reusable-ci.yml` and may see NEW code-scanning alerts. Uploads use `upload-sarif` with `continue-on-error`, so repos without Code Security or without `security-events: write` stay green.
 - **Repos calling only `reusable-security.yml`:** add `codeql: true` to keep CodeQL.
-- **Repos calling both:** update both workflow references to v5 together; then no further action is needed and the duplicate uploads disappear. If you must stagger the upgrade, a `reusable-ci.yml` at v5 alongside a pre-v5 `reusable-security.yml` runs CodeQL in both and re-creates the duplicate `codeql-<lang>` uploads, so set `codeql: false` on `reusable-ci.yml` until `reusable-security.yml` is also on v5.
-- **Repos with their own CodeQL workflow:** set `codeql: false` on `reusable-ci.yml` to avoid running it twice.
+- **Repos calling both:** update both workflow references to v5 together; the duplicate uploads then disappear. Three things to carry over first:
+  - If you set `codeql: false` on `reusable-ci.yml` to avoid duplicates while `reusable-security.yml` owned CodeQL, remove it (or set `true`). Left in place, and with the new `reusable-security.yml` default of `false`, neither workflow runs CodeQL.
+  - If you limited CodeQL with `languages` or `codeql-languages` on `reusable-security.yml`, set the equivalent `codeql-languages` on `reusable-ci.yml`, which builds its own matrix from filesystem detection. Otherwise the scan can become broader, or an explicitly enabled language can be missed. Move any `codeql-config-file` / `codeql-packs` there too.
+  - Grant `security-events: write` (or supply `CI_BOT_TOKEN`) to the `reusable-ci.yml` caller job, since CodeQL now uploads from there.
+- **Staggered upgrades:** a `reusable-ci.yml` at v5 alongside a pre-v5 `reusable-security.yml` runs CodeQL in both and re-creates the duplicate `codeql-<lang>` uploads, so set `codeql: false` on `reusable-ci.yml` until `reusable-security.yml` is also on v5. The reverse order (`reusable-security.yml` on v5 first, with `reusable-ci.yml` still pre-v5, where CodeQL defaults off) leaves NO CodeQL, so set `codeql: true` on `reusable-security.yml` until `reusable-ci.yml` is on v5, then remove it.
+- **Repos with their own CodeQL workflow, or GitHub's CodeQL default setup:** set `codeql: false` on `reusable-ci.yml`. GitHub rejects advanced-workflow SARIF while default setup is enabled, so otherwise CodeQL runs redundantly and its upload fails (tolerated, but wasted).
 - **Repos with an expired or revoked `CI_BOT_TOKEN`:** the CodeQL job runs the same fail-closed `Verify CI_BOT_TOKEN is valid` preflight as the Semgrep job, so a stale token fails the run with an error naming `CI_BOT_TOKEN`. Python repos already hit this through Semgrep; repos whose only CodeQL languages are `c-cpp` or `javascript-typescript` now hit it too. Rotate the secret, or delete it to fall back to `github.token`.
 
 ## Troubleshooting

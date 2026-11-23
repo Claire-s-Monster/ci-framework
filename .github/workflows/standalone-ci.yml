@@ -61,6 +61,8 @@ env:
   PACKAGE_PATH: '.'
   ALLOWED_LICENSES: 'MIT, Apache-2.0, BSD-3-Clause'
   EDITABLE_INSTALL: 'true'
+  CODEQL_CONFIG_FILE: ''  # repo-relative CodeQL config path; empty = none
+  CODEQL_PACKS: ''  # comma-separated CodeQL packs; empty = none
 
 jobs:
   # ==========================================================================
@@ -305,6 +307,9 @@ jobs:
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         with:
           languages: 'python'
+          # codeql-action reads empty optional inputs as unset, so '' is a no-op.
+          config-file: ${{ env.CODEQL_CONFIG_FILE }}
+          packs: ${{ env.CODEQL_PACKS }}
       - name: "Perform CodeQL Analysis"
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
 

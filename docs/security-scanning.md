@@ -143,6 +143,7 @@ jobs:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@main
     with:
       fail-on-sast: true
+      codeql: true  # reusable-security runs CodeQL only when asked (v5); drop if you also call reusable-ci.yml
     permissions:
       security-events: write  # SAST SARIF upload via GITHUB_TOKEN
       contents: read
@@ -266,6 +267,20 @@ jobs:
       id-token: write
     secrets: inherit  # optional: CI_BOT_TOKEN
 ```
+
+**Token scope warning.** `reusable-ci.yml` sets no job-level `permissions:`
+(a job block would replace the caller's grant), so a caller-level
+`security-events: write` is inherited by every job in that call, including the
+jobs that run your repository's test and build code. For pull requests from
+forks GitHub downgrades the token to read-only, so the risk is limited to
+same-repo PRs (and anything that runs repository code with write access).
+The least-privilege alternative is to omit `security-events: write` and pass a
+narrowly scoped `CI_BOT_TOKEN` (a PAT with only the `security_events` scope):
+the `sast-codeql` job uploads with `secrets.CI_BOT_TOKEN || github.token`, and
+the PAT reaches only the upload steps. Choose the grant only if you trust
+every contributor who can open same-repo PRs. CodeQL's SARIF is written to
+`${{ runner.temp }}`, outside the checkout, so a PR cannot commit a forged
+`.sarif` for upload.
 
 Both run independently and report together in the PR. CodeQL runs only in
 `reusable-ci.yml` here (its `codeql` input defaults to `true`); `reusable-security.yml`

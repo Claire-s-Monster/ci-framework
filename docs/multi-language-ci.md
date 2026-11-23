@@ -116,6 +116,12 @@ jobs:
 
   ci:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+    permissions:
+      contents: read
+      actions: read
+      id-token: write         # OpenSSF Scorecard
+      security-events: write  # CodeQL SARIF upload; or omit and pass CI_BOT_TOKEN
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Continue using this approach. As of v5, CodeQL is owned by `reusable-ci.yml`

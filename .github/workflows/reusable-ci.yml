@@ -199,7 +199,17 @@ on:
         type: boolean
         default: true
       codeql:
-        description: "Run CodeQL SAST in this workflow. Default true: reusable-ci.yml is the single CodeQL owner for every detected language (python, c-cpp, javascript-typescript). Results go up via upload-sarif with continue-on-error, so repos without Code Security or without security-events: write stay green. Set false only if the repo runs its own CodeQL workflow."
+        description: >-
+          Run CodeQL SAST in this workflow. Default true: reusable-ci.yml is
+          the single CodeQL owner for every detected language (python, c-cpp,
+          javascript-typescript). Results go up via upload-sarif with
+          continue-on-error, so repos without Code Security or without
+          security-events: write stay green. Set false if the repo runs its own
+          CodeQL workflow OR uses GitHub's CodeQL default setup (GitHub rejects
+          advanced-workflow SARIF while default setup is enabled). A caller
+          that set `codeql: false` here only to avoid duplicate uploads while
+          reusable-security.yml owned CodeQL must remove it (or set true) when
+          moving to v5, otherwise neither workflow runs CodeQL.
         required: false
         type: boolean
         default: true
@@ -212,6 +222,9 @@ on:
           test fixture isn't forced into a spurious c-cpp analysis whose
           autobuild fails (issue #227). Valid values: python, c-cpp,
           javascript-typescript. Empty (default) = autodetect from sources.
+          This is the only language control for CodeQL since v5: the `languages`
+          and `codeql-languages` inputs of reusable-security.yml no longer
+          affect it, so move any CodeQL allowlist here.
         required: false
         type: string
         default: ''
@@ -225,14 +238,16 @@ on:
         default: ''
       codeql-packs:
         description: >-
-          Comma-separated CodeQL packs to run in addition to the default
-          suite (for example a repo-local models-as-data pack declaring
-          barrierModel sanitizers), passed to codeql-action/init `packs`.
-          The same value is passed to EVERY language in the CodeQL matrix,
-          so list only packs that apply to all detected languages; for
-          language-specific packs, restrict the matrix with
-          `codeql-languages` or declare the packs per language in the
-          `codeql-config-file`. Empty (default) = no extra packs.
+          Comma-separated CodeQL packs (published `scope/name[@version]`
+          references, for example `codeql/python-queries@1.2.3`), passed to
+          codeql-action/init `packs`. Paths to checked-in packs are NOT
+          supported. A non-empty value REPLACES the `packs` of the
+          `codeql-config-file`; prefix the list with `+` (for example
+          `+scope/pack`) to add to them instead. The same value is passed to
+          EVERY language in the CodeQL matrix, so list only packs that apply
+          to all detected languages; for language-specific packs, restrict the
+          matrix with `codeql-languages` or declare the packs per language in
+          the `codeql-config-file`. Empty (default) = no extra packs.
         required: false
         type: string
         default: ''
@@ -1345,12 +1360,17 @@ jobs:
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         with:
           upload: false
-          output: codeql-results
+          # Outside the checkout on purpose: a PR must not be able to commit a
+          # crafted .sarif that upload-sarif would then publish as alerts.
+          output: ${{ runner.temp }}/codeql-results
           category: codeql-${{ matrix.language }}
       - name: Upload CodeQL SARIF
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         with:
-          sarif_file: codeql-results/${{ matrix.language }}.sarif
+          # A directory, not a file: analyze names its SARIF after the CodeQL
+          # language (cpp.sarif, javascript.sarif), not the matrix alias
+          # (c-cpp, javascript-typescript). One matrix leg writes one file.
+          sarif_file: ${{ runner.temp }}/codeql-results
           category: codeql-${{ matrix.language }}
           token: ${{ secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true
@@ -1776,6 +1796,7 @@ jobs:
             ${{ inputs.enable-postgres &&
             (needs.detect-changes.outputs.src == 'true' ||
             needs.detect-changes.outputs.tests == 'true') }}
+          CODEQL_EXPECTED: ${{ inputs.codeql && needs.detect-changes.outputs.has_codeql == 'true' }}
           FAIL_ON_TYPECHECK: ${{ inputs.fail-on-typecheck }}
           HYGIENE_RESULT: ${{ needs.hygiene.result }}
           PYTHON_QUALITY_RESULT: ${{ needs.python-quality.result }}
@@ -1874,6 +1895,11 @@ jobs:
           check "Rust Dep Audit" "$RUST_DEP_AUDIT_RESULT" "$RUST_EXPECTED"
           check "Rust Deny" "$RUST_DENY_RESULT" "$RUST_EXPECTED"
           check "JS/TS Dep Audit" "$JS_DEP_AUDIT_RESULT" "$JS_TS_EXPECTED"
+          # CodeQL is the default-on SAST owner (v5). Its findings stay advisory
+          # (analyze does not fail on alerts, and the SARIF upload is
+          # continue-on-error), but a preflight, init, autobuild or analyze
+          # failure, or an unexpected skip, must not read as green.
+          check "CodeQL" "$SAST_CODEQL_RESULT" "$CODEQL_EXPECTED"
           check "Secret Scan" "$SECRET_SCAN_RESULT" "true"
           check "Test" "$TEST_RESULT" "$TEST_EXPECTED"
           check "Test+PG" "$TEST_POSTGRES_RESULT" "$TEST_POSTGRES_EXPECTED"

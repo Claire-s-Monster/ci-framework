@@ -66,8 +66,11 @@ env:
   # Default '' = no custom config. Mirrors reusable-ci input `codeql-config-file`.
   CODEQL_CONFIG_FILE: ''  # repo-relative CodeQL config path; empty = none
   # CODEQL_PACKS: comma-separated CodeQL packs run in addition to the default
-  # suite, passed to codeql-action/init `packs`. The same value applies to EVERY
-  # language in the CodeQL matrix, so list only packs valid for all of them.
+  # suite, passed to codeql-action/init `packs`. Use published scope/name[@version]
+  # references (checked-in pack paths are not supported). A non-empty value
+  # REPLACES the config file's `packs`; prefix it with `+` to add to them. The
+  # same value applies to EVERY language analysed, so list only packs valid for
+  # all of them.
   # Default '' = no extra packs. Mirrors reusable-ci input `codeql-packs`.
   CODEQL_PACKS: ''  # comma-separated CodeQL packs; empty = none
 

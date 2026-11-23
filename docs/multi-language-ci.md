@@ -116,12 +116,23 @@ jobs:
 
   ci:
     uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-ci.yml@main
+    permissions:
+      contents: read
+      actions: read
+      id-token: write         # OpenSSF Scorecard
+      security-events: write  # CodeQL SARIF upload; or omit and pass CI_BOT_TOKEN
+    secrets: inherit  # optional: CI_BOT_TOKEN
 ```
 
 Continue using this approach. As of v5, CodeQL is owned by `reusable-ci.yml`
 (on by default) and `reusable-security.yml` runs it only with `codeql: true`.
-Calling both needs no action. Calling `reusable-security.yml` alone requires
-`codeql: true`. See [Upgrading to v5](security-scanning.md#upgrading-to-v5--codeql-ownership).
+Calling both and moving both to v5 together needs no action, provided you
+remove any `codeql: false` on `reusable-ci.yml`, move any CodeQL language
+override (`codeql-languages`) to `reusable-ci.yml`, and grant that job
+`security-events: write` (or `CI_BOT_TOKEN`) because CodeQL now uploads from
+it. Repos using GitHub's CodeQL default setup or their own CodeQL workflow
+need `codeql: false` on `reusable-ci.yml`. Calling `reusable-security.yml`
+alone requires `codeql: true`. See [Upgrading to v5](security-scanning.md#upgrading-to-v5--codeql-ownership).
 
 ### Recommended: Consolidated to `reusable-ci.yml`
 

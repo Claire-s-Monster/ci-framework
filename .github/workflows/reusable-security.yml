@@ -73,7 +73,7 @@ on:
         type: string
         default: ''
       codeql:
-        description: "Run CodeQL SAST in this workflow. Default false: CodeQL moved to reusable-ci.yml as of v5. Set true only if this repo does NOT call reusable-ci.yml; setting it while also calling reusable-ci duplicates codeql-<lang> uploads (issue #215)."
+        description: "Run CodeQL SAST in this workflow. Default false: CodeQL moved to reusable-ci.yml as of v5. Set true only if this repo does NOT call reusable-ci.yml; setting it while also calling a v5 reusable-ci duplicates codeql-<lang> uploads (issue #215). Staged upgrade: if this workflow moves to v5 BEFORE reusable-ci.yml does, set codeql: true here until reusable-ci.yml is also on v5 (a pre-v5 reusable-ci defaults CodeQL off), then remove it. Language limits (languages, codeql-languages) apply only when this input is true; with reusable-ci as owner use its codeql-languages."
         required: false
         type: boolean
         default: false
@@ -88,9 +88,14 @@ on:
         default: ''
       codeql-packs:
         description: >-
-          Comma-separated CodeQL packs to run in addition to the default
-          suite, passed to codeql-action/init `packs`. Only used when
-          `codeql` is true. Empty (default) = no extra packs.
+          Comma-separated CodeQL packs (published `scope/name[@version]`
+          references; checked-in pack paths are not supported), passed to
+          codeql-action/init `packs`. Only used when `codeql` is true. A
+          non-empty value REPLACES the `packs` of `codeql-config-file`; prefix
+          the list with `+` to add to them instead. The same value is passed to
+          EVERY language in the CodeQL matrix, so a language-specific pack can
+          break the other analyses: for multi-language repos declare packs per
+          language in `codeql-config-file`. Empty (default) = no extra packs.
         required: false
         type: string
         default: ''

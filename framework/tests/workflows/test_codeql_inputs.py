@@ -94,6 +94,18 @@ def test_sarif_upload_reads_analyze_output_directory(doc):
     assert "matrix.language" not in upload[0]["with"]["sarif_file"]
 
 
+def test_sarif_path_is_outside_the_checkout(doc):
+    """A PR must not be able to commit a crafted .sarif that upload-sarif
+    publishes: the SARIF directory lives under runner.temp, not the workspace."""
+    steps = doc["jobs"]["sast-codeql"]["steps"]
+    analyze = next(s for s in steps if "codeql-action/analyze" in s.get("uses", ""))
+    upload = next(s for s in steps if "codeql-action/upload-sarif" in s.get("uses", ""))
+    out = analyze["with"]["output"]
+    assert out == upload["with"]["sarif_file"]
+    assert out.startswith("${{ runner.temp }}/")
+    assert "github.workspace" not in out
+
+
 def test_codeql_languages_description_names_sole_language_control(inputs):
     desc = " ".join(inputs["codeql-languages"]["description"].split())
     assert "reusable-security.yml no longer affect" in desc

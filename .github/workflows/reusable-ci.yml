@@ -1360,7 +1360,9 @@ jobs:
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
         with:
           upload: false
-          output: codeql-results
+          # Outside the checkout on purpose: a PR must not be able to commit a
+          # crafted .sarif that upload-sarif would then publish as alerts.
+          output: ${{ runner.temp }}/codeql-results
           category: codeql-${{ matrix.language }}
       - name: Upload CodeQL SARIF
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
@@ -1368,7 +1370,7 @@ jobs:
           # A directory, not a file: analyze names its SARIF after the CodeQL
           # language (cpp.sarif, javascript.sarif), not the matrix alias
           # (c-cpp, javascript-typescript). One matrix leg writes one file.
-          sarif_file: codeql-results
+          sarif_file: ${{ runner.temp }}/codeql-results
           category: codeql-${{ matrix.language }}
           token: ${{ secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true

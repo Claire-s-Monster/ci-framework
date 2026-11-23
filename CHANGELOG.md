@@ -5,6 +5,55 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.4.2...v5.0.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ci:** reusable-security.yml no longer runs CodeQL by default. Repos that call only reusable-security must set `codeql: true`. Repos that call reusable-ci now get CodeQL by default and may see NEW code-scanning alerts. That includes repos upgrading from v2.9.1, and any repo past 64aedd1 that never set `codeql: true`. Repos with their own CodeQL workflow should set `codeql: false` on reusable-ci.
+
+### 🚀 Features
+
+* **ci:** make reusable-ci the single default-on CodeQL owner ([e16cbbc](https://github.com/Claire-s-Monster/ci-framework/commit/e16cbbc158d809b287f0464ce66d5ebf5d2edfe3))
+* **reusable-ci:** let callers pass a CodeQL config file and packs to sast-codeql ([1f33825](https://github.com/Claire-s-Monster/ci-framework/commit/1f338252591342fd50cac5c5891e45363b42fc16))
+* **reusable-ci:** let callers pass a CodeQL config file and packs to sast-codeql ([4bef7cc](https://github.com/Claire-s-Monster/ci-framework/commit/4bef7cc1bd0483453ea22d93e4368c85f30faa9e)), closes [#468](https://github.com/Claire-s-Monster/ci-framework/issues/468)
+
+
+### 🐛 Bug Fixes
+
+* **ci:** address v5 CodeQL review findings from [#476](https://github.com/Claire-s-Monster/ci-framework/issues/476) ([3e24cc9](https://github.com/Claire-s-Monster/ci-framework/commit/3e24cc9264e39697d5bbf3957ab6626df49fc834))
+* **ci:** refresh detect-secrets baseline line numbers for reusable-ci.yml ([e46a67e](https://github.com/Claire-s-Monster/ci-framework/commit/e46a67ea6f92f386d37b6fb10f08527fb0b00ca6))
+* **ci:** refresh detect-secrets baseline line numbers for reusable-ci.yml ([8dc35f8](https://github.com/Claire-s-Monster/ci-framework/commit/8dc35f863bee09a5d7caeca5453be0bb253d4da8))
+* **ci:** upload CodeQL SARIF by directory and gate CI Summary on CodeQL ([ba72f76](https://github.com/Claire-s-Monster/ci-framework/commit/ba72f760efb4cfb919ac4fa771776d182478eeb7))
+* **ci:** write CodeQL SARIF outside the checkout before upload ([b65488e](https://github.com/Claire-s-Monster/ci-framework/commit/b65488e751b7d4b28eed18110961e32c5cf67674))
+* **reusable-ci:** document codeql-packs scope and assert both sast-codeql gates ([051f05d](https://github.com/Claire-s-Monster/ci-framework/commit/051f05d83cf3ad92ba22741c20ee3df14ac9bfa2))
+
+
+### 📚 Documentation
+
+* **ci:** clarify v5 CodeQL migration, examples and permissions ([060cd5a](https://github.com/Claire-s-Monster/ci-framework/commit/060cd5a4eb9e92f1e52cd0f4caa084218d44173a))
+* **ci:** document CODEQL_* env vars in standalone-ci template ([652fc8c](https://github.com/Claire-s-Monster/ci-framework/commit/652fc8caef114cecf32fd4d9dee064567b1971a9))
+* **ci:** document the CI_BOT_TOKEN preflight now reaching CodeQL-only repos ([879c859](https://github.com/Claire-s-Monster/ci-framework/commit/879c85924b64c1e28106d5c64ca56ed293235d09))
+* **ci:** fix v5 CodeQL permission and Strict example guidance ([01c7463](https://github.com/Claire-s-Monster/ci-framework/commit/01c746382450f889af63c6664ca5d5d1e2c76d3b))
+* **ci:** tell callers of both workflows to upgrade them together ([97d570b](https://github.com/Claire-s-Monster/ci-framework/commit/97d570b58ca66a349bcdd8e4de41587efbffed03))
+
+
+### 🔧 Maintenance
+
+* promote development to main for v5.0.0 ([9b48f27](https://github.com/Claire-s-Monster/ci-framework/commit/9b48f275d2b8cf318631c1cb11f2b783d3c77787))
+* sync main back to development ([465d6e2](https://github.com/Claire-s-Monster/ci-framework/commit/465d6e28d592b947cc81b351cf3384a0b9807540))
+
+
+### 👷 CI/CD
+
+* **deps:** bump actions/create-github-app-token from 3.3.0 to 3.4.0 ([#474](https://github.com/Claire-s-Monster/ci-framework/issues/474)) ([59bea52](https://github.com/Claire-s-Monster/ci-framework/commit/59bea527bc516a5234d8ae3a48267ac8acbe7e7c))
+* **deps:** bump actions/dependency-review-action from 5.0.0 to 5.0.1 ([#472](https://github.com/Claire-s-Monster/ci-framework/issues/472)) ([b21ff88](https://github.com/Claire-s-Monster/ci-framework/commit/b21ff8851fa8d0f0b17a9ef2d323ad1fa4568f70))
+* **deps:** bump EmbarkStudios/cargo-deny-action from 2.1.1 to 2.1.3 ([8d1cdba](https://github.com/Claire-s-Monster/ci-framework/commit/8d1cdbac47541736082fb1931811c2c9f6de7c66))
+* **deps:** bump EmbarkStudios/cargo-deny-action from 2.1.1 to 2.1.3 ([a0cd08d](https://github.com/Claire-s-Monster/ci-framework/commit/a0cd08db601b79a9bf665c731c1a7f6f8fe19ebe))
+* **deps:** bump ossf/scorecard-action from 2.5.0 to 2.6.0 ([df1091c](https://github.com/Claire-s-Monster/ci-framework/commit/df1091c90331cd100a5336cf6bae3f447508aabc))
+* **deps:** bump ossf/scorecard-action from 2.5.0 to 2.6.0 ([a446959](https://github.com/Claire-s-Monster/ci-framework/commit/a4469593e7bc14a1347e7fc3246206f95b8fac2d))
+* **deps:** bump trufflesecurity/trufflehog from 3.99.9 to 3.100.0 ([#473](https://github.com/Claire-s-Monster/ci-framework/issues/473)) ([d2ee144](https://github.com/Claire-s-Monster/ci-framework/commit/d2ee144cfec3dc7ee7da0a74bfba60cce34305ed))
+
 ## [4.4.2](https://github.com/Claire-s-Monster/ci-framework/compare/v4.4.1...v4.4.2) (2026-11-20)
 
 

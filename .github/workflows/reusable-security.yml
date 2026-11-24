@@ -392,11 +392,19 @@ jobs:
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
           # #482: a PAT can pass /rate_limit yet lack code-scanning access (404).
+          # Read access is the best non-mutating signal (no write probe exists),
+          # and a 403 may be a rate limit; github.token is the safe fallback.
           cs_status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1") || cs_status="000"
           case "${cs_status}" in
             200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
+            401)
+              msg="CI_BOT_TOKEN was rejected by the code-scanning API (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
             403|404)
               msg="CI_BOT_TOKEN can't reach the code-scanning API (HTTP ${cs_status})."
               msg="${msg} SARIF upload will fall back to github.token."
@@ -488,11 +496,19 @@ jobs:
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
           # #482: a PAT can pass /rate_limit yet lack code-scanning access (404).
+          # Read access is the best non-mutating signal (no write probe exists),
+          # and a 403 may be a rate limit; github.token is the safe fallback.
           cs_status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1") || cs_status="000"
           case "${cs_status}" in
             200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
+            401)
+              msg="CI_BOT_TOKEN was rejected by the code-scanning API (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
             403|404)
               msg="CI_BOT_TOKEN can't reach the code-scanning API (HTTP ${cs_status})."
               msg="${msg} SARIF upload will fall back to github.token."
@@ -602,11 +618,19 @@ jobs:
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
           # #482: a PAT can pass /rate_limit yet lack code-scanning access (404).
+          # Read access is the best non-mutating signal (no write probe exists),
+          # and a 403 may be a rate limit; github.token is the safe fallback.
           cs_status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1") || cs_status="000"
           case "${cs_status}" in
             200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
+            401)
+              msg="CI_BOT_TOKEN was rejected by the code-scanning API (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
             403|404)
               msg="CI_BOT_TOKEN can't reach the code-scanning API (HTTP ${cs_status})."
               msg="${msg} SARIF upload will fall back to github.token."

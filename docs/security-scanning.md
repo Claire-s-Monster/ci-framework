@@ -276,8 +276,13 @@ forks GitHub downgrades the token to read-only, so the risk is limited to
 same-repo PRs (and anything that runs repository code with write access).
 The least-privilege alternative is to omit `security-events: write` and pass a
 narrowly scoped `CI_BOT_TOKEN` (a PAT with only the `security_events` scope):
-the `sast-codeql` job uploads with `secrets.CI_BOT_TOKEN || github.token`, and
-the PAT reaches only the upload steps. Choose the grant only if you trust
+each SARIF upload uses `CI_BOT_TOKEN` only when a preflight confirms the PAT
+can read the code-scanning API (`GET .../code-scanning/analyses` returns 200),
+and otherwise uses `github.token`. A 401 fails the preflight; a 403 or 404
+(missing `security_events` scope) falls back to `github.token`, which then
+needs the caller's `security-events: write` grant, so a PAT lacking the scope
+cannot substitute for that grant. The PAT reaches only the upload steps. The
+probe checks read access, since no non-mutating write probe exists. Choose the grant only if you trust
 every contributor who can open same-repo PRs. CodeQL's SARIF is written to
 `${{ runner.temp }}`, outside the checkout, so a PR cannot commit a forged
 `.sarif` for upload.

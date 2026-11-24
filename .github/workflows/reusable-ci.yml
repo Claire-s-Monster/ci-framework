@@ -1304,11 +1304,19 @@ jobs:
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
           # #482: a PAT can pass /rate_limit yet lack code-scanning access (404).
+          # Read access is the best non-mutating signal (no write probe exists),
+          # and a 403 may be a rate limit; github.token is the safe fallback.
           cs_status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1") || cs_status="000"
           case "${cs_status}" in
             200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
+            401)
+              msg="CI_BOT_TOKEN was rejected by the code-scanning API (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
             403|404)
               msg="CI_BOT_TOKEN can't reach the code-scanning API (HTTP ${cs_status})."
               msg="${msg} SARIF upload will fall back to github.token."
@@ -1402,11 +1410,19 @@ jobs:
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
           # #482: a PAT can pass /rate_limit yet lack code-scanning access (404).
+          # Read access is the best non-mutating signal (no write probe exists),
+          # and a 403 may be a rate limit; github.token is the safe fallback.
           cs_status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1") || cs_status="000"
           case "${cs_status}" in
             200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
+            401)
+              msg="CI_BOT_TOKEN was rejected by the code-scanning API (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
             403|404)
               msg="CI_BOT_TOKEN can't reach the code-scanning API (HTTP ${cs_status})."
               msg="${msg} SARIF upload will fall back to github.token."
@@ -1521,11 +1537,19 @@ jobs:
             *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
           esac
           # #482: a PAT can pass /rate_limit yet lack code-scanning access (404).
+          # Read access is the best non-mutating signal (no write probe exists),
+          # and a 403 may be a rate limit; github.token is the safe fallback.
           cs_status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1") || cs_status="000"
           case "${cs_status}" in
             200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
+            401)
+              msg="CI_BOT_TOKEN was rejected by the code-scanning API (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
             403|404)
               msg="CI_BOT_TOKEN can't reach the code-scanning API (HTTP ${cs_status})."
               msg="${msg} SARIF upload will fall back to github.token."
@@ -1976,6 +2000,7 @@ jobs:
           SAST_SEMGREP_RESULT: ${{ needs.sast-semgrep.result }}
           SAST_CODEQL_RESULT: ${{ needs.sast-codeql.result }}
           SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
+          SCORECARD_PREFLIGHT_RESULT: ${{ needs.scorecard-token-preflight.result }}
           SCORECARD_RESULT: ${{ needs.scorecard.result }}
           TEST_RESULT: ${{ needs.test.result }}
           TEST_POSTGRES_RESULT: ${{ needs.test-postgres.result }}
@@ -2007,6 +2032,7 @@ jobs:
             echo "| Semgrep SAST | $SAST_SEMGREP_RESULT |"
             echo "| CodeQL | $SAST_CODEQL_RESULT |"
             echo "| Secret Scan | $SECRET_SCAN_RESULT |"
+            echo "| Scorecard Token Preflight | $SCORECARD_PREFLIGHT_RESULT |"
             echo "| OpenSSF Scorecard | $SCORECARD_RESULT |"
             echo ""
             echo "### Tests & Build"
@@ -2019,6 +2045,12 @@ jobs:
             echo "| Self-Heal | $SELF_HEAL_RESULT |"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # The Scorecard upload is warn-only, so its token preflight does not
+          # gate the summary, but a rejected CI_BOT_TOKEN must stay visible (#482).
+          if [[ "$SCORECARD_PREFLIGHT_RESULT" == "failure" ]]; then
+            echo "::warning title=CI Summary::scorecard-token-preflight failed (CI_BOT_TOKEN invalid or expired); the Scorecard upload was skipped."
+          fi
 
           if [[ "$FAIL_ON_TYPECHECK" == "true" ]]; then
             echo "::warning title=fail-on-typecheck is deprecated::fail-on-typecheck has no effect. Type checking runs inside your pixi 'quality' task and is gated by fail-on-lint. See https://github.com/Claire-s-Monster/ci-framework/issues/385"

@@ -122,6 +122,16 @@ def test_code_scanning_probe_decides_pat_use(
 
 
 @requires_bash
+def test_code_scanning_401_fails_hard(script: str, tmp_path: Path):
+    # /rate_limit passes but the code-scanning probe rejects the PAT: an
+    # invalid token must never silently select the PAT (or the fallback).
+    code, stdout, outputs = run_preflight(script, tmp_path, "tok", "200", "401")
+    assert code == 1
+    assert "::error title=CI_BOT_TOKEN invalid::" in stdout
+    assert outputs == []
+
+
+@requires_bash
 def test_rate_limit_other_status_still_probes_code_scanning(
     script: str, tmp_path: Path
 ):

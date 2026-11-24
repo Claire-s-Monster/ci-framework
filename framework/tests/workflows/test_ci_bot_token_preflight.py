@@ -286,6 +286,16 @@ def provider_problems(jobs: dict, consumer_id: str, provider_id: str) -> list[st
     return problems
 
 
+def token_selects_pat_only_when_true(token: str, output_ref: str) -> bool:
+    """True if `token` is exactly `<ref> == 'true' && secrets.CI_BOT_TOKEN || github.token`.
+
+    Whitespace-normalized and exact, so an expression that merely mentions the
+    output (`== 'false' && PAT`, swapped operands, `!=`) cannot pass.
+    """
+    expr = " ".join(token.strip().removeprefix("${{").removesuffix("}}").split())
+    return expr == f"{output_ref} == 'true' && secrets.CI_BOT_TOKEN || github.token"
+
+
 def sarif_site_problems(file_name: str, jobs: dict) -> list[str]:
     """Problems with every SARIF token site of a workflow's `jobs` mapping.
 
@@ -301,11 +311,15 @@ def sarif_site_problems(file_name: str, jobs: dict) -> list[str]:
                 continue
             match = NEEDS_USE_PAT.search(token)
             if match:
+                if not token_selects_pat_only_when_true(
+                    token, f"needs.{match.group(1)}.outputs.use_pat"
+                ):
+                    problems.append(f"{label}: token is {token!r}")
                 problems += [
                     f"{label}: {p}"
                     for p in provider_problems(jobs, job_id, match.group(1))
                 ]
-            elif USE_PAT_EXPRESSION not in token:
+            elif not token_selects_pat_only_when_true(token, USE_PAT_EXPRESSION):
                 problems.append(f"{label}: token is {token!r}")
     return problems
 
@@ -580,6 +594,39 @@ def test_selftest_needs_site_naming_missing_job_is_flagged():
     del jobs["scorecard-token-preflight"]
     problems = sarif_site_problems("w.yml", jobs)
     assert any("does not exist" in problem for problem in problems)
+
+
+_BAD_TOKEN_FORMS = [
+    "${{ steps.token-preflight.outputs.use_pat == 'false' && secrets.CI_BOT_TOKEN || github.token }}",
+    "${{ steps.token-preflight.outputs.use_pat != 'true' && secrets.CI_BOT_TOKEN || github.token }}",
+    "${{ steps.token-preflight.outputs.use_pat == 'true' && github.token || secrets.CI_BOT_TOKEN }}",
+    "${{ steps.token-preflight.outputs.use_pat || secrets.CI_BOT_TOKEN || github.token }}",
+]
+
+
+def test_selftest_use_pat_matcher_requires_exact_expression():
+    good = (
+        "${{ steps.token-preflight.outputs.use_pat == 'true' &&\n"
+        "   secrets.CI_BOT_TOKEN || github.token }}"
+    )
+    assert token_selects_pat_only_when_true(good, USE_PAT_EXPRESSION)
+    for bad in _BAD_TOKEN_FORMS:
+        assert not token_selects_pat_only_when_true(bad, USE_PAT_EXPRESSION), bad
+
+
+def test_selftest_inverted_or_swapped_site_tokens_are_flagged():
+    for bad in _BAD_TOKEN_FORMS:
+        job = {"steps": [_preflight(), _sarif_upload_step()]}
+        job["steps"][1]["with"]["token"] = bad
+        assert sarif_site_problems("w.yml", {"j": job}), bad
+    for bad in (
+        _NEEDS_TOKEN.replace("== 'true'", "== 'false'"),
+        "${{ needs.scorecard-token-preflight.outputs.use_pat == 'true' "
+        "&& github.token || secrets.CI_BOT_TOKEN }}",
+    ):
+        jobs = _scorecard_jobs()
+        jobs["scorecard"]["steps"][0]["with"]["token"] = bad
+        assert sarif_site_problems("w.yml", jobs), bad
 
 
 def test_selftest_bare_token_site_is_flagged_in_exempt_job_too():

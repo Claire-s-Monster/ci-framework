@@ -168,6 +168,14 @@ def test_ungated_job_does_not_fail_summary(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_failed_scorecard_preflight_warns_without_failing(tmp_path):
+    proc = _run(
+        tmp_path, SCORECARD_PREFLIGHT_RESULT="failure", SCORECARD_RESULT="skipped"
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "scorecard-token-preflight failed" in proc.stdout
+
+
 def test_codeql_failure_fails_summary(tmp_path):
     # CodeQL is the default-on SAST owner (v5): a failed run must not be green.
     proc = _run(tmp_path, SAST_CODEQL_RESULT="failure")

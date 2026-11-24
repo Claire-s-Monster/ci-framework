@@ -20,7 +20,14 @@ import yaml
 WORKFLOW = Path(".github/workflows/reusable-ci.yml")
 MIN_CHECKS = 16
 # Jobs the summary deliberately does not gate on (warn-only or manual).
-UNGATED = {"sast-semgrep", "scorecard", "performance", "self-heal"}
+# scorecard-token-preflight only feeds the warn-only scorecard upload (#482).
+UNGATED = {
+    "sast-semgrep",
+    "scorecard",
+    "scorecard-token-preflight",
+    "performance",
+    "self-heal",
+}
 CHECK_RE = re.compile(r'^\s*check "([^"]+)" "\$(\w+)" "(\$\w+|true)"$', re.MULTILINE)
 RESULT_RE = re.compile(r"^\$\{\{ needs\.([\w-]+)\.result \}\}$")
 
@@ -159,6 +166,14 @@ def test_detect_changes_failure_fails(tmp_path):
 def test_ungated_job_does_not_fail_summary(tmp_path):
     proc = _run(tmp_path, SAST_SEMGREP_RESULT="cancelled")
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_failed_scorecard_preflight_warns_without_failing(tmp_path):
+    proc = _run(
+        tmp_path, SCORECARD_PREFLIGHT_RESULT="failure", SCORECARD_RESULT="skipped"
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "scorecard-token-preflight failed" in proc.stdout
 
 
 def test_codeql_failure_fails_summary(tmp_path):

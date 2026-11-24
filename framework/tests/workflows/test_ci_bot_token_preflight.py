@@ -40,6 +40,26 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 PREFLIGHT_STEP_NAME = "Verify CI_BOT_TOKEN is valid"
 TOKEN_REFERENCE = re.compile(r"secrets\.CI_BOT_TOKEN\b")
 EXPECTED_ENV_VALUE = "${{ secrets.CI_BOT_TOKEN }}"
+PREFLIGHT_STEP_ID = "token-preflight"
+RUN_NEEDLES = (
+    "/rate_limit",
+    "401",
+    "exit 1",
+    "command -v curl",
+    "--max-time",
+)
+# Extra requirements for a preflight whose job uploads SARIF (#482): it also
+# probes code-scanning access and publishes the verdict as a step output.
+SARIF_RUN_NEEDLES = ("code-scanning/analyses", "use_pat=", "GITHUB_OUTPUT")
+# #482: SARIF uploads use the PAT only when the preflight confirmed
+# code-scanning access.
+USE_PAT_EXPRESSION = "steps.token-preflight.outputs.use_pat"
+SARIF_ACTION_PREFIXES = (
+    "github/codeql-action/upload-sarif@",
+    "github/codeql-action/analyze@",
+)
+SARIF_WORKFLOWS = ("reusable-ci.yml", "reusable-security.yml")
+MINIMUM_EXPECTED_SARIF_SITES = 4
 
 # Jobs that consume the token but must NOT carry the preflight. The Scorecard
 # job runs `ossf/scorecard-action` with `publish_results: true`, and the
@@ -135,8 +155,12 @@ def job_references_token(job: object) -> bool:
     return any(TOKEN_REFERENCE.search(text) for text in iter_strings(job))
 
 
-def preflight_problems(step: dict) -> list[str]:
-    """Everything wrong with a preflight step (empty list means it is sound)."""
+def preflight_problems(step: dict, sarif: bool = False) -> list[str]:
+    """Everything wrong with a preflight step (empty list means it is sound).
+
+    `sarif` marks a job that uploads SARIF with the token; its preflight must
+    also probe code-scanning access and expose `use_pat` under the fixed id.
+    """
     problems: list[str] = []
     env = step.get("env")
     env_value = env.get("CI_BOT_TOKEN") if isinstance(env, dict) else None
@@ -144,9 +168,15 @@ def preflight_problems(step: dict) -> list[str]:
         problems.append(f"env.CI_BOT_TOKEN must be {EXPECTED_ENV_VALUE!r}")
     run = step.get("run")
     run = run if isinstance(run, str) else ""
-    for needle in ("/rate_limit", "401", "exit 1", "command -v curl", "--max-time"):
+    for needle in RUN_NEEDLES:
         if needle not in run:
             problems.append(f"run must contain {needle!r}")
+    if sarif:
+        for needle in SARIF_RUN_NEEDLES:
+            if needle not in run:
+                problems.append(f"run must contain {needle!r}")
+        if step.get("id") != PREFLIGHT_STEP_ID:
+            problems.append(f"step must have id: {PREFLIGHT_STEP_ID}")
     if "${{" in run:
         problems.append("run must not interpolate ${{ }} (script injection)")
     if "continue-on-error" in step:
@@ -171,7 +201,7 @@ def job_problems(job: object) -> list[str]:
     first = steps[0]
     if first.get("name") != PREFLIGHT_STEP_NAME:
         return [f"first step must be named {PREFLIGHT_STEP_NAME!r}"]
-    return preflight_problems(first)
+    return preflight_problems(first, sarif=bool(sarif_token_sites("", "", job)))
 
 
 def exempt_aware_problems(file_name: str, job_id: str, job: object) -> list[str]:
@@ -185,6 +215,29 @@ def exempt_aware_problems(file_name: str, job_id: str, job: object) -> list[str]
             return ["exempt job must not carry the preflight (breaks publish_results)"]
         return []
     return job_problems(job)
+
+
+def sarif_token_sites(
+    file_name: str, job_id: str, job: object
+) -> list[tuple[str, str]]:
+    """(label, token expression) of each SARIF upload step that sets a token.
+
+    Covers `upload-sarif` steps and `analyze` steps with `token:` (those upload
+    natively). Exempt jobs (scorecard) are skipped: they cannot host a preflight.
+    """
+    if (file_name, job_id) in PREFLIGHT_EXEMPT_JOBS:
+        return []
+    sites: list[tuple[str, str]] = []
+    for index, step in enumerate(job_steps(job)):
+        uses = step.get("uses")
+        with_ = step.get("with")
+        if not isinstance(uses, str) or not uses.startswith(SARIF_ACTION_PREFIXES):
+            continue
+        if not isinstance(with_, dict) or "token" not in with_:
+            continue
+        label = f"{file_name}:{job_id}:step[{index}]"
+        sites.append((label, str(with_["token"])))
+    return sites
 
 
 def load_jobs(path: Path) -> dict:
@@ -239,16 +292,47 @@ def test_exempt_jobs_are_exactly_the_consumers_without_a_preflight():
     )
 
 
+def _sarif_sites() -> list[tuple[str, str]]:
+    return [
+        site
+        for path in workflow_files()
+        if path.name in SARIF_WORKFLOWS
+        for job_id, job in load_jobs(path).items()
+        for site in sarif_token_sites(path.name, job_id, job)
+    ]
+
+
+def test_walk_finds_the_sarif_upload_sites():
+    sites = _sarif_sites()
+    assert len(sites) >= MINIMUM_EXPECTED_SARIF_SITES, (
+        f"walk found {len(sites)} SARIF token sites, expected at least "
+        f"{MINIMUM_EXPECTED_SARIF_SITES}; the walk or matcher may be broken"
+    )
+
+
+def test_every_sarif_upload_uses_pat_only_when_preflight_confirms_access():
+    failures = [
+        f"{label}: token is {token!r}"
+        for label, token in _sarif_sites()
+        if USE_PAT_EXPRESSION not in token
+        or "secrets.CI_BOT_TOKEN" not in token
+        or "github.token" not in token
+    ]
+    assert not failures, "\n".join(failures)
+
+
 # --- Classifier self-tests (guard against a vacuously passing walk) ----------
 
 
 def _preflight(**overrides: object) -> dict:
     step: dict = {
         "name": PREFLIGHT_STEP_NAME,
+        "id": PREFLIGHT_STEP_ID,
         "env": {"CI_BOT_TOKEN": EXPECTED_ENV_VALUE},
         "run": (
             "command -v curl; curl --max-time 15 https://api.github.com/rate_limit; "
-            'case "$s" in 401) exit 1;; esac'
+            "curl /code-scanning/analyses; "
+            'case "$s" in 401) exit 1;; esac; echo "use_pat=true" >> "$GITHUB_OUTPUT"'
         ),
     }
     step.update(overrides)
@@ -306,12 +390,50 @@ def test_selftest_if_on_preflight_is_flagged():
 def test_selftest_wrong_env_and_missing_markers_are_flagged():
     step = _preflight(env={"CI_BOT_TOKEN": "x"}, run="true")
     problems = job_problems({"steps": [step, _consumer_step()]})
-    assert len(problems) == 6  # env + 5 run markers
+    assert len(problems) == 1 + len(RUN_NEEDLES)  # env + every run marker
+
+
+def _sarif_upload_step() -> dict:
+    return {
+        "uses": "github/codeql-action/upload-sarif@abc",
+        "with": {"token": "${{ secrets.CI_BOT_TOKEN || github.token }}"},
+    }
+
+
+def test_selftest_sarif_job_requires_probe_output_and_id():
+    step = _preflight(id="other", run=_preflight()["run"].replace("use_pat=", "x="))
+    problems = job_problems({"steps": [step, _sarif_upload_step()]})
+    assert any("id:" in problem for problem in problems)
+    assert any("use_pat=" in problem for problem in problems)
+
+
+def test_selftest_non_sarif_job_needs_no_probe_or_id():
+    step = _preflight(
+        id="other", run="command -v curl; curl --max-time 1 /rate_limit; 401 exit 1"
+    )
+    assert job_problems({"steps": [step, _consumer_step()]}) == []
+
+
+def test_selftest_sound_sarif_job_is_not_flagged():
+    assert job_problems({"steps": [_preflight(), _sarif_upload_step()]}) == []
+
+
+def test_selftest_sarif_site_matcher_flags_bare_token_and_skips_exempt():
+    upload = {
+        "uses": "github/codeql-action/upload-sarif@abc",
+        "with": {"token": "${{ secrets.CI_BOT_TOKEN || github.token }}"},
+    }
+    no_token = {"uses": "github/codeql-action/analyze@abc", "with": {"upload": False}}
+    job = {"steps": [_preflight(), no_token, upload]}
+    sites = sarif_token_sites("other.yml", "j", job)
+    assert len(sites) == 1 and USE_PAT_EXPRESSION not in sites[0][1]
+    assert sarif_token_sites(*next(iter(PREFLIGHT_EXEMPT_JOBS)), job) == []
 
 
 def test_selftest_curl_without_max_time_is_flagged():
     step = _preflight(
         run="command -v curl; curl https://api.github.com/rate_limit; "
+        'curl /code-scanning/analyses; echo use_pat= >> "$GITHUB_OUTPUT"; '
         'case "$s" in 401) exit 1;; esac'
     )
     problems = job_problems({"steps": [step, _consumer_step()]})

@@ -139,10 +139,18 @@ on:
 # `CI_BOT_TOKEN || github.token`: the fallback works when the caller grants
 # security-events: write. No SARIF job (sast-semgrep, sast-codeql, scorecard)
 # has its own block, so all inherit that grant (#352, #353).
+#
+# Non-SARIF jobs carry their own narrowing `contents: read` block (a job
+# block can only lower the caller's grant). The SARIF/scorecard jobs inherit
+# on purpose, and rust-dep-audit inherits because cargo-audit creates check
+# runs with the token.
 
 jobs:
   detect-languages:
     name: "🔍 Detect Languages"
+    # least privilege: checkout and local file detection only
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     outputs:
       python: ${{ steps.detect.outputs.python }}
@@ -226,6 +234,9 @@ jobs:
 
   python-dep-audit:
     name: "🐍 Python Dependency Audit (Pixi)"
+    # least privilege: checkout and local audit tooling only
+    permissions:
+      contents: read
     needs: detect-languages
     if: needs.detect-languages.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -315,6 +326,9 @@ jobs:
 
   rust-deny:
     name: "🦀 Rust License & Advisory Policy"
+    # least privilege: checkout and local cargo-deny only
+    permissions:
+      contents: read
     needs: detect-languages
     if: needs.detect-languages.outputs.rust == 'true'
     runs-on: ubuntu-latest
@@ -324,6 +338,9 @@ jobs:
 
   js-dep-audit:
     name: "📦 JS/TS Dependency Audit"
+    # least privilege: checkout and npm audit only
+    permissions:
+      contents: read
     needs: detect-languages
     if: needs.detect-languages.outputs.js_ts == 'true'
     runs-on: ubuntu-latest
@@ -475,6 +492,9 @@ jobs:
 
   secret-scan:
     name: "🔑 Secret Scanning"
+    # least privilege: checkout and local git-history scan only
+    permissions:
+      contents: read
     needs: detect-languages
     runs-on: ubuntu-latest
     steps:
@@ -535,6 +555,9 @@ jobs:
 
   security-summary:
     name: "🛡️ Security Summary"
+    # least privilege: only writes the step summary from needs results
+    permissions:
+      contents: read
     needs:
       - detect-languages
       - python-dep-audit

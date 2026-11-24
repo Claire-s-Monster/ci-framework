@@ -5,6 +5,34 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.0](https://github.com/Claire-s-Monster/ci-framework/compare/v5.0.0...v5.1.0) (2026-11-24)
+
+
+### 🚀 Features
+
+* **ci:** least-privilege job-level permissions in reusable-ci and reusable-security ([1649f42](https://github.com/Claire-s-Monster/ci-framework/commit/1649f42a478643d8da05b439864be68b28e06660))
+* **ci:** least-privilege job-level permissions in reusable-ci and reusable-security ([fe9ea5b](https://github.com/Claire-s-Monster/ci-framework/commit/fe9ea5b51cbb7182a6302c37b77f0745b3703350))
+
+
+### 🐛 Bug Fixes
+
+* **ci:** gate release-please deploy-pages on release_created == 'true' ([053bba9](https://github.com/Claire-s-Monster/ci-framework/commit/053bba9bbfa3c88350f752e8e998f04e33e54858))
+* **ci:** gate release-please deploy-pages on release_created == 'true' ([2fdc50b](https://github.com/Claire-s-Monster/ci-framework/commit/2fdc50b993d6652478457b6306b3e3bf0191fe43))
+* ruff-format new permissions test and refresh secrets baseline ([f06db89](https://github.com/Claire-s-Monster/ci-framework/commit/f06db898625d6bff8d6dfd5da167b9980ee8b8de))
+
+
+### 📚 Documentation
+
+* least-privilege permissions for reusable-ci callers ([b4c6bbc](https://github.com/Claire-s-Monster/ci-framework/commit/b4c6bbc8404063f3a0056ad16c8b3503be3ce747))
+* least-privilege permissions for reusable-ci callers ([7c522b6](https://github.com/Claire-s-Monster/ci-framework/commit/7c522b6df1a41915e932f1011bb6afa1d69e87fd))
+* least-privilege permissions in remaining caller examples ([3910741](https://github.com/Claire-s-Monster/ci-framework/commit/391074195d943cb14d0a84f26a352f0e8918219a))
+
+
+### 🔧 Maintenance
+
+* promote development to main for v5.1.0 ([7c0e70e](https://github.com/Claire-s-Monster/ci-framework/commit/7c0e70e214b95453775ee5b012c9b04a68cd64e1))
+* sync main back to development ([a1835e9](https://github.com/Claire-s-Monster/ci-framework/commit/a1835e9f44b1522d9526b90b654014763af3808b))
+
 ## [5.0.0](https://github.com/Claire-s-Monster/ci-framework/compare/v4.4.2...v5.0.0) (2026-11-23)
 
 

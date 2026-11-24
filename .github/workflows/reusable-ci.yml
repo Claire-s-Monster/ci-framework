@@ -312,6 +312,13 @@ on:
 # cap all per-job permissions, breaking id-token grants needed by
 # Scorecard jobs.
 #
+# Non-SARIF jobs carry their own narrowing `contents: read` block (a job
+# block can only lower the caller's grant). These jobs inherit on purpose:
+# the SARIF jobs (sast-semgrep, sast-codeql, scorecard) need the caller's
+# security-events/id-token grant; detect-changes needs pull-requests: read
+# (dorny/paths-filter) which callers are not required to grant; c-cpp-lint
+# posts comments; rust-dep-audit creates check runs.
+#
 # Callers should grant at the job level (not top-level, to satisfy Scorecard):
 #   contents: read, actions: read, id-token: write
 #
@@ -423,6 +430,9 @@ jobs:
 
   hygiene:
     name: "🧹 Repository Hygiene"
+    # least privilege: checkout and local file checks only
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     if: inputs.enable-hygiene-check
     steps:
@@ -483,6 +493,9 @@ jobs:
 
   python-quality:
     name: "🐍 Python Quality (Pixi)"
+    # least privilege: checkout and local lint/type tooling only
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -965,6 +978,9 @@ jobs:
 
   rust-lint:
     name: "🦀 Rust Lint (Clippy)"
+    # least privilege: checkout and local clippy only
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
@@ -983,6 +999,9 @@ jobs:
 
   rust-format:
     name: "🦀 Rust Format"
+    # least privilege: checkout and local rustfmt only
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
@@ -1026,6 +1045,9 @@ jobs:
 
   cython-lint:
     name: "🔧 Cython Lint"
+    # least privilege: checkout and local lint only
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.cython == 'true'
     runs-on: ubuntu-latest
@@ -1080,6 +1102,9 @@ jobs:
 
   js-lint:
     name: "📦 JS/TS Lint (ESLint)"
+    # least privilege: checkout and local eslint only
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.js_ts == 'true'
     runs-on: ubuntu-latest
@@ -1110,6 +1135,9 @@ jobs:
 
   python-dep-audit:
     name: "🐍 Python Dependency Audit (Pixi)"
+    # least privilege: checkout and local audit tooling only
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -1202,6 +1230,9 @@ jobs:
 
   rust-deny:
     name: "🦀 Rust License & Advisory Policy"
+    # least privilege: checkout and local cargo-deny only
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
@@ -1211,6 +1242,9 @@ jobs:
 
   js-dep-audit:
     name: "📦 JS/TS Dependency Audit"
+    # least privilege: checkout and npm audit only
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.js_ts == 'true'
     runs-on: ubuntu-latest
@@ -1377,6 +1411,9 @@ jobs:
 
   secret-scan:
     name: "🔑 Secret Scanning"
+    # least privilege: checkout and local git-history scan only
+    permissions:
+      contents: read
     needs: detect-changes
     runs-on: ubuntu-latest
     steps:
@@ -1445,6 +1482,9 @@ jobs:
     # render literally in the check-run name. GitHub appends the leg
     # suffix itself when the job actually runs. See #339.
     name: "🧪 Test"
+    # least privilege: checkout and local test run only
+    permissions:
+      contents: read
     runs-on: ${{ matrix.os }}
     needs: detect-changes
     if: >-
@@ -1550,6 +1590,9 @@ jobs:
     # render literally in the check-run name. GitHub appends the leg
     # suffix itself when the job actually runs. See #339.
     name: "🐘 Test+PG"
+    # least privilege: checkout and local test run only
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: detect-changes
     if: >-
@@ -1668,6 +1711,9 @@ jobs:
 
   performance:
     name: "📊 Performance Analysis"
+    # least privilege: checkout, local benchmarks and artifact upload only
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: detect-changes
     if: >-
@@ -1711,6 +1757,9 @@ jobs:
 
   build:
     name: "📦 Build Package"
+    # least privilege: checkout, local build and artifact upload only
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: test
     steps:
@@ -1745,6 +1794,9 @@ jobs:
 
   self-heal:
     name: "🩹 Self-Healing (Manual Trigger)"
+    # least privilege: placeholder step, checkout only
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && inputs.run-self-heal
     steps:
@@ -1755,6 +1807,9 @@ jobs:
 
   summary:
     name: "✅ CI Summary"
+    # least privilege: only writes the step summary from needs results
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs:
       - detect-changes

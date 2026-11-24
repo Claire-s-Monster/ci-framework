@@ -29,7 +29,7 @@ jobs:
       actions: read
       id-token: write  # scorecard publish_results
       security-events: write  # SAST + Scorecard upload SARIF
-    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@v5.1.0  # x-release-please-version
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-security.yml@v5.1.1  # x-release-please-version
     with:
       # This template calls reusable-security alone, so it owns CodeQL. Since v5
       # CodeQL lives in reusable-ci.yml; drop this line if you also call it.

@@ -103,6 +103,4 @@ def test_violation_classifier_self_test() -> None:
     assert violations({"a": {"security-events": "write"}})
     assert violations({"a": "write-all"})
     assert violations({"a": {}})
-    assert jobs_with_blocks({"jobs": {"a": {"permissions": {}}, "b": {}}}) == {
-        "a": {}
-    }
+    assert jobs_with_blocks({"jobs": {"a": {"permissions": {}}, "b": {}}}) == {"a": {}}

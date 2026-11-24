@@ -54,12 +54,15 @@ SARIF_RUN_NEEDLES = ("code-scanning/analyses", "use_pat=", "GITHUB_OUTPUT")
 # #482: SARIF uploads use the PAT only when the preflight confirmed
 # code-scanning access.
 USE_PAT_EXPRESSION = "steps.token-preflight.outputs.use_pat"
+# Jobs that cannot host the preflight step (scorecard) read it from a job.
+NEEDS_USE_PAT = re.compile(r"needs\.([\w-]+)\.outputs\.use_pat == 'true'")
 SARIF_ACTION_PREFIXES = (
     "github/codeql-action/upload-sarif@",
     "github/codeql-action/analyze@",
 )
 SARIF_WORKFLOWS = ("reusable-ci.yml", "reusable-security.yml")
-MINIMUM_EXPECTED_SARIF_SITES = 4
+# 2 SAST semgrep + 2 SAST codeql + 2 scorecard uploads (#482).
+MINIMUM_EXPECTED_SARIF_SITES = 6
 
 # Jobs that consume the token but must NOT carry the preflight. The Scorecard
 # job runs `ossf/scorecard-action` with `publish_results: true`, and the
@@ -223,10 +226,9 @@ def sarif_token_sites(
     """(label, token expression) of each SARIF upload step that sets a token.
 
     Covers `upload-sarif` steps and `analyze` steps with `token:` (those upload
-    natively). Exempt jobs (scorecard) are skipped: they cannot host a preflight.
+    natively), including the exempt scorecard jobs: they cannot host a preflight
+    step but read the verdict from a separate preflight job via `needs`.
     """
-    if (file_name, job_id) in PREFLIGHT_EXEMPT_JOBS:
-        return []
     sites: list[tuple[str, str]] = []
     for index, step in enumerate(job_steps(job)):
         uses = step.get("uses")
@@ -238,6 +240,84 @@ def sarif_token_sites(
         label = f"{file_name}:{job_id}:step[{index}]"
         sites.append((label, str(with_["token"])))
     return sites
+
+
+def _needs_list(job: object) -> list[str]:
+    needs = job.get("needs") if isinstance(job, dict) else None
+    if isinstance(needs, str):
+        return [needs]
+    return [n for n in needs if isinstance(n, str)] if isinstance(needs, list) else []
+
+
+def provider_problems(jobs: dict, consumer_id: str, provider_id: str) -> list[str]:
+    """Problems with the preflight JOB `provider_id` feeding `consumer_id` (#482).
+
+    The consumer reads `needs.<provider>.outputs.use_pat`. The provider must be
+    in the consumer's `needs`, start with the sound SARIF preflight, expose
+    `outputs.use_pat` from it, run under the exact same `if:` as the consumer
+    (a skipped provider would silently force the github.token fallback) and
+    request no write permission (in particular no id-token).
+    """
+    provider = jobs.get(provider_id)
+    if not isinstance(provider, dict):
+        return [f"needs.{provider_id} names a job that does not exist"]
+    consumer = jobs[consumer_id]
+    problems: list[str] = []
+    if provider_id not in _needs_list(consumer):
+        problems.append(f"{consumer_id} must list {provider_id} in needs")
+    steps = job_steps(provider)
+    if not steps or steps[0].get("name") != PREFLIGHT_STEP_NAME:
+        problems.append(f"{provider_id}: first step must be {PREFLIGHT_STEP_NAME!r}")
+    else:
+        problems += [
+            f"{provider_id}: {p}" for p in preflight_problems(steps[0], sarif=True)
+        ]
+    outputs = provider.get("outputs")
+    expected = "${{ steps." + PREFLIGHT_STEP_ID + ".outputs.use_pat }}"
+    if not isinstance(outputs, dict) or outputs.get("use_pat") != expected:
+        problems.append(f"{provider_id}: outputs.use_pat must be {expected!r}")
+    if provider.get("if") != consumer.get("if"):
+        problems.append(f"{provider_id}: `if:` must equal {consumer_id}'s `if:`")
+    permissions = provider.get("permissions")
+    if isinstance(permissions, dict) and any(
+        value == "write" for value in permissions.values()
+    ):
+        problems.append(f"{provider_id}: must not request any write permission")
+    return problems
+
+
+def sarif_site_problems(file_name: str, jobs: dict) -> list[str]:
+    """Problems with every SARIF token site of a workflow's `jobs` mapping.
+
+    A site is sound if its token is the PAT-or-github.token expression gated on
+    either this job's own preflight step output, or (jobs that cannot host the
+    step) a sound preflight job named through `needs.<J>.outputs.use_pat`.
+    """
+    problems: list[str] = []
+    for job_id, job in jobs.items():
+        for label, token in sarif_token_sites(file_name, job_id, job):
+            if "secrets.CI_BOT_TOKEN" not in token or "github.token" not in token:
+                problems.append(f"{label}: token is {token!r}")
+                continue
+            match = NEEDS_USE_PAT.search(token)
+            if match:
+                problems += [
+                    f"{label}: {p}"
+                    for p in provider_problems(jobs, job_id, match.group(1))
+                ]
+            elif USE_PAT_EXPRESSION not in token:
+                problems.append(f"{label}: token is {token!r}")
+    return problems
+
+
+def provider_job_ids(file_name: str, jobs: dict) -> set[str]:
+    """Jobs named by a `needs.<J>.outputs.use_pat` SARIF token in this workflow."""
+    return {
+        match.group(1)
+        for job_id, job in jobs.items()
+        for _, token in sarif_token_sites(file_name, job_id, job)
+        if (match := NEEDS_USE_PAT.search(token))
+    }
 
 
 def load_jobs(path: Path) -> dict:
@@ -272,9 +352,16 @@ def test_walk_finds_the_expected_number_of_consuming_jobs():
 
 
 def test_every_consuming_job_starts_with_a_sound_preflight_and_none_is_stale():
+    # Preflight JOBS feeding a `needs` site hold the step without consuming the
+    # token themselves; sarif_site_problems validates them instead.
+    providers = {
+        path.name: provider_job_ids(path.name, load_jobs(path))
+        for path in workflow_files()
+    }
     failures = [
         f"{file_name}:{job_id}: {problem}"
         for file_name, job_id, job in all_jobs()
+        if job_id not in providers[file_name]
         for problem in exempt_aware_problems(file_name, job_id, job)
     ]
     assert not failures, "\n".join(failures)
@@ -312,13 +399,22 @@ def test_walk_finds_the_sarif_upload_sites():
 
 def test_every_sarif_upload_uses_pat_only_when_preflight_confirms_access():
     failures = [
-        f"{label}: token is {token!r}"
-        for label, token in _sarif_sites()
-        if USE_PAT_EXPRESSION not in token
-        or "secrets.CI_BOT_TOKEN" not in token
-        or "github.token" not in token
+        problem
+        for path in workflow_files()
+        if path.name in SARIF_WORKFLOWS
+        for problem in sarif_site_problems(path.name, load_jobs(path))
     ]
     assert not failures, "\n".join(failures)
+
+
+def test_scorecard_jobs_have_no_run_steps_and_only_use_actions():
+    # publish_results verification rejects `run:` in the scorecard job (#482).
+    for file_name, job_id in sorted(PREFLIGHT_EXEMPT_JOBS):
+        steps = job_steps(load_jobs(WORKFLOWS_DIR / file_name)[job_id])
+        assert steps, f"{file_name}:{job_id} has no steps"
+        for step in steps:
+            assert "run" not in step, f"{file_name}:{job_id} has a run: step"
+            assert isinstance(step.get("uses"), str), f"{file_name}:{job_id}: {step}"
 
 
 # --- Classifier self-tests (guard against a vacuously passing walk) ----------
@@ -418,7 +514,83 @@ def test_selftest_sound_sarif_job_is_not_flagged():
     assert job_problems({"steps": [_preflight(), _sarif_upload_step()]}) == []
 
 
-def test_selftest_sarif_site_matcher_flags_bare_token_and_skips_exempt():
+_SCORECARD_IF = "inputs.scorecard && github.event_name == 'pull_request'"
+_NEEDS_TOKEN = (
+    "${{ needs.scorecard-token-preflight.outputs.use_pat == 'true' "
+    "&& secrets.CI_BOT_TOKEN || github.token }}"
+)
+
+
+def _scorecard_jobs(**provider_overrides: object) -> dict:
+    provider: dict = {
+        "if": _SCORECARD_IF,
+        "permissions": {"contents": "read"},
+        "outputs": {"use_pat": "${{ steps.token-preflight.outputs.use_pat }}"},
+        "steps": [_preflight()],
+    }
+    provider.update(provider_overrides)
+    return {
+        "scorecard-token-preflight": provider,
+        "scorecard": {
+            "needs": "scorecard-token-preflight",
+            "if": _SCORECARD_IF,
+            "steps": [
+                {
+                    "uses": "github/codeql-action/upload-sarif@abc",
+                    "with": {"token": _NEEDS_TOKEN},
+                }
+            ],
+        },
+    }
+
+
+def test_selftest_sound_needs_site_is_not_flagged():
+    jobs = _scorecard_jobs()
+    assert sarif_site_problems("w.yml", jobs) == []
+    assert provider_job_ids("w.yml", jobs) == {"scorecard-token-preflight"}
+
+
+def test_selftest_needs_site_with_mismatched_if_is_flagged():
+    jobs = _scorecard_jobs(**{"if": "inputs.scorecard"})
+    problems = sarif_site_problems("w.yml", jobs)
+    assert any("`if:` must equal" in problem for problem in problems)
+
+
+def test_selftest_needs_site_without_needs_entry_is_flagged():
+    jobs = _scorecard_jobs()
+    jobs["scorecard"]["needs"] = ["detect-changes"]
+    problems = sarif_site_problems("w.yml", jobs)
+    assert any("must list" in problem for problem in problems)
+
+
+def test_selftest_needs_site_flags_bad_provider_steps_outputs_and_permissions():
+    jobs = _scorecard_jobs(
+        steps=[{"run": "true"}],
+        outputs={},
+        permissions={"contents": "write"},
+    )
+    text = "\n".join(sarif_site_problems("w.yml", jobs))
+    assert "first step must be" in text
+    assert "outputs.use_pat" in text
+    assert "write permission" in text
+
+
+def test_selftest_needs_site_naming_missing_job_is_flagged():
+    jobs = _scorecard_jobs()
+    del jobs["scorecard-token-preflight"]
+    problems = sarif_site_problems("w.yml", jobs)
+    assert any("does not exist" in problem for problem in problems)
+
+
+def test_selftest_bare_token_site_is_flagged_in_exempt_job_too():
+    jobs = _scorecard_jobs()
+    jobs["scorecard"]["steps"][0]["with"]["token"] = (
+        "${{ secrets.CI_BOT_TOKEN || github.token }}"
+    )
+    assert sarif_site_problems("w.yml", jobs)
+
+
+def test_selftest_sarif_site_matcher_flags_bare_token():
     upload = {
         "uses": "github/codeql-action/upload-sarif@abc",
         "with": {"token": "${{ secrets.CI_BOT_TOKEN || github.token }}"},
@@ -427,7 +599,8 @@ def test_selftest_sarif_site_matcher_flags_bare_token_and_skips_exempt():
     job = {"steps": [_preflight(), no_token, upload]}
     sites = sarif_token_sites("other.yml", "j", job)
     assert len(sites) == 1 and USE_PAT_EXPRESSION not in sites[0][1]
-    assert sarif_token_sites(*next(iter(PREFLIGHT_EXEMPT_JOBS)), job) == []
+    # Exempt (scorecard) jobs are matched too since #482.
+    assert len(sarif_token_sites(*next(iter(PREFLIGHT_EXEMPT_JOBS)), job)) == 1
 
 
 def test_selftest_curl_without_max_time_is_flagged():

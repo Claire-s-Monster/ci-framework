@@ -23,6 +23,8 @@ PREFLIGHT_JOBS = [
     ("reusable-ci.yml", "sast-codeql"),
     ("reusable-security.yml", "sast-semgrep"),
     ("reusable-security.yml", "sast-codeql"),
+    ("reusable-ci.yml", "scorecard-token-preflight"),
+    ("reusable-security.yml", "scorecard-token-preflight"),
 ]
 
 BASH = shutil.which("bash")
@@ -129,6 +131,6 @@ def test_rate_limit_other_status_still_probes_code_scanning(
 
 
 def test_preflight_jobs_are_found():
-    assert len(PREFLIGHT_JOBS) == 4
+    assert len(PREFLIGHT_JOBS) == 6
     for file_name, job_id in PREFLIGHT_JOBS:
         assert "code-scanning/analyses" in preflight_script(file_name, job_id)

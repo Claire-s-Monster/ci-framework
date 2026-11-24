@@ -83,10 +83,16 @@ class TestReusableSecurityStructure:
         """All content jobs (except detect-languages, security-summary, scorecard)
         must declare needs: detect-languages.
 
-        scorecard is excluded because it doesn't use language detection outputs.
+        scorecard and its token preflight job are excluded because they don't
+        use language detection outputs.
         """
         workflow = self._workflow()
-        excluded = {"detect-languages", "security-summary", "scorecard"}
+        excluded = {
+            "detect-languages",
+            "security-summary",
+            "scorecard",
+            "scorecard-token-preflight",
+        }
         for job_name, job_config in workflow["jobs"].items():
             if job_name in excluded:
                 continue

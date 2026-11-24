@@ -1474,8 +1474,73 @@ jobs:
           echo "::error::Verified secrets detected in repository"
           exit 1
 
+  # A separate job because scorecard's publish_results verification forbids
+  # `run:` steps in the scorecard job itself; this job runs the same CI_BOT_TOKEN
+  # preflight as the SAST jobs and hands use_pat to the SARIF upload (#482).
+  scorecard-token-preflight:
+    name: "🔐 Scorecard Token Preflight"
+    if: >-
+      inputs.scorecard &&
+      (github.event_name == 'pull_request' ||
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      use_pat: ${{ steps.token-preflight.outputs.use_pat }}
+    steps:
+      - name: Verify CI_BOT_TOKEN is valid
+        id: token-preflight
+        # An expired or revoked PAT is still non-empty, so it wins
+        # `CI_BOT_TOKEN || github.token` and 401s instead of falling back.
+        # Fail loudly here rather than silently later (#355). No-op when unset.
+        env:
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          if [ -z "${CI_BOT_TOKEN}" ]; then
+            echo "CI_BOT_TOKEN not set; using the github.token fallback."
+            echo "use_pat=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+            echo "use_pat=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            https://api.github.com/rate_limit) || status="000"
+          case "${status}" in
+            200) echo "CI_BOT_TOKEN is valid." ;;
+            401)
+              msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+              msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+              echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+              exit 1
+              ;;
+            *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+          esac
+          # #482: a PAT can pass /rate_limit yet lack code-scanning access (404).
+          cs_status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1") || cs_status="000"
+          case "${cs_status}" in
+            200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
+            403|404)
+              msg="CI_BOT_TOKEN can't reach the code-scanning API (HTTP ${cs_status})."
+              msg="${msg} SARIF upload will fall back to github.token."
+              echo "::warning title=CI_BOT_TOKEN lacks code-scanning access::${msg}"
+              echo "use_pat=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::warning title=CI_BOT_TOKEN unchecked::Could not verify code-scanning access (HTTP ${cs_status}); keeping CI_BOT_TOKEN."
+              echo "use_pat=true" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
   scorecard:
     name: "📊 OpenSSF Scorecard"
+    needs: scorecard-token-preflight
     # scorecard-action rejects every non-PR event on a non-default ref ("Only
     # the default branch ... is supported"), so a workflow_dispatch on a
     # feature branch, like the pixi-lock-refresh dispatch, failed CI (#387).
@@ -1494,10 +1559,10 @@ jobs:
     # scores a remote reusable workflow, so the block bought consumers nothing
     # on Token-Permissions (#353). Do not re-add.
     steps:
-      # No CI_BOT_TOKEN preflight here on purpose: publish_results verification
-      # allows only allowlisted `uses:` steps in this job (no `run:`), so the
-      # check lives in the SAST jobs of the same workflow, which consume the
-      # same token (#355).
+      # No CI_BOT_TOKEN preflight step here on purpose: publish_results
+      # verification allows only allowlisted `uses:` steps in this job (no
+      # `run:`), so the check lives in the scorecard-token-preflight job (this
+      # job's `needs:`) and in the SAST jobs of the same workflow (#355, #482).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           persist-credentials: false
@@ -1512,7 +1577,7 @@ jobs:
         with:
           sarif_file: scorecard.sarif
           category: scorecard
-          token: ${{ secrets.CI_BOT_TOKEN || github.token }}
+          token: ${{ needs.scorecard-token-preflight.outputs.use_pat == 'true' && secrets.CI_BOT_TOKEN || github.token }}
         continue-on-error: true
 
   # ============================================================================
@@ -1870,6 +1935,7 @@ jobs:
       - sast-semgrep
       - sast-codeql
       - secret-scan
+      - scorecard-token-preflight
       - scorecard
       - test
       - test-postgres

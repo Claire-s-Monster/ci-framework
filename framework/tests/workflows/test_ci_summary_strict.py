@@ -20,7 +20,14 @@ import yaml
 WORKFLOW = Path(".github/workflows/reusable-ci.yml")
 MIN_CHECKS = 16
 # Jobs the summary deliberately does not gate on (warn-only or manual).
-UNGATED = {"sast-semgrep", "scorecard", "performance", "self-heal"}
+# scorecard-token-preflight only feeds the warn-only scorecard upload (#482).
+UNGATED = {
+    "sast-semgrep",
+    "scorecard",
+    "scorecard-token-preflight",
+    "performance",
+    "self-heal",
+}
 CHECK_RE = re.compile(r'^\s*check "([^"]+)" "\$(\w+)" "(\$\w+|true)"$', re.MULTILINE)
 RESULT_RE = re.compile(r"^\$\{\{ needs\.([\w-]+)\.result \}\}$")
 

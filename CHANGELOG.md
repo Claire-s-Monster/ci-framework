@@ -5,6 +5,20 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.1](https://github.com/Claire-s-Monster/ci-framework/compare/v5.1.0...v5.1.1) (2026-11-24)
+
+
+### 🐛 Bug Fixes
+
+* **ci:** pin ossf/scorecard-action to v2.5.0 (v2.6.0 image 404s) ([c834beb](https://github.com/Claire-s-Monster/ci-framework/commit/c834beb2efbf1f49a3477bdfdeb60120661bc817))
+* **ci:** pin ossf/scorecard-action to v2.5.0 (v2.6.0 image 404s) ([247d5a6](https://github.com/Claire-s-Monster/ci-framework/commit/247d5a6316065fbf55b37287d38c04077315c25c))
+
+
+### 🔧 Maintenance
+
+* promote development to main for v5.1.1 ([4736a8d](https://github.com/Claire-s-Monster/ci-framework/commit/4736a8dcec16f9c3f0092f88e97a1b2821f91561))
+* sync main back to development ([de2ed20](https://github.com/Claire-s-Monster/ci-framework/commit/de2ed2035daf4f9140368d64c745cddc86c9f14a))
+
 ## [5.1.0](https://github.com/Claire-s-Monster/ci-framework/compare/v5.0.0...v5.1.0) (2026-11-24)
 
 

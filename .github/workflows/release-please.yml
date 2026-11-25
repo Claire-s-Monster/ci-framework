@@ -91,19 +91,21 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
 
-  # Create GitHub Pages deployment if release was created
-  deploy-pages:
+  # Create GitHub Pages deployment if release was created.
+  # Upload and deploy are separate jobs on purpose (#487): in one job,
+  # actions/deploy-pages#451 races the artifact finalisation (ListArtifacts
+  # returns 0 shortly after upload). Do NOT "re-run" a failed deploy: that
+  # duplicates the github-pages artifact ("Multiple artifacts"). Retry with a
+  # workflow_dispatch of deploy-pages.yml instead, passing the release tag as
+  # its `version` input: the default 'latest' resolves via `git describe` on a
+  # shallow checkout without tags and publishes "dev".
+  build-pages:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
+      pages: write  # configure-pages calls the Pages API; kept write to be safe
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -128,6 +130,22 @@ jobs:
         with:
           path: '_site'
 
+  deploy-pages:
+    needs: [release-please, build-pages]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    # Same group as deploy-pages.yml so a release deploy and a manual dispatch
+    # serialise instead of an older deploy overwriting a newer one.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5

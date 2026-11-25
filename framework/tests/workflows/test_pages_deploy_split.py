@@ -72,6 +72,13 @@ def check_job(
                 )
         if isinstance(perms, str):
             problems.append(f"{uploader}: upload job uses blanket permissions")
+        if perms is None:
+            # No job- or workflow-level block: GitHub applies the repository
+            # default token permissions, which may include write access.
+            problems.append(
+                f"{uploader}: upload job has no explicit permissions "
+                "(inherits repository defaults)"
+            )
     perms = _effective_permissions(job, workflow_perms)
     if perms != DEPLOY_PERMISSIONS:
         problems.append(f"{name}: permissions {perms!r} != {DEPLOY_PERMISSIONS!r}")
@@ -173,6 +180,19 @@ def test_selftest_upload_with_pages_read_passes() -> None:
     jobs = _good()
     jobs["build"]["permissions"] = {"pages": "read"}
     assert check_job("deploy", jobs["deploy"], jobs) == []
+
+
+def test_selftest_upload_without_any_permissions_flagged() -> None:
+    jobs = _good()
+    del jobs["build"]["permissions"]
+    problems = check_job("deploy", jobs["deploy"], jobs)
+    assert any("no explicit permissions" in p for p in problems)
+
+
+def test_selftest_upload_inherits_workflow_permissions_passes() -> None:
+    jobs = _good()
+    del jobs["build"]["permissions"]
+    assert check_job("deploy", jobs["deploy"], jobs, {"contents": "read"}) == []
 
 
 def test_selftest_upload_with_pages_write_flagged() -> None:

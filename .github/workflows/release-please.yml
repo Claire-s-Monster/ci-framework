@@ -105,7 +105,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pages: write  # configure-pages calls the Pages API; kept write to be safe
+      # configure-pages (no enablement) only does GET /repos/{owner}/{repo}/pages;
+      # upload-pages-artifact is tar + upload-artifact. Only deploy-pages needs write.
+      pages: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7

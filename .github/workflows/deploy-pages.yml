@@ -23,15 +23,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pages: write  # configure-pages with enablement: true creates the Pages site
+      # configure-pages only does GET /repos/{owner}/{repo}/pages; only deploy-pages
+      # needs write. Its `enablement: true` (POST) needs a non-default token, so the
+      # default GITHUB_TOKEN cannot create the site: enable Pages in repo settings
+      # (source: GitHub Actions).
+      pages: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6
-        with:
-          enablement: true
 
       - name: Build Documentation
         run: |

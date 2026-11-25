@@ -4,7 +4,9 @@ Upstream actions/deploy-pages#451: when upload-pages-artifact and deploy-pages
 run in one job, deploy-pages' ListArtifacts can return 0 shortly after the
 artifact is finalised, and a re-run then duplicates the github-pages artifact.
 Every job using actions/deploy-pages must therefore be a separate job that
-`needs` the job doing the upload, with minimal permissions on both sides.
+`needs` the job doing the upload. The deploy job holds pages: write and
+id-token: write; the upload/build job may hold at most contents: read and
+pages: read (configure-pages only GETs the Pages API).
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ DEPLOY = "actions/deploy-pages@"
 UPLOAD = "actions/upload-pages-artifact@"
 DEPLOY_PERMISSIONS = {"pages": "write", "id-token": "write"}  # pragma: allowlist secret
 # An upload job may hold at most these permissions (no id-token, nothing else).
-UPLOAD_ALLOWED_PERMISSIONS = {"contents": "read", "pages": "write"}
+UPLOAD_ALLOWED_PERMISSIONS = {"contents": "read", "pages": "read"}
 
 
 def _uses(job: dict[str, Any], prefix: str) -> bool:
@@ -70,6 +72,13 @@ def check_job(
                 )
         if isinstance(perms, str):
             problems.append(f"{uploader}: upload job uses blanket permissions")
+        if perms is None:
+            # No job- or workflow-level block: GitHub applies the repository
+            # default token permissions, which may include write access.
+            problems.append(
+                f"{uploader}: upload job has no explicit permissions "
+                "(inherits repository defaults)"
+            )
     perms = _effective_permissions(job, workflow_perms)
     if perms != DEPLOY_PERMISSIONS:
         problems.append(f"{name}: permissions {perms!r} != {DEPLOY_PERMISSIONS!r}")
@@ -110,7 +119,7 @@ def test_pages_upload_and_deploy_are_split() -> None:
 def _good() -> dict[str, Any]:
     return {
         "build": {
-            "permissions": {"contents": "read", "pages": "write"},
+            "permissions": dict(UPLOAD_ALLOWED_PERMISSIONS),
             "steps": [{"uses": f"{UPLOAD}abc"}],
         },
         "deploy": {
@@ -165,6 +174,32 @@ def test_selftest_upload_with_id_token_flagged() -> None:
     jobs = _good()
     jobs["build"]["permissions"]["id-token"] = "write"  # pragma: allowlist secret
     assert any("id-token" in p for p in check_job("deploy", jobs["deploy"], jobs))
+
+
+def test_selftest_upload_with_pages_read_passes() -> None:
+    jobs = _good()
+    jobs["build"]["permissions"] = {"pages": "read"}
+    assert check_job("deploy", jobs["deploy"], jobs) == []
+
+
+def test_selftest_upload_without_any_permissions_flagged() -> None:
+    jobs = _good()
+    del jobs["build"]["permissions"]
+    problems = check_job("deploy", jobs["deploy"], jobs)
+    assert any("no explicit permissions" in p for p in problems)
+
+
+def test_selftest_upload_inherits_workflow_permissions_passes() -> None:
+    jobs = _good()
+    del jobs["build"]["permissions"]
+    assert check_job("deploy", jobs["deploy"], jobs, {"contents": "read"}) == []
+
+
+def test_selftest_upload_with_pages_write_flagged() -> None:
+    jobs = _good()
+    jobs["build"]["permissions"]["pages"] = "write"
+    problems = check_job("deploy", jobs["deploy"], jobs)
+    assert any("excess" in p and "pages" in p for p in problems)
 
 
 def test_selftest_upload_with_other_excess_permission_flagged() -> None:

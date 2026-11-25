@@ -20,7 +20,9 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
 DEPLOY = "actions/deploy-pages@"
 UPLOAD = "actions/upload-pages-artifact@"
-DEPLOY_PERMISSIONS = {"pages": "write", "id-token": "write"}
+DEPLOY_PERMISSIONS = {"pages": "write", "id-token": "write"}  # pragma: allowlist secret
+# An upload job may hold at most these permissions (no id-token, nothing else).
+UPLOAD_ALLOWED_PERMISSIONS = {"contents": "read", "pages": "write"}
 
 
 def _uses(job: dict[str, Any], prefix: str) -> bool:
@@ -58,8 +60,14 @@ def check_job(
         if uploader not in _needs(job):
             problems.append(f"{name}: needs does not include {uploader}")
         perms = _effective_permissions(jobs[uploader], workflow_perms)
-        if isinstance(perms, dict) and "id-token" in perms:
-            problems.append(f"{uploader}: upload job has id-token permission")
+        if isinstance(perms, dict):
+            excess = {
+                k: v for k, v in perms.items() if UPLOAD_ALLOWED_PERMISSIONS.get(k) != v
+            }
+            if excess:
+                problems.append(
+                    f"{uploader}: upload job has excess permissions {excess!r}"
+                )
         if isinstance(perms, str):
             problems.append(f"{uploader}: upload job uses blanket permissions")
     perms = _effective_permissions(job, workflow_perms)
@@ -68,10 +76,15 @@ def check_job(
     return problems
 
 
+def _workflow_files(directory: Path) -> list[Path]:
+    """Both .yml and .yaml are valid workflow extensions."""
+    return sorted([*directory.glob("*.yml"), *directory.glob("*.yaml")])
+
+
 def _scan() -> tuple[int, list[str]]:
     found = 0
     problems: list[str] = []
-    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+    for path in _workflow_files(WORKFLOWS_DIR):
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         jobs = doc.get("jobs") or {}
         for name, job in jobs.items():
@@ -130,7 +143,11 @@ def test_selftest_missing_needs_flagged() -> None:
 @pytest.mark.parametrize(
     "perms",
     [
-        {"pages": "write", "id-token": "write", "contents": "read"},
+        {
+            "pages": "write",
+            "id-token": "write",  # pragma: allowlist secret
+            "contents": "read",
+        },
         {"pages": "write"},
         None,
     ],
@@ -146,5 +163,24 @@ def test_selftest_wrong_deploy_permissions_flagged(perms: Any) -> None:
 
 def test_selftest_upload_with_id_token_flagged() -> None:
     jobs = _good()
-    jobs["build"]["permissions"]["id-token"] = "write"
+    jobs["build"]["permissions"]["id-token"] = "write"  # pragma: allowlist secret
     assert any("id-token" in p for p in check_job("deploy", jobs["deploy"], jobs))
+
+
+def test_selftest_upload_with_other_excess_permission_flagged() -> None:
+    jobs = _good()
+    jobs["build"]["permissions"]["issues"] = "write"
+    assert any("excess" in p for p in check_job("deploy", jobs["deploy"], jobs))
+
+
+def test_selftest_upload_write_all_contents_write_flagged() -> None:
+    jobs = _good()
+    jobs["build"]["permissions"]["contents"] = "write"
+    assert any("excess" in p for p in check_job("deploy", jobs["deploy"], jobs))
+
+
+def test_selftest_workflow_files_include_yaml_extension(tmp_path: Path) -> None:
+    (tmp_path / "a.yml").write_text("{}", encoding="utf-8")
+    (tmp_path / "b.yaml").write_text("{}", encoding="utf-8")
+    (tmp_path / "c.txt").write_text("{}", encoding="utf-8")
+    assert [p.name for p in _workflow_files(tmp_path)] == ["a.yml", "b.yaml"]

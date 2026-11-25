@@ -96,7 +96,9 @@ jobs:
   # actions/deploy-pages#451 races the artifact finalisation (ListArtifacts
   # returns 0 shortly after upload). Do NOT "re-run" a failed deploy: that
   # duplicates the github-pages artifact ("Multiple artifacts"). Retry with a
-  # workflow_dispatch of deploy-pages.yml instead.
+  # workflow_dispatch of deploy-pages.yml instead, passing the release tag as
+  # its `version` input: the default 'latest' resolves via `git describe` on a
+  # shallow checkout without tags and publishes "dev".
   build-pages:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
@@ -132,6 +134,11 @@ jobs:
     needs: [release-please, build-pages]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    # Same group as deploy-pages.yml so a release deploy and a manual dispatch
+    # serialise instead of an older deploy overwriting a newer one.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write

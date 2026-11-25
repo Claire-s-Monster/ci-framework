@@ -96,6 +96,20 @@ def action_step(action: dict) -> dict:
     return next(step for step in steps if step.get("id") == PREFLIGHT_STEP_ID)
 
 
+def unexpected_steps(action: dict) -> list[object]:
+    """`runs.steps` entries beyond the single `token-preflight` step.
+
+    The first step carrying the preflight id is the one allowed; every other
+    entry (a different id, no id, or a duplicate id) is unexpected.
+    """
+    remaining = list(action["runs"]["steps"])
+    for index, step in enumerate(remaining):
+        if isinstance(step, dict) and step.get("id") == PREFLIGHT_STEP_ID:
+            del remaining[index]
+            break
+    return remaining
+
+
 def expected_env(action_env: object) -> dict:
     """The action's env as an inline copy must spell it (secret, not input)."""
     if not isinstance(action_env, dict):
@@ -163,6 +177,10 @@ def test_walk_finds_the_expected_number_of_inline_copies():
 def test_action_has_a_single_composite_preflight_step():
     action = load_action()
     assert action["runs"]["using"] == "composite"
+    assert not unexpected_steps(action), (
+        "the action must contain exactly one step, token-preflight; found "
+        f"{unexpected_steps(action)}"
+    )
     step = action_step(action)
     assert step.get("shell") == "bash"
     assert "${{" not in step["run"], "run must not interpolate ${{ }}"
@@ -208,6 +226,16 @@ def _copy(**overrides: object) -> dict:
     }
     step.update(overrides)
     return step
+
+
+def test_selftest_extra_action_steps_are_flagged():
+    only = {"runs": {"steps": [_canonical()]}}
+    other = {"id": "other", "run": "true"}
+    assert unexpected_steps(only) == []
+    assert unexpected_steps({"runs": {"steps": [_canonical(), other]}}) == [other]
+    assert unexpected_steps({"runs": {"steps": [other, _canonical()]}}) == [other]
+    duplicate = {"runs": {"steps": [_canonical(), _canonical()]}}
+    assert len(unexpected_steps(duplicate)) == 1
 
 
 def test_selftest_matching_copy_is_not_flagged():

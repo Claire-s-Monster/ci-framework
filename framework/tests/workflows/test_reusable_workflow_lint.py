@@ -634,6 +634,7 @@ class TestCrossFileConsistency:
             "sast-codeql",
             "secret-scan",
             "scorecard",
+            "scorecard-token-preflight",
             "python-quality",
             "python-lint",
             "python-format",

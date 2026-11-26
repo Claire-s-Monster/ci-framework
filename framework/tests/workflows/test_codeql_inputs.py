@@ -128,7 +128,16 @@ def test_codeql_token_preflight_is_fail_closed_with_explicit_message(doc):
     steps = doc["jobs"]["sast-codeql"]["steps"]
     pre = [s for s in steps if s.get("name") == "Verify CI_BOT_TOKEN is valid"]
     assert len(pre) == 1
-    run = pre[0]["run"]
+    # The script lives in the composite action the step calls.
+    assert pre[0]["uses"].startswith(
+        "Claire-s-Monster/ci-framework/.github/actions/verify-ci-bot-token@v"
+    )
+    action = yaml.safe_load(
+        Path(".github/actions/verify-ci-bot-token/action.yml").read_text()
+    )
+    run = next(s for s in action["runs"]["steps"] if s["id"] == "token-preflight")[
+        "run"
+    ]
     assert "exit 1" in run
     assert "CI_BOT_TOKEN invalid" in run
     assert "Rotate it, or delete the secret to fall back to github.token" in run

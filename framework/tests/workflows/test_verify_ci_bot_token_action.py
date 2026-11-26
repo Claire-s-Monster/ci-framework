@@ -1,39 +1,41 @@
-"""Drift guard: inline "Verify CI_BOT_TOKEN is valid" copies match the action.
+"""Guard: the reusable workflows call the verify-ci-bot-token action, pinned.
 
 `.github/actions/verify-ci-bot-token/action.yml` is the canonical copy of the
-CI_BOT_TOKEN preflight (#355, #482). Until a release tag contains it, the six
-inline copies in reusable-ci.yml and reusable-security.yml (sast-semgrep,
-sast-codeql, scorecard-token-preflight) cannot use it: a reusable workflow
-cannot reference `./` actions (#262) and the pinned remote form needs a tag.
-So this guard keeps every inline copy byte-identical to the action in the
-meantime, which stops the copies drifting apart.
+CI_BOT_TOKEN preflight (#355, #482). The six former inline copies in
+reusable-ci.yml and reusable-security.yml (sast-semgrep, sast-codeql,
+scorecard-token-preflight) now call it through the remote form pinned to a
+release tag: a reusable workflow cannot use `./` (#262).
 
 This guard enforces, for every `*.yml` / `*.yaml` workflow:
 
-  * every step named like the preflight with `id: token-preflight` has a `run`
-    equal to the action's, and no keys beyond name, id, env and run;
-  * its `env` has the same keys as the action's, with `inputs.token` replaced
-    by `secrets.CI_BOT_TOKEN` (a composite cannot read the secrets context);
+  * NO inline copy (a `run:` step named like the preflight, carrying its id, or
+    running its `/rate_limit` probe / `CI_BOT_TOKEN` env) remains in any
+    `reusable-*` workflow; the standalone workflows' copies are out of scope;
+  * exactly six call sites exist, each `uses:` the action at the released tag
+    in `.release-please-manifest.json`,
+    keeping the id, passing `with.token: ${{ secrets.CI_BOT_TOKEN }}` and
+    nothing else;
+  * every call-site line carries the `# x-release-please-version` marker so a
+    release bumps the pin;
   * the action declares every output the workflows consume through
     `steps.token-preflight.outputs.*`, wired to the step of the same id.
 
-PHASE 2 (after the release tag exists): the call sites switch to
-`uses: Claire-s-Monster/ci-framework/.github/actions/verify-ci-bot-token@vX.Y.Z`.
-This module should then be inverted to assert that NO inline copy remains and
-that every call site is pinned to a release tag.
-
-Walk-the-tree guards can pass vacuously, hence the floor and the classifier
-self-tests below, which run the exact helpers the real tests use.
+Walk-the-tree guards can pass vacuously, hence the exact count and the
+classifier self-tests below, which run the exact helpers the real tests use.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 import yaml
 
 from framework.tests.workflows.test_ci_bot_token_preflight import (
+    ACTION_USES_PATTERN,
+    ACTION_USES_PREFIX,
+    EXPECTED_ENV_VALUE,
     PREFLIGHT_STEP_ID,
     PREFLIGHT_STEP_NAME,
     REPO_ROOT,
@@ -44,17 +46,17 @@ from framework.tests.workflows.test_ci_bot_token_preflight import (
 )
 
 ACTION_PATH = REPO_ROOT / ".github" / "actions" / "verify-ci-bot-token" / "action.yml"
+MANIFEST_PATH = REPO_ROOT / ".release-please-manifest.json"
 CONSUMED_OUTPUT = re.compile(
     r"steps\." + re.escape(PREFLIGHT_STEP_ID) + r"\.outputs\.([\w-]+)"
 )
-ALLOWED_STEP_KEYS = frozenset({"name", "id", "env", "run"})
-INPUT_TOKEN_REFERENCE = "inputs.token"  # pragma: allowlist secret
-SECRET_TOKEN_REFERENCE = "secrets.CI_BOT_TOKEN"  # pragma: allowlist secret
+ALLOWED_SITE_KEYS = frozenset({"name", "id", "uses", "with"})
+RELEASE_MARKER = "# x-release-please-version"
 
 # 3 jobs (sast-semgrep, sast-codeql, scorecard-token-preflight) in each of
-# reusable-ci.yml and reusable-security.yml. Equals the live count by design:
-# removing a copy is deliberate and updates this constant in the same commit.
-MINIMUM_EXPECTED_COPIES = 6
+# reusable-ci.yml and reusable-security.yml. EXACT by design: adding or removing
+# a site is deliberate and updates this constant in the same commit.
+EXPECTED_SITES = 6
 
 
 def workflow_yaml_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
@@ -66,23 +68,105 @@ def workflow_yaml_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
     )
 
 
-def is_preflight_copy(step: object) -> bool:
-    """True for a step named like the preflight and carrying its fixed id."""
+def is_inline_copy(step: object) -> bool:
+    """True for any `run:` step that looks like the preflight.
+
+    Matched by name, by id, or by script content (the `/rate_limit` probe or the
+    `CI_BOT_TOKEN` env), so renaming or re-id'ing a retained copy does not hide it.
+    """
+    if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+        return False
+    env = step.get("env")
     return (
-        isinstance(step, dict)
-        and step.get("name") == PREFLIGHT_STEP_NAME
-        and step.get("id") == PREFLIGHT_STEP_ID
+        step.get("name") == PREFLIGHT_STEP_NAME
+        or step.get("id") == PREFLIGHT_STEP_ID
+        or "/rate_limit" in step["run"]
+        or (isinstance(env, dict) and "CI_BOT_TOKEN" in env)
     )
 
 
-def inline_copies() -> list[tuple[str, dict]]:
-    """(file:job label, step) of every inline preflight copy in every workflow."""
+def is_action_call(step: object) -> bool:
+    """True for a step that `uses:` the verify-ci-bot-token action at any ref."""
+    return (
+        isinstance(step, dict)
+        and isinstance(step.get("uses"), str)
+        and step["uses"].startswith(ACTION_USES_PREFIX)
+    )
+
+
+def steps_matching(predicate) -> list[tuple[str, dict]]:
+    """(file:job label, step) of every workflow step the predicate accepts."""
     return [
         (f"{path.name}:{job_id}", step)
         for path in workflow_yaml_files()
         for job_id, job in load_jobs(path).items()
         for step in job_steps(job)
-        if is_preflight_copy(step)
+        if predicate(step)
+    ]
+
+
+def inline_copies() -> list[tuple[str, dict]]:
+    """Inline copies in the reusable workflows.
+
+    The standalone workflows keep their own inline copies (out of scope for this
+    phase: they can't use the remote form on their own repo's pinned tag), so
+    only `reusable-*` files are held to the no-inline rule.
+    """
+    return [
+        (label, step)
+        for label, step in steps_matching(is_inline_copy)
+        if label.startswith("reusable-")
+    ]
+
+
+def action_sites() -> list[tuple[str, dict]]:
+    return steps_matching(is_action_call)
+
+
+def released_tag() -> str:
+    """The latest released tag, from the release-please manifest.
+
+    release-please bumps the manifest and every `x-release-please-version`
+    marker together, so a pin that differs names a tag that was never released.
+    """
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    return f"v{manifest['.']}"
+
+
+def site_problems(step: dict, expected_tag: str | None = None) -> list[str]:
+    """Everything wrong with one action call site."""
+    problems: list[str] = []
+    if not ACTION_USES_PATTERN.fullmatch(str(step.get("uses"))):
+        problems.append(
+            f"uses must be pinned to a vX.Y.Z tag, got {step.get('uses')!r}"
+        )
+    elif expected_tag is not None and not str(step["uses"]).endswith(
+        f"@{expected_tag}"
+    ):
+        problems.append(
+            f"uses must be pinned to the released tag {expected_tag}, "
+            f"got {step.get('uses')!r}"
+        )
+    if step.get("name") != PREFLIGHT_STEP_NAME:
+        problems.append(f"name must be {PREFLIGHT_STEP_NAME!r}")
+    if step.get("id") != PREFLIGHT_STEP_ID:
+        problems.append(f"id must be {PREFLIGHT_STEP_ID!r}")
+    if step.get("with") != {"token": EXPECTED_ENV_VALUE}:
+        problems.append(f"with must be exactly token: {EXPECTED_ENV_VALUE}")
+    extra = sorted(set(step) - ALLOWED_SITE_KEYS)
+    if extra:
+        problems.append(f"unexpected keys {extra}")
+    return problems
+
+
+def unmarked_pin_lines(text: str) -> list[str]:
+    """Lines that `uses:` the action without the release-please marker."""
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if ACTION_USES_PREFIX in line
+        and line.strip().startswith("uses:")
+        and RELEASE_MARKER not in line
     ]
 
 
@@ -108,29 +192,6 @@ def unexpected_steps(action: dict) -> list[object]:
             del remaining[index]
             break
     return remaining
-
-
-def expected_env(action_env: object) -> dict:
-    """The action's env as an inline copy must spell it (secret, not input)."""
-    if not isinstance(action_env, dict):
-        return {}
-    return {
-        key: str(value).replace(INPUT_TOKEN_REFERENCE, SECRET_TOKEN_REFERENCE)
-        for key, value in action_env.items()
-    }
-
-
-def copy_problems(step: dict, canonical: dict) -> list[str]:
-    """Everything that makes an inline copy differ from the action's step."""
-    problems: list[str] = []
-    if step.get("run") != canonical.get("run"):
-        problems.append("run differs from the action's run")
-    if step.get("env") != expected_env(canonical.get("env")):
-        problems.append("env differs from the action's env (inputs.token -> secret)")
-    extra = sorted(set(step) - ALLOWED_STEP_KEYS)
-    if extra:
-        problems.append(f"unexpected keys {extra}")
-    return problems
 
 
 def consumed_outputs(workflows: dict[str, object]) -> set[str]:
@@ -166,12 +227,37 @@ def load_workflows() -> dict[str, object]:
 # --- Real-tree tests ---------------------------------------------------------
 
 
-def test_walk_finds_the_expected_number_of_inline_copies():
-    found = inline_copies()
-    assert len(found) >= MINIMUM_EXPECTED_COPIES, (
-        f"walk found {len(found)} inline preflight copies, expected at least "
-        f"{MINIMUM_EXPECTED_COPIES}; the glob or matcher may be broken"
+def test_walk_finds_exactly_the_expected_action_sites():
+    found = action_sites()
+    assert len(found) == EXPECTED_SITES, (
+        f"walk found {len(found)} verify-ci-bot-token call sites, expected "
+        f"exactly {EXPECTED_SITES}; the glob or matcher may be broken"
     )
+
+
+def test_no_inline_copy_remains():
+    assert not inline_copies(), (
+        "inline preflight copies must be replaced by the action: "
+        f"{[label for label, _ in inline_copies()]}"
+    )
+
+
+def test_every_site_calls_the_action_at_a_pinned_tag():
+    failures = [
+        f"{label}: {problem}"
+        for label, step in action_sites()
+        for problem in site_problems(step, released_tag())
+    ]
+    assert not failures, "\n".join(failures)
+
+
+def test_every_site_line_carries_the_release_marker():
+    failures = [
+        f"{path.name}: {line}"
+        for path in workflow_yaml_files()
+        for line in unmarked_pin_lines(path.read_text(encoding="utf-8"))
+    ]
+    assert not failures, "\n".join(failures)
 
 
 def test_action_has_a_single_composite_preflight_step():
@@ -186,16 +272,6 @@ def test_action_has_a_single_composite_preflight_step():
     assert "${{" not in step["run"], "run must not interpolate ${{ }}"
     assert step["env"] == {"CI_BOT_TOKEN": "${{ inputs.token }}"}
     assert action["inputs"]["token"].get("required") is False
-
-
-def test_every_inline_copy_matches_the_action():
-    canonical = action_step(load_action())
-    failures = [
-        f"{label}: {problem}"
-        for label, step in inline_copies()
-        for problem in copy_problems(step, canonical)
-    ]
-    assert not failures, "\n".join(failures)
 
 
 def test_action_declares_every_consumed_output():
@@ -217,12 +293,12 @@ def _canonical() -> dict:
     }
 
 
-def _copy(**overrides: object) -> dict:
+def _site(**overrides: object) -> dict:
     step: dict = {
         "name": PREFLIGHT_STEP_NAME,
         "id": PREFLIGHT_STEP_ID,
-        "env": {"CI_BOT_TOKEN": "${{ secrets.CI_BOT_TOKEN }}"},
-        "run": _canonical()["run"],
+        "uses": f"{ACTION_USES_PREFIX}@v5.2.0",
+        "with": {"token": EXPECTED_ENV_VALUE},
     }
     step.update(overrides)
     return step
@@ -238,35 +314,78 @@ def test_selftest_extra_action_steps_are_flagged():
     assert len(unexpected_steps(duplicate)) == 1
 
 
-def test_selftest_matching_copy_is_not_flagged():
-    assert copy_problems(_copy(), _canonical()) == []
+def test_selftest_sound_site_is_not_flagged():
+    assert site_problems(_site()) == []
 
 
-def test_selftest_single_changed_character_in_run_is_flagged():
-    changed = _canonical()["run"].replace("exit 0", "exit 1")
-    problems = copy_problems(_copy(run=changed), _canonical())
-    assert problems == ["run differs from the action's run"]
+def test_selftest_unpinned_or_wrong_ref_is_flagged():
+    sha = "3d3c42e5aac5ba805825da76410c181273ba90b1"  # pragma: allowlist secret
+    for ref in ("main", "v5", sha, "v5.2.0-rc1"):
+        step = _site(uses=f"{ACTION_USES_PREFIX}@{ref}")
+        assert any("pinned" in p for p in site_problems(step)), ref
 
 
-def test_selftest_changed_env_is_flagged():
-    wrong_value = _copy(env={"CI_BOT_TOKEN": "${{ inputs.token }}"})
-    wrong_key = _copy(env={"OTHER": "${{ secrets.CI_BOT_TOKEN }}"})
-    extra_key = _copy(env={**_copy()["env"], "EXTRA": "x"})
-    for step in (wrong_value, wrong_key, extra_key):
-        assert any("env differs" in p for p in copy_problems(step, _canonical()))
+def test_selftest_unreleased_tag_is_flagged():
+    step = _site(uses=f"{ACTION_USES_PREFIX}@v5.2.1")
+    assert site_problems(step) == []  # syntactically valid on its own
+    assert any("released tag" in p for p in site_problems(step, "v5.2.0"))
+    assert site_problems(_site(), "v5.2.0") == []
 
 
-def test_selftest_extra_step_keys_are_flagged():
-    for key in ("if", "continue-on-error", "shell"):
-        problems = copy_problems(_copy(**{key: "x"}), _canonical())
+def test_released_tag_reads_the_manifest():
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", released_tag())
+
+
+def test_selftest_changed_inputs_or_extra_keys_are_flagged():
+    assert site_problems(_site(**{"with": {}}))
+    assert site_problems(_site(**{"with": {"token": "${{ github.token }}"}}))
+    assert site_problems(_site(id="other"))
+    assert site_problems(_site(name="Something else"))
+    for key in ("if", "continue-on-error", "env", "run"):
+        problems = site_problems(_site(**{key: "x"}))
         assert any("unexpected keys" in problem for problem in problems), key
 
 
-def test_selftest_copy_matcher_requires_name_and_id():
-    assert is_preflight_copy(_copy())
-    assert not is_preflight_copy(_copy(id="other"))
-    assert not is_preflight_copy(_copy(name="Something else"))
-    assert not is_preflight_copy("not a dict")
+def test_selftest_inline_and_call_matchers_are_distinct():
+    inline = {
+        "name": PREFLIGHT_STEP_NAME,
+        "id": PREFLIGHT_STEP_ID,
+        "env": {},
+        "run": "true",
+    }
+    assert is_inline_copy(inline)
+    assert not is_inline_copy(_site())
+    # Renamed / re-id'd copies are still caught, by content or by env.
+    assert is_inline_copy(
+        {**inline, "id": "other"} | {"name": "x", "run": "curl /rate_limit"}
+    )
+    assert is_inline_copy({"run": "true", "env": {"CI_BOT_TOKEN": "x"}})
+    assert not is_inline_copy({"run": "echo hi"})
+    assert not is_inline_copy({**inline, "run": None, "id": "other", "name": "x"})
+    assert not is_inline_copy("not a dict")
+    assert is_action_call(_site())
+    assert not is_action_call(inline)
+    assert not is_action_call({"uses": "actions/checkout@v7"})
+    assert not is_action_call("not a dict")
+
+
+def test_selftest_walk_classifies_a_synthetic_tree(tmp_path: Path):
+    doc = {"jobs": {"j": {"steps": [_site(), {"run": "true"}]}}}
+    (tmp_path / "w.yml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+    steps = [
+        step
+        for job in load_jobs(tmp_path / "w.yml").values()
+        for step in job_steps(job)
+        if is_action_call(step)
+    ]
+    assert len(steps) == 1
+
+
+def test_selftest_marker_check_flags_an_unmarked_pin():
+    uses = f"uses: {ACTION_USES_PREFIX}@v5.2.0"
+    assert unmarked_pin_lines(f"        {uses}  {RELEASE_MARKER}\n") == []
+    assert unmarked_pin_lines(f"        {uses}\n") == [uses]
+    assert unmarked_pin_lines("        uses: actions/checkout@v7\n") == []
 
 
 def test_selftest_consumed_outputs_are_found_anywhere_in_a_workflow():
@@ -290,10 +409,3 @@ def test_selftest_undeclared_or_miswired_output_is_flagged():
     assert output_problems(action, {"use_pat"}) == []
     assert any("missing" in p for p in output_problems(action, {"missing"}))
     assert any("miswired" in p for p in output_problems(action, {"miswired"}))
-
-
-def test_selftest_expected_env_swaps_input_for_secret():
-    assert expected_env({"CI_BOT_TOKEN": "${{ inputs.token }}"}) == {
-        "CI_BOT_TOKEN": "${{ secrets.CI_BOT_TOKEN }}"
-    }
-    assert expected_env(None) == {}

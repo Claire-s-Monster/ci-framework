@@ -17,6 +17,8 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+ACTION_PATH = REPO_ROOT / ".github" / "actions" / "verify-ci-bot-token" / "action.yml"
+ACTION_USES_PREFIX = "Claire-s-Monster/ci-framework/.github/actions/verify-ci-bot-token"
 PREFLIGHT_STEP_NAME = "Verify CI_BOT_TOKEN is valid"
 PREFLIGHT_JOBS = [
     ("reusable-ci.yml", "sast-semgrep"),
@@ -84,10 +86,21 @@ esac
 
 
 def preflight_script(file_name: str, job_id: str) -> str:
+    """The script a job's preflight step runs.
+
+    An action call (the six reusable sites) runs the composite action's script;
+    an inline step (the standalone workflows) carries its own.
+    """
     doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text(encoding="utf-8"))
     step = next(
         s for s in doc["jobs"][job_id]["steps"] if s.get("name") == PREFLIGHT_STEP_NAME
     )
+    if "uses" in step:
+        assert step["uses"].startswith(ACTION_USES_PREFIX), step["uses"]
+        action = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
+        step = next(
+            s for s in action["runs"]["steps"] if s.get("id") == "token-preflight"
+        )
     run = step["run"]
     assert "${{" not in run
     return run

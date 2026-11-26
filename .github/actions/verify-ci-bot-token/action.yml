@@ -6,13 +6,12 @@ description: >-
   the code-scanning API, so SARIF uploads fall back to github.token otherwise.
 
 # This action is the CANONICAL copy of the "Verify CI_BOT_TOKEN is valid"
-# preflight (#355, #482). The six inline copies in reusable-ci.yml and
+# preflight (#355, #482). The six call sites in reusable-ci.yml and
 # reusable-security.yml (sast-semgrep, sast-codeql, scorecard-token-preflight)
-# are switched to it in a follow-up, once a release tag contains this action:
-# a reusable workflow cannot use the `./` form (it resolves against the CALLER's
-# checkout, #262), so it needs the remote form pinned to a tag. Until then the
-# drift guard test_verify_ci_bot_token_action.py keeps every inline copy
-# byte-identical to the script below.
+# use it through the remote form pinned to a release tag: a reusable workflow
+# cannot use the `./` form (it resolves against the CALLER's checkout, #262).
+# The guard test_verify_ci_bot_token_action.py asserts that no inline copy
+# remains and that every call site is pinned.
 #
 # A composite action cannot read the `secrets` context, so the caller passes the
 # token as the `token` input: `token: ${{ secrets.CI_BOT_TOKEN }}`.

@@ -8,9 +8,11 @@ release tag: a reusable workflow cannot use `./` (#262).
 
 This guard enforces, for every `*.yml` / `*.yaml` workflow:
 
-  * NO inline copy (a step named like the preflight with `id: token-preflight`
-    and a `run:`) remains anywhere;
-  * exactly six call sites exist, each `uses:` the action at a `vX.Y.Z` tag,
+  * NO inline copy (a `run:` step named like the preflight, carrying its id, or
+    running its `/rate_limit` probe / `CI_BOT_TOKEN` env) remains in any
+    `reusable-*` workflow; the standalone workflows' copies are out of scope;
+  * exactly six call sites exist, each `uses:` the action at the released tag
+    in `.release-please-manifest.json`,
     keeping the id, passing `with.token: ${{ secrets.CI_BOT_TOKEN }}` and
     nothing else;
   * every call-site line carries the `# x-release-please-version` marker so a
@@ -24,6 +26,7 @@ classifier self-tests below, which run the exact helpers the real tests use.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -43,6 +46,7 @@ from framework.tests.workflows.test_ci_bot_token_preflight import (
 )
 
 ACTION_PATH = REPO_ROOT / ".github" / "actions" / "verify-ci-bot-token" / "action.yml"
+MANIFEST_PATH = REPO_ROOT / ".release-please-manifest.json"
 CONSUMED_OUTPUT = re.compile(
     r"steps\." + re.escape(PREFLIGHT_STEP_ID) + r"\.outputs\.([\w-]+)"
 )
@@ -65,12 +69,19 @@ def workflow_yaml_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
 
 
 def is_inline_copy(step: object) -> bool:
-    """True for a step named like the preflight, with its fixed id and a `run:`."""
+    """True for any `run:` step that looks like the preflight.
+
+    Matched by name, by id, or by script content (the `/rate_limit` probe or the
+    `CI_BOT_TOKEN` env), so renaming or re-id'ing a retained copy does not hide it.
+    """
+    if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+        return False
+    env = step.get("env")
     return (
-        isinstance(step, dict)
-        and step.get("name") == PREFLIGHT_STEP_NAME
-        and step.get("id") == PREFLIGHT_STEP_ID
-        and "run" in step
+        step.get("name") == PREFLIGHT_STEP_NAME
+        or step.get("id") == PREFLIGHT_STEP_ID
+        or "/rate_limit" in step["run"]
+        or (isinstance(env, dict) and "CI_BOT_TOKEN" in env)
     )
 
 
@@ -95,19 +106,46 @@ def steps_matching(predicate) -> list[tuple[str, dict]]:
 
 
 def inline_copies() -> list[tuple[str, dict]]:
-    return steps_matching(is_inline_copy)
+    """Inline copies in the reusable workflows.
+
+    The standalone workflows keep their own inline copies (out of scope for this
+    phase: they can't use the remote form on their own repo's pinned tag), so
+    only `reusable-*` files are held to the no-inline rule.
+    """
+    return [
+        (label, step)
+        for label, step in steps_matching(is_inline_copy)
+        if label.startswith("reusable-")
+    ]
 
 
 def action_sites() -> list[tuple[str, dict]]:
     return steps_matching(is_action_call)
 
 
-def site_problems(step: dict) -> list[str]:
+def released_tag() -> str:
+    """The latest released tag, from the release-please manifest.
+
+    release-please bumps the manifest and every `x-release-please-version`
+    marker together, so a pin that differs names a tag that was never released.
+    """
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    return f"v{manifest['.']}"
+
+
+def site_problems(step: dict, expected_tag: str | None = None) -> list[str]:
     """Everything wrong with one action call site."""
     problems: list[str] = []
     if not ACTION_USES_PATTERN.fullmatch(str(step.get("uses"))):
         problems.append(
             f"uses must be pinned to a vX.Y.Z tag, got {step.get('uses')!r}"
+        )
+    elif expected_tag is not None and not str(step["uses"]).endswith(
+        f"@{expected_tag}"
+    ):
+        problems.append(
+            f"uses must be pinned to the released tag {expected_tag}, "
+            f"got {step.get('uses')!r}"
         )
     if step.get("name") != PREFLIGHT_STEP_NAME:
         problems.append(f"name must be {PREFLIGHT_STEP_NAME!r}")
@@ -208,7 +246,7 @@ def test_every_site_calls_the_action_at_a_pinned_tag():
     failures = [
         f"{label}: {problem}"
         for label, step in action_sites()
-        for problem in site_problems(step)
+        for problem in site_problems(step, released_tag())
     ]
     assert not failures, "\n".join(failures)
 
@@ -287,6 +325,17 @@ def test_selftest_unpinned_or_wrong_ref_is_flagged():
         assert any("pinned" in p for p in site_problems(step)), ref
 
 
+def test_selftest_unreleased_tag_is_flagged():
+    step = _site(uses=f"{ACTION_USES_PREFIX}@v5.2.1")
+    assert site_problems(step) == []  # syntactically valid on its own
+    assert any("released tag" in p for p in site_problems(step, "v5.2.0"))
+    assert site_problems(_site(), "v5.2.0") == []
+
+
+def test_released_tag_reads_the_manifest():
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", released_tag())
+
+
 def test_selftest_changed_inputs_or_extra_keys_are_flagged():
     assert site_problems(_site(**{"with": {}}))
     assert site_problems(_site(**{"with": {"token": "${{ github.token }}"}}))
@@ -306,7 +355,13 @@ def test_selftest_inline_and_call_matchers_are_distinct():
     }
     assert is_inline_copy(inline)
     assert not is_inline_copy(_site())
-    assert not is_inline_copy({**inline, "id": "other"})
+    # Renamed / re-id'd copies are still caught, by content or by env.
+    assert is_inline_copy(
+        {**inline, "id": "other"} | {"name": "x", "run": "curl /rate_limit"}
+    )
+    assert is_inline_copy({"run": "true", "env": {"CI_BOT_TOKEN": "x"}})
+    assert not is_inline_copy({"run": "echo hi"})
+    assert not is_inline_copy({**inline, "run": None, "id": "other", "name": "x"})
     assert not is_inline_copy("not a dict")
     assert is_action_call(_site())
     assert not is_action_call(inline)

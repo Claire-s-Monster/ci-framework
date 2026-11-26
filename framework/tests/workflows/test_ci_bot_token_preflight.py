@@ -216,7 +216,12 @@ def preflight_problems(step: dict, sarif: bool = False) -> list[str]:
 
 
 def is_action_checkout(step: object) -> bool:
-    """True for a credential-less sparse checkout of `.github/actions` only."""
+    """True for a credential-less sparse checkout of `.github/actions` only.
+
+    `path` must be absent: a `path:` outside the workspace root would leave
+    `./.github/actions/...` unresolved, or place the action under a directory the
+    caller did not intend.
+    """
     if not isinstance(step, dict):
         return False
     uses = step.get("uses")
@@ -228,6 +233,7 @@ def is_action_checkout(step: object) -> bool:
         and with_.get("sparse-checkout") == ".github/actions"
         and with_.get("persist-credentials") is False
         and "token" not in with_
+        and "path" not in with_
     )
 
 
@@ -538,6 +544,8 @@ def test_selftest_action_checkout_may_precede_the_preflight():
         {"persist-credentials": True},
         {"sparse-checkout": "."},
         {"token": EXPECTED_ENV_VALUE},
+        {"path": "../outside"},
+        {"path": "sub"},
     ):
         bad = _sparse_checkout(**override)
         assert not is_action_checkout(bad), override

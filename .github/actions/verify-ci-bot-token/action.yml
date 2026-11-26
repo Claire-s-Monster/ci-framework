@@ -37,7 +37,9 @@ inputs:
     description: >-
       Probe the code-scanning API after the /rate_limit check. With 'false' the
       probe is skipped and `use_pat` is `true` whenever the token is set and not
-      rejected by /rate_limit (HTTP 401 still fails).
+      rejected by /rate_limit (HTTP 401 still fails). In that mode `use_pat`
+      only means "the token is valid", NOT "the token can upload SARIF": do not
+      use it to choose a SARIF upload token (a guard test enforces this).
     required: false
     default: 'true'
 
@@ -46,6 +48,8 @@ outputs:
     description: >-
       'true' when CI_BOT_TOKEN is set and usable for SARIF upload, 'false' when
       it is unset or cannot reach the code-scanning API (use github.token).
+      With `check-code-scanning: 'false'` the code-scanning probe is skipped, so
+      'true' only means the token is set and valid, NOT that it can upload SARIF.
     value: ${{ steps.token-preflight.outputs.use_pat }}
 
 runs:

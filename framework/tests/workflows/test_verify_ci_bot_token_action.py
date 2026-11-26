@@ -180,10 +180,15 @@ def local_site_problems(steps: list[dict], index: int, triggers: set[str]) -> li
     if triggers & UNTRUSTED_TRIGGERS:
         problems.append(f"`./` action in a workflow triggered by {sorted(triggers)}")
     previous = steps[index - 1] if index else None
-    if not is_action_checkout(previous):
+    checkout_with = (
+        previous.get("with")
+        if previous is not None and is_action_checkout(previous)
+        else None
+    )
+    if not isinstance(checkout_with, dict):
         problems.append("must follow a persist-credentials: false sparse checkout")
     else:
-        ref = previous["with"].get("ref")
+        ref = checkout_with.get("ref")
         if "pull_request" in triggers and ref != BASE_SHA_REF:
             problems.append(f"pull_request workflow must check out {BASE_SHA_REF}")
         if "pull_request" not in triggers and ref is not None:
@@ -282,6 +287,37 @@ def output_problems(action: dict, consumed: set[str]) -> list[str]:
             problems.append(f"action does not declare consumed output {name!r}")
         elif declared[name].get("value") != expected:
             problems.append(f"output {name!r} must have value {expected!r}")
+    return problems
+
+
+def skips_code_scanning_probe(step: object) -> bool:
+    """True for an action call (any form) passing `check-code-scanning: 'false'`."""
+    if not (is_action_call(step) or is_local_call(step)) or not isinstance(step, dict):
+        return False
+    with_ = step.get("with")
+    return isinstance(with_, dict) and str(with_.get("check-code-scanning")) == "false"
+
+
+def use_pat_trap_problems(job: object) -> list[str]:
+    """`use_pat` reads in a job whose action call skipped the code-scanning probe.
+
+    With the probe skipped, `use_pat` only means "the token is valid", NOT "the
+    token can upload SARIF", so a consumer would send SARIF to an unusable token.
+    A skipping step with an id whose `steps.<id>.outputs.use_pat` is read anywhere
+    in the job (including the job's `outputs:`, which feed `needs.*.outputs.use_pat`
+    consumers) is flagged.
+    """
+    problems: list[str] = []
+    for step in job_steps(job):
+        step_id = step.get("id")
+        if not skips_code_scanning_probe(step) or not isinstance(step_id, str):
+            continue
+        reader = re.compile(r"steps\." + re.escape(step_id) + r"\.outputs\.use_pat\b")
+        if any(reader.search(text) for text in iter_strings(job)):
+            problems.append(
+                f"step id {step_id!r} skips the code-scanning probe but its "
+                "use_pat output is read"
+            )
     return problems
 
 
@@ -391,6 +427,16 @@ def test_action_has_a_single_composite_preflight_step():
     assert action["inputs"]["token"].get("required") is False
     assert action["inputs"]["check-code-scanning"]["default"] == "true"
     assert action["inputs"]["check-code-scanning"].get("required") is False
+
+
+def test_no_use_pat_consumer_follows_a_probe_skipping_site():
+    failures = [
+        f"{path.name}:{job_id}: {problem}"
+        for path in workflow_yaml_files()
+        for job_id, job in load_jobs(path).items()
+        for problem in use_pat_trap_problems(job)
+    ]
+    assert not failures, "\n".join(failures)
 
 
 def test_action_declares_every_consumed_output():
@@ -531,6 +577,35 @@ def test_selftest_local_site_rules():
     assert is_local_call(_local())
     assert not is_local_call(_site())
     assert not is_local_call("not a dict")
+
+
+def test_selftest_local_site_rejects_a_checkout_path():
+    push = {"push"}
+    assert local_site_problems([_checkout(), _local()], 1, push) == []
+    for path in ("../outside", "sub", "."):
+        problems = local_site_problems([_checkout(path=path), _local()], 1, push)
+        assert any("sparse checkout" in p for p in problems), path
+
+
+def test_selftest_use_pat_trap_is_flagged():
+    local = _local(id="pf")
+    consumer = {"uses": "x", "with": {"token": "${{ steps.pf.outputs.use_pat }}"}}
+    # Probe skipped and use_pat read in a step or a job output: flagged.
+    assert use_pat_trap_problems({"steps": [local, consumer]})
+    exported = {
+        "outputs": {"use_pat": "${{ steps.pf.outputs.use_pat }}"},
+        "steps": [local],
+    }
+    assert use_pat_trap_problems(exported)
+    remote = _site(id="pf", **{"with": {"token": "t", "check-code-scanning": "false"}})
+    assert use_pat_trap_problems({"steps": [remote, consumer]})
+    # Not flagged: probe on (default), no id, or the output is never read.
+    assert use_pat_trap_problems({"steps": [_site(), consumer]}) == []
+    assert use_pat_trap_problems({"steps": [_local(), consumer]}) == []
+    assert use_pat_trap_problems({"steps": [local, {"run": "true"}]}) == []
+    assert not skips_code_scanning_probe(_site())
+    assert skips_code_scanning_probe(_local())
+    assert not skips_code_scanning_probe("not a dict")
 
 
 def test_selftest_workflow_triggers_handles_yaml_on_forms():

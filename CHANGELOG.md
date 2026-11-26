@@ -5,6 +5,42 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.2.0](https://github.com/Claire-s-Monster/ci-framework/compare/v5.1.1...v5.2.0) (2026-11-26)
+
+
+### 🚀 Features
+
+* **actions:** add verify-ci-bot-token composite action as the canonical preflight ([4480e6c](https://github.com/Claire-s-Monster/ci-framework/commit/4480e6c9449fcb93a95686d0c472b4127c6d1a8b))
+* **actions:** add verify-ci-bot-token composite action as the canonical preflight ([74907f3](https://github.com/Claire-s-Monster/ci-framework/commit/74907f3ed18a8c21776761fa53f49ff6c956c46b))
+
+
+### 🐛 Bug Fixes
+
+* **pages:** narrow build-pages to pages: read and drop the no-op enablement ([07b7276](https://github.com/Claire-s-Monster/ci-framework/commit/07b7276050ca4be6cb3f38c738b405f64f5879dd))
+* **pages:** narrow build-pages to pages: read and drop the no-op enablement ([c804f5c](https://github.com/Claire-s-Monster/ci-framework/commit/c804f5cdee096c2b00e2e074024e78c760bf4c86))
+* **release:** address [#494](https://github.com/Claire-s-Monster/ci-framework/issues/494) review and detect-secrets false positive ([25b4e53](https://github.com/Claire-s-Monster/ci-framework/commit/25b4e531f3ecd5a17590f1f34e53265cc260b64a))
+* **release:** split Pages upload and deploy into separate jobs ([c829b21](https://github.com/Claire-s-Monster/ci-framework/commit/c829b210e1ac48aabf031e4c4a46958fb5d91c06))
+* **release:** split Pages upload and deploy into separate jobs ([7f4765a](https://github.com/Claire-s-Monster/ci-framework/commit/7f4765a63b80a1d35b299b80bf431b784affd638)), closes [#487](https://github.com/Claire-s-Monster/ci-framework/issues/487)
+* **reusable-ci:** fail the SARIF preflight on a code-scanning 401 and tighten its guard ([3cd4a92](https://github.com/Claire-s-Monster/ci-framework/commit/3cd4a923307c5597b92b38aaa5a4f03037672af3))
+* **reusable-ci:** gate the Scorecard SARIF upload token on a preflight job ([2da722a](https://github.com/Claire-s-Monster/ci-framework/commit/2da722a08a96692fd5911390d275ee4fd25b1cf5)), closes [#482](https://github.com/Claire-s-Monster/ci-framework/issues/482)
+* **reusable-ci:** use CI_BOT_TOKEN for SARIF uploads only when it can reach code scanning ([387d51b](https://github.com/Claire-s-Monster/ci-framework/commit/387d51b432e24a362c84de585f86653fca4a8996))
+* **reusable-ci:** use CI_BOT_TOKEN for SARIF uploads only when it can reach code scanning ([a8869f1](https://github.com/Claire-s-Monster/ci-framework/commit/a8869f1442975f01b2b9838e26955e86deb93ab6)), closes [#482](https://github.com/Claire-s-Monster/ci-framework/issues/482)
+
+
+### 🔧 Maintenance
+
+* promote development to main ([e4e7864](https://github.com/Claire-s-Monster/ci-framework/commit/e4e7864ce5a4c1de081e2fb185435d37af786b96))
+* sync main back to development ([18e605b](https://github.com/Claire-s-Monster/ci-framework/commit/18e605bbd7626ceb53d905b24954d6ee401a136b))
+
+
+### 🧪 Tests
+
+* **workflows:** assert verify-ci-bot-token action has exactly one step ([9edfb32](https://github.com/Claire-s-Monster/ci-framework/commit/9edfb32e0ff987aeca20888fa51622b6c17c9bd3))
+* **workflows:** flag pages upload jobs with no explicit permissions ([b2af1d6](https://github.com/Claire-s-Monster/ci-framework/commit/b2af1d6240bd2c0e2dcb49adf58045d60207f358))
+* **workflows:** make the fake curl require the CI_BOT_TOKEN bearer header ([e55848a](https://github.com/Claire-s-Monster/ci-framework/commit/e55848a4094366ad232c12e13cb8f9c47c7aaff1))
+* **workflows:** make the preflight fake curl require the bearer header ([c5defda](https://github.com/Claire-s-Monster/ci-framework/commit/c5defda25c73f9b2342caaf7b44b1273adb4e61d))
+* **workflows:** run standalone CI_BOT_TOKEN preflights under the bearer-checking fake curl and apply ruff format ([4b01153](https://github.com/Claire-s-Monster/ci-framework/commit/4b01153536b2405e81a4a050b93128c39664f590))
+
 ## [5.1.1](https://github.com/Claire-s-Monster/ci-framework/compare/v5.1.0...v5.1.1) (2026-11-24)
 
 

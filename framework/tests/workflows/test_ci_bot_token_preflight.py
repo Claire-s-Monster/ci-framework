@@ -9,7 +9,9 @@ The fix is a preflight step, `Verify CI_BOT_TOKEN is valid`, as the FIRST step
 of every job that references the secret. The six SARIF sites in the reusable
 workflows call the `verify-ci-bot-token` composite action pinned to a release
 tag (`./` references in a reusable workflow resolve against the CALLER's
-checkout, #262); the standalone workflows keep an inline `run:` copy.
+checkout, #262); three standalone workflows use the local `./` form after a
+sparse `.github/actions` checkout, and the two `workflow_call` ones keep an
+inline `run:` copy (follow-up).
 
 This guard enforces, for every job in every workflow and workflow template:
 
@@ -213,6 +215,22 @@ def preflight_problems(step: dict, sarif: bool = False) -> list[str]:
     return problems
 
 
+def is_action_checkout(step: object) -> bool:
+    """True for a credential-less sparse checkout of `.github/actions` only."""
+    if not isinstance(step, dict):
+        return False
+    uses = step.get("uses")
+    with_ = step.get("with")
+    return (
+        isinstance(uses, str)
+        and uses.startswith("actions/checkout@")
+        and isinstance(with_, dict)
+        and with_.get("sparse-checkout") == ".github/actions"
+        and with_.get("persist-credentials") is False
+        and "token" not in with_
+    )
+
+
 def job_problems(job: object) -> list[str]:
     """Problems with a job; empty if it neither consumes the token nor has a preflight.
 
@@ -226,6 +244,10 @@ def job_problems(job: object) -> list[str]:
     if not steps:
         return ["consumes CI_BOT_TOKEN but has no steps to host the preflight"]
     first = steps[0]
+    if is_action_checkout(first) and len(steps) > 1:
+        # The `./` form needs the action on disk: a sparse checkout of
+        # `.github/actions` may precede the preflight (and nothing else).
+        first = steps[1]
     if first.get("name") != PREFLIGHT_STEP_NAME:
         return [f"first step must be named {PREFLIGHT_STEP_NAME!r}"]
     return preflight_problems(first, sarif=bool(sarif_token_sites("", "", job)))
@@ -488,6 +510,39 @@ def test_all_six_reusable_preflights_use_the_action():
     )
     failures = [p for label, step in steps for p in action_form_problems(label, step)]
     assert not failures, "\n".join(failures)
+
+
+def _sparse_checkout(**with_overrides: object) -> dict:
+    return {
+        "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "with": {
+            "sparse-checkout": ".github/actions",
+            "persist-credentials": False,
+            **with_overrides,
+        },
+    }
+
+
+def test_selftest_action_checkout_may_precede_the_preflight():
+    local = {
+        "name": PREFLIGHT_STEP_NAME,
+        "uses": "./.github/actions/verify-ci-bot-token",
+        "with": {"token": EXPECTED_ENV_VALUE, "check-code-scanning": "false"},
+    }
+    consumer = {"env": {"GH_TOKEN": EXPECTED_ENV_VALUE}, "run": "true"}
+    assert is_action_checkout(_sparse_checkout())
+    assert job_problems({"steps": [_sparse_checkout(), local, consumer]}) == []
+    # Anything else first, or a checkout that is not credential-less/sparse, fails.
+    assert job_problems({"steps": [consumer, local]})
+    for override in (
+        {"persist-credentials": True},
+        {"sparse-checkout": "."},
+        {"token": EXPECTED_ENV_VALUE},
+    ):
+        bad = _sparse_checkout(**override)
+        assert not is_action_checkout(bad), override
+        assert job_problems({"steps": [bad, local, consumer]}), override
+    assert not is_action_checkout("not a dict")
 
 
 def test_selftest_action_form_requires_a_pinned_action_call():

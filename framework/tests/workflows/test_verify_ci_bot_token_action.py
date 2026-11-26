@@ -1,22 +1,28 @@
-"""Guard: the reusable workflows call the verify-ci-bot-token action, pinned.
+"""Guard: the workflows call the verify-ci-bot-token action, not inline copies.
 
 `.github/actions/verify-ci-bot-token/action.yml` is the canonical copy of the
 CI_BOT_TOKEN preflight (#355, #482). The six former inline copies in
 reusable-ci.yml and reusable-security.yml (sast-semgrep, sast-codeql,
-scorecard-token-preflight) now call it through the remote form pinned to a
-release tag: a reusable workflow cannot use `./` (#262).
+scorecard-token-preflight) call it through the remote form pinned to a
+release tag: a reusable workflow cannot use `./` (#262). Three standalone
+workflows (release-please, auto-merge-release, sync-main-to-development) call
+it through the local `./` form with `check-code-scanning: 'false'`.
 
 This guard enforces, for every `*.yml` / `*.yaml` workflow:
 
   * NO inline copy (a `run:` step named like the preflight, carrying its id, or
-    running its `/rate_limit` probe / `CI_BOT_TOKEN` env) remains in any
-    `reusable-*` workflow; the standalone workflows' copies are out of scope;
-  * exactly six call sites exist, each `uses:` the action at the released tag
-    in `.release-please-manifest.json`,
+    running its `/rate_limit` probe / `CI_BOT_TOKEN` env) remains anywhere,
+    except in the explicit INLINE_ALLOWLIST of `workflow_call` workflows;
+  * exactly six remote call sites exist, each `uses:` the action at the released
+    tag in `.release-please-manifest.json`,
     keeping the id, passing `with.token: ${{ secrets.CI_BOT_TOKEN }}` and
     nothing else;
-  * every call-site line carries the `# x-release-please-version` marker so a
-    release bumps the pin;
+  * exactly three local `./` call sites exist, each preceded by a credential-less
+    sparse checkout of `.github/actions` (at the base SHA when the workflow runs
+    on `pull_request`) and never in a `pull_request_target` / `workflow_run`
+    workflow;
+  * every remote call-site line carries the `# x-release-please-version` marker
+    so a release bumps the pin;
   * the action declares every output the workflows consume through
     `steps.token-preflight.outputs.*`, wired to the step of the same id.
 
@@ -40,6 +46,7 @@ from framework.tests.workflows.test_ci_bot_token_preflight import (
     PREFLIGHT_STEP_NAME,
     REPO_ROOT,
     WORKFLOWS_DIR,
+    is_action_checkout,
     iter_strings,
     job_steps,
     load_jobs,
@@ -57,6 +64,18 @@ RELEASE_MARKER = "# x-release-please-version"
 # reusable-ci.yml and reusable-security.yml. EXACT by design: adding or removing
 # a site is deliberate and updates this constant in the same commit.
 EXPECTED_SITES = 6
+# release-please, auto-merge-release and sync-main-to-development, `./` form.
+EXPECTED_LOCAL_SITES = 3
+LOCAL_USES = "./.github/actions/verify-ci-bot-token"
+LOCAL_WITH = {"token": EXPECTED_ENV_VALUE, "check-code-scanning": "false"}
+LOCAL_SITE_KEYS = frozenset({"name", "uses", "with"})
+BASE_SHA_REF = "${{ github.event.pull_request.base.sha }}"
+UNTRUSTED_TRIGGERS = frozenset({"pull_request_target", "workflow_run"})
+# The only workflows allowed to keep an inline copy: both are `workflow_call`
+# reusables whose `./` would resolve against the caller's checkout (#262) and
+# that need the remote pinned form instead.
+# TODO(follow-up): move them to the remote form and empty this allowlist.
+INLINE_ALLOWLIST = frozenset({"self-healing.yml", "cleanup-dev-files.yml"})
 
 
 def workflow_yaml_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
@@ -105,22 +124,71 @@ def steps_matching(predicate) -> list[tuple[str, dict]]:
     ]
 
 
-def inline_copies() -> list[tuple[str, dict]]:
-    """Inline copies in the reusable workflows.
+def is_local_call(step: object) -> bool:
+    """True for a step that `uses:` the action through the local `./` form."""
+    return isinstance(step, dict) and step.get("uses") == LOCAL_USES
 
-    The standalone workflows keep their own inline copies (out of scope for this
-    phase: they can't use the remote form on their own repo's pinned tag), so
-    only `reusable-*` files are held to the no-inline rule.
-    """
+
+def inline_copies() -> list[tuple[str, dict]]:
+    """Inline copies in ALL workflows, minus the INLINE_ALLOWLIST files."""
     return [
         (label, step)
         for label, step in steps_matching(is_inline_copy)
-        if label.startswith("reusable-")
+        if label.split(":")[0] not in INLINE_ALLOWLIST
+    ]
+
+
+def allowlisted_inline_copies() -> list[tuple[str, dict]]:
+    return [
+        (label, step)
+        for label, step in steps_matching(is_inline_copy)
+        if label.split(":")[0] in INLINE_ALLOWLIST
     ]
 
 
 def action_sites() -> list[tuple[str, dict]]:
     return steps_matching(is_action_call)
+
+
+def local_sites() -> list[tuple[str, dict]]:
+    return steps_matching(is_local_call)
+
+
+def workflow_triggers(doc: object) -> set[str]:
+    """Event names under `on:` (YAML parses the bare key `on` as True)."""
+    if not isinstance(doc, dict):
+        return set()
+    on = doc.get("on", doc.get(True))
+    if isinstance(on, dict):
+        return set(on)
+    if isinstance(on, str):
+        return {on}
+    return set(on) if isinstance(on, list) else set()
+
+
+def local_site_problems(steps: list[dict], index: int, triggers: set[str]) -> list[str]:
+    """Everything wrong with the `./` call at `steps[index]` in a job."""
+    step = steps[index]
+    problems: list[str] = []
+    if step.get("name") != PREFLIGHT_STEP_NAME:
+        problems.append(f"name must be {PREFLIGHT_STEP_NAME!r}")
+    if step.get("with") != LOCAL_WITH:
+        problems.append(f"with must be exactly {LOCAL_WITH}")
+    extra = sorted(set(step) - LOCAL_SITE_KEYS)
+    if extra:
+        problems.append(f"unexpected keys {extra}")
+    if triggers & UNTRUSTED_TRIGGERS:
+        problems.append(f"`./` action in a workflow triggered by {sorted(triggers)}")
+    previous = steps[index - 1] if index else None
+    if not is_action_checkout(previous):
+        problems.append("must follow a persist-credentials: false sparse checkout")
+    else:
+        ref = previous["with"].get("ref")
+        if "pull_request" in triggers and ref != BASE_SHA_REF:
+            problems.append(f"pull_request workflow must check out {BASE_SHA_REF}")
+        if "pull_request" not in triggers and ref is not None:
+            problems.append(f"unexpected checkout ref {ref!r}")
+    return problems
 
 
 def released_tag() -> str:
@@ -235,11 +303,57 @@ def test_walk_finds_exactly_the_expected_action_sites():
     )
 
 
-def test_no_inline_copy_remains():
+def test_no_inline_copy_remains_outside_the_allowlist():
     assert not inline_copies(), (
         "inline preflight copies must be replaced by the action: "
         f"{[label for label, _ in inline_copies()]}"
     )
+
+
+def test_inline_allowlist_is_exactly_the_two_workflow_call_files():
+    # Non-vacuity: the allowlist names exactly the files that still carry an
+    # inline preflight, and both are workflow_call reusables.
+    copies = allowlisted_inline_copies()
+    assert {label.split(":")[0] for label, _ in copies} == INLINE_ALLOWLIST
+    named = [s for _, s in copies if s.get("name") == PREFLIGHT_STEP_NAME]
+    assert len(named) == len(INLINE_ALLOWLIST)
+    for name in INLINE_ALLOWLIST:
+        doc = yaml.safe_load((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
+        assert "workflow_call" in workflow_triggers(doc), name
+
+
+def test_remote_sites_are_only_in_reusable_workflows():
+    stray = [label for label, _ in action_sites() if not label.startswith("reusable-")]
+    assert not stray, f"remote-pinned call outside a reusable-* workflow: {stray}"
+
+
+def test_walk_finds_exactly_the_expected_local_sites():
+    found = local_sites()
+    assert len(found) == EXPECTED_LOCAL_SITES, (
+        f"walk found {len(found)} `./` call sites, expected exactly "
+        f"{EXPECTED_LOCAL_SITES}; the glob or matcher may be broken"
+    )
+    assert sorted({label.split(":")[0] for label, _ in found}) == [
+        "auto-merge-release.yml",
+        "release-please.yml",
+        "sync-main-to-development.yml",
+    ]
+
+
+def test_every_local_site_is_sound_and_trusted():
+    failures = []
+    for path in workflow_yaml_files():
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        triggers = workflow_triggers(doc)
+        for job_id, job in load_jobs(path).items():
+            steps = job_steps(job)
+            for index, step in enumerate(steps):
+                if is_local_call(step):
+                    failures += [
+                        f"{path.name}:{job_id}: {problem}"
+                        for problem in local_site_problems(steps, index, triggers)
+                    ]
+    assert not failures, "\n".join(failures)
 
 
 def test_every_site_calls_the_action_at_a_pinned_tag():
@@ -270,8 +384,13 @@ def test_action_has_a_single_composite_preflight_step():
     step = action_step(action)
     assert step.get("shell") == "bash"
     assert "${{" not in step["run"], "run must not interpolate ${{ }}"
-    assert step["env"] == {"CI_BOT_TOKEN": "${{ inputs.token }}"}
+    assert step["env"] == {
+        "CI_BOT_TOKEN": "${{ inputs.token }}",
+        "CHECK_CODE_SCANNING": "${{ inputs.check-code-scanning }}",
+    }
     assert action["inputs"]["token"].get("required") is False
+    assert action["inputs"]["check-code-scanning"]["default"] == "true"
+    assert action["inputs"]["check-code-scanning"].get("required") is False
 
 
 def test_action_declares_every_consumed_output():
@@ -367,6 +486,71 @@ def test_selftest_inline_and_call_matchers_are_distinct():
     assert not is_action_call(inline)
     assert not is_action_call({"uses": "actions/checkout@v7"})
     assert not is_action_call("not a dict")
+
+
+def _checkout(**with_overrides: object) -> dict:
+    return {
+        "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "with": {
+            "sparse-checkout": ".github/actions",
+            "persist-credentials": False,
+            **with_overrides,
+        },
+    }
+
+
+def _local(**overrides: object) -> dict:
+    step: dict = {
+        "name": PREFLIGHT_STEP_NAME,
+        "uses": LOCAL_USES,
+        "with": dict(LOCAL_WITH),
+    }
+    step.update(overrides)
+    return step
+
+
+def test_selftest_local_site_rules():
+    push = {"push"}
+    assert local_site_problems([_checkout(), _local()], 1, push) == []
+    pr_checkout = _checkout(ref=BASE_SHA_REF)
+    assert local_site_problems([pr_checkout, _local()], 1, {"pull_request"}) == []
+    # pull_request without the base ref, or any ref on a push workflow.
+    assert local_site_problems([_checkout(), _local()], 1, {"pull_request"})
+    assert local_site_problems([pr_checkout, _local()], 1, push)
+    # Untrusted triggers, a missing/unsafe checkout, wrong inputs, extra keys.
+    for trigger in sorted(UNTRUSTED_TRIGGERS):
+        assert local_site_problems([_checkout(), _local()], 1, {trigger})
+    assert local_site_problems([_local()], 0, push)
+    assert local_site_problems(
+        [_checkout(**{"persist-credentials": True}), _local()], 1, push
+    )
+    assert local_site_problems(
+        [_checkout(), _local(**{"with": {"token": "x"}})], 1, push
+    )
+    assert local_site_problems([_checkout(), _local(**{"if": "true"})], 1, push)
+    assert is_local_call(_local())
+    assert not is_local_call(_site())
+    assert not is_local_call("not a dict")
+
+
+def test_selftest_workflow_triggers_handles_yaml_on_forms():
+    assert workflow_triggers(yaml.safe_load("on:\n  push:\n  pull_request:\n")) == {
+        "push",
+        "pull_request",
+    }
+    assert workflow_triggers(yaml.safe_load("on: push\n")) == {"push"}
+    assert workflow_triggers(yaml.safe_load("on: [push, workflow_run]\n")) == {
+        "push",
+        "workflow_run",
+    }
+    assert workflow_triggers("not a dict") == set()
+
+
+def test_selftest_allowlist_names_only_the_two_workflow_call_files():
+    inline = {"name": PREFLIGHT_STEP_NAME, "run": "curl /rate_limit"}
+    assert is_inline_copy(inline)
+    assert "self-healing.yml" in INLINE_ALLOWLIST
+    assert "release-please.yml" not in INLINE_ALLOWLIST
 
 
 def test_selftest_walk_classifies_a_synthetic_tree(tmp_path: Path):

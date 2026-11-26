@@ -30,8 +30,25 @@ PREFLIGHT_JOBS = [
 BASH = shutil.which("bash")
 requires_bash = pytest.mark.skipif(BASH is None, reason="bash is not available")
 
+# The fake curl only answers a request that carries the bearer header for
+# CI_BOT_TOKEN; otherwise it reports an unauthenticated call on stderr (which
+# run_preflight turns into a failure) so a preflight that stops sending the
+# token cannot pass on the canned status alone.
 FAKE_CURL = """#!/bin/sh
-for last; do :; done
+auth=0
+prev=""
+for arg; do
+  if [ "$prev" = "-H" ] && [ "$arg" = "Authorization: Bearer $CI_BOT_TOKEN" ]; then
+    auth=1
+  fi
+  prev="$arg"
+  last="$arg"
+done
+if [ "$auth" != 1 ]; then
+  echo "unauthenticated curl call: $last" >&2
+  printf '%s' "000"
+  exit 0
+fi
 case "$last" in
   */rate_limit) printf '%s' "{rate}" ;;
   */repos/o/r/code-scanning/analyses?per_page=1) printf '%s' "{cs}" ;;
@@ -76,6 +93,7 @@ def run_preflight(
         check=False,
         timeout=30,
     )
+    assert "unauthenticated curl call" not in proc.stderr, proc.stderr
     return proc.returncode, proc.stdout, out.read_text(encoding="utf-8").splitlines()
 
 
@@ -138,6 +156,20 @@ def test_rate_limit_other_status_still_probes_code_scanning(
     code, _, outputs = run_preflight(script, tmp_path, "tok", "503", "404")
     assert code == 0
     assert outputs == ["use_pat=false"]
+
+
+@requires_bash
+def test_probes_without_bearer_header_are_rejected(script: str, tmp_path: Path):
+    # Mutation check for the fake curl: drop the Authorization header from the
+    # real script and the harness must notice the unauthenticated probe.
+    stripped = "\n".join(
+        line
+        for line in script.splitlines()
+        if "Authorization: Bearer" not in line
+    )
+    assert stripped != script
+    with pytest.raises(AssertionError, match="unauthenticated curl call"):
+        run_preflight(stripped, tmp_path, "tok", "200", "200")
 
 
 def test_preflight_jobs_are_found():

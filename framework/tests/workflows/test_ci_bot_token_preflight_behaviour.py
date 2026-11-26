@@ -27,6 +27,32 @@ PREFLIGHT_JOBS = [
     ("reusable-security.yml", "scorecard-token-preflight"),
 ]
 
+
+def standalone_preflight_jobs() -> list[tuple[str, str]]:
+    """Every (workflow, job) outside PREFLIGHT_JOBS with a `run:` preflight step.
+
+    Found by walking `.github/workflows/`, so a new standalone workflow that
+    copies the preflight is covered without editing a list. These copies only
+    run the /rate_limit check (no code-scanning probe, no GITHUB_OUTPUT).
+    """
+    found: list[tuple[str, str]] = []
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for job_id, job in (doc.get("jobs") or {}).items():
+            steps = job.get("steps") or [] if isinstance(job, dict) else []
+            has_step = any(
+                isinstance(s, dict)
+                and s.get("name") == PREFLIGHT_STEP_NAME
+                and "run" in s
+                for s in steps
+            )
+            if has_step and (path.name, job_id) not in PREFLIGHT_JOBS:
+                found.append((path.name, job_id))
+    return found
+
+
+STANDALONE_PREFLIGHT_JOBS = standalone_preflight_jobs()
+
 BASH = shutil.which("bash")
 requires_bash = pytest.mark.skipif(BASH is None, reason="bash is not available")
 
@@ -163,13 +189,75 @@ def test_probes_without_bearer_header_are_rejected(script: str, tmp_path: Path):
     # Mutation check for the fake curl: drop the Authorization header from the
     # real script and the harness must notice the unauthenticated probe.
     stripped = "\n".join(
-        line
-        for line in script.splitlines()
-        if "Authorization: Bearer" not in line
+        line for line in script.splitlines() if "Authorization: Bearer" not in line
     )
     assert stripped != script
     with pytest.raises(AssertionError, match="unauthenticated curl call"):
         run_preflight(stripped, tmp_path, "tok", "200", "200")
+
+
+@pytest.fixture(params=STANDALONE_PREFLIGHT_JOBS, ids=lambda p: f"{p[0]}:{p[1]}")
+def standalone_script(request: pytest.FixtureRequest) -> str:
+    return preflight_script(*request.param)
+
+
+@requires_bash
+def test_standalone_empty_token_uses_fallback(standalone_script: str, tmp_path: Path):
+    code, stdout, _ = run_preflight(standalone_script, tmp_path, "", "200", "200")
+    assert code == 0
+    assert "not set; using the github.token fallback" in stdout
+
+
+@requires_bash
+def test_standalone_valid_token_passes(standalone_script: str, tmp_path: Path):
+    code, stdout, _ = run_preflight(standalone_script, tmp_path, "tok", "200", "200")
+    assert code == 0
+    assert "CI_BOT_TOKEN is valid." in stdout
+
+
+@requires_bash
+def test_standalone_invalid_token_fails_hard(standalone_script: str, tmp_path: Path):
+    code, stdout, _ = run_preflight(standalone_script, tmp_path, "tok", "401", "200")
+    assert code == 1
+    assert "::error title=CI_BOT_TOKEN invalid::" in stdout
+
+
+@requires_bash
+def test_standalone_other_status_warns_without_failing(
+    standalone_script: str, tmp_path: Path
+):
+    code, stdout, _ = run_preflight(standalone_script, tmp_path, "tok", "503", "200")
+    assert code == 0
+    assert "::warning title=CI_BOT_TOKEN unchecked::" in stdout
+
+
+@requires_bash
+def test_standalone_probe_without_bearer_header_is_rejected(
+    standalone_script: str, tmp_path: Path
+):
+    stripped = "\n".join(
+        line
+        for line in standalone_script.splitlines()
+        if "Authorization: Bearer" not in line
+    )
+    assert stripped != standalone_script
+    with pytest.raises(AssertionError, match="unauthenticated curl call"):
+        run_preflight(stripped, tmp_path, "tok", "200", "200")
+
+
+def test_standalone_preflight_jobs_are_found():
+    # Non-vacuity floor: the five plain copies (self-healing, cleanup-dev-files,
+    # sync-main-to-development, release-please, auto-merge-release) must be found,
+    # otherwise the parametrised standalone tests above would silently run zero cases.
+    files = {file_name for file_name, _ in STANDALONE_PREFLIGHT_JOBS}
+    assert len(STANDALONE_PREFLIGHT_JOBS) >= 5
+    assert {
+        "self-healing.yml",
+        "cleanup-dev-files.yml",
+        "sync-main-to-development.yml",
+        "release-please.yml",
+        "auto-merge-release.yml",
+    } <= files
 
 
 def test_preflight_jobs_are_found():

@@ -27,7 +27,7 @@ jobs:
     permissions:
       contents: read  # writes are done by the App token
       pull-requests: read  # writes are done by the App token
-    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@v5.2.0  # x-release-please-version
+    uses: Claire-s-Monster/ci-framework/.github/workflows/reusable-dependabot-auto-merge.yml@v5.3.0  # x-release-please-version
     with:
       merge-method: squash  # merge | squash | rebase
       approve: true  # false if approving PRs is not wanted

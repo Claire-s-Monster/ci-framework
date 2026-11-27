@@ -9,9 +9,9 @@ The fix is a preflight step, `Verify CI_BOT_TOKEN is valid`, as the FIRST step
 of every job that references the secret. The six SARIF sites in the reusable
 workflows call the `verify-ci-bot-token` composite action pinned to a release
 tag (`./` references in a reusable workflow resolve against the CALLER's
-checkout, #262); three standalone workflows use the local `./` form after a
-sparse `.github/actions` checkout, and the two `workflow_call` ones keep an
-inline `run:` copy (follow-up).
+checkout, #262), as do the two `workflow_call` workflows (self-healing,
+cleanup-dev-files); three standalone workflows use the local `./` form after a
+sparse `.github/actions` checkout. No inline `run:` copy remains.
 
 This guard enforces, for every job in every workflow and workflow template:
 

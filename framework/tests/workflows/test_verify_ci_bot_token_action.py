@@ -80,6 +80,17 @@ LOCAL_WITH = {"token": EXPECTED_ENV_VALUE, "check-code-scanning": "false"}
 LOCAL_SITE_KEYS = frozenset({"name", "uses", "with"})
 BASE_SHA_REF = "${{ github.event.pull_request.base.sha }}"
 UNTRUSTED_TRIGGERS = frozenset({"pull_request_target", "workflow_run"})
+# Inline-copy detection, as compiled patterns (not substring tests on URLs).
+# The `rate_limit` endpoint is the preflight's probe, with or without a slash.
+RATE_LIMIT_PROBE = re.compile(r"\brate_limit\b")
+# A token probe is an HTTP/API call: `gh api`, curl/wget, a GitHub API URL or
+# `${GITHUB_API_URL}`. `gh pr`/`gh release` consumers and plain git are not.
+API_CALL = re.compile(
+    r"\bgh\s+api\b|\bcurl\b|\bwget\b"
+    r"|https?://api\.github\.com(?:[/:\s\"']|$)"
+    r"|\$\{?GITHUB_API_URL\b"
+)
+SECRET_REFERENCE = re.compile(r"secrets\.CI_BOT_TOKEN\b")
 # No workflow may keep an inline copy of the preflight.
 INLINE_ALLOWLIST: frozenset[str] = frozenset()
 
@@ -103,16 +114,28 @@ def is_inline_copy(step: object) -> bool:
     """
     if not isinstance(step, dict) or not isinstance(step.get("run"), str):
         return False
-    env = step.get("env")
     return (
         step.get("name") == PREFLIGHT_STEP_NAME
         or step.get("id") == PREFLIGHT_STEP_ID
-        or "/rate_limit" in step["run"]
+        or RATE_LIMIT_PROBE.search(step["run"]) is not None
         or (
-            isinstance(env, dict)
-            and "CI_BOT_TOKEN" in env
-            and ("curl" in step["run"] or "api.github.com" in step["run"])
+            carries_bot_token(step.get("env"))
+            and API_CALL.search(step["run"]) is not None
         )
+    )
+
+
+def carries_bot_token(env: object) -> bool:
+    """True when a step `env:` names CI_BOT_TOKEN or feeds it from the secret.
+
+    Covers a renamed variable too (`GH_TOKEN: ${{ secrets.CI_BOT_TOKEN }}`).
+    """
+    if not isinstance(env, dict):
+        return False
+    return any(
+        key == "CI_BOT_TOKEN"
+        or (isinstance(value, str) and SECRET_REFERENCE.search(value) is not None)
+        for key, value in env.items()
     )
 
 
@@ -559,6 +582,29 @@ def test_selftest_inline_and_call_matchers_are_distinct():
         {"run": "export GH_TOKEN=$T", "env": {"CI_BOT_TOKEN": "x"}}
     )
     assert not is_inline_copy({"run": "echo hi"})
+    # Renamed token variable and a `gh api` probe (no curl, no /rate_limit
+    # slash) must not evade the guard.
+    renamed_env = {"GH_TOKEN": "${{ secrets.CI_BOT_TOKEN }}"}
+    assert is_inline_copy({"run": "gh api rate_limit", "env": {}})
+    assert is_inline_copy({"run": "gh api /user", "env": renamed_env})
+    assert is_inline_copy({"run": "gh api user", "env": {"CI_BOT_TOKEN": "x"}})
+    assert is_inline_copy(
+        {"run": 'wget "https://api.github.com/user"', "env": renamed_env}
+    )
+    assert is_inline_copy(
+        {
+            "run": 'curl "${GITHUB_API_URL}/user"',
+            "env": {"X": "${{ secrets.CI_BOT_TOKEN }}"},
+        }
+    )
+    # A gh consumer (pr/push, no API probe) is not a copy, even with the token.
+    assert not is_inline_copy(
+        {
+            "run": 'export GH_TOKEN="$CI_BOT_TOKEN"\ngh pr create --fill\ngit push',
+            "env": {"CI_BOT_TOKEN": "${{ secrets.CI_BOT_TOKEN }}"},
+        }
+    )
+    assert not is_inline_copy({"run": "gh api user", "env": {"GH_TOKEN": "x"}})
     assert not is_inline_copy({**inline, "run": None, "id": "other", "name": "x"})
     assert not is_inline_copy("not a dict")
     assert is_action_call(_site())

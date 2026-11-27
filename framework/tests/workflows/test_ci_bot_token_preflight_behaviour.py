@@ -105,6 +105,9 @@ for arg; do
   prev="$arg"
   last="$arg"
 done
+if [ -n "$CURL_LOG" ]; then
+  echo "$last" >> "$CURL_LOG"
+fi
 if [ "$auth" != 1 ]; then
   echo "unauthenticated curl call: $last" >&2
   printf '%s' "000"
@@ -116,6 +119,15 @@ case "$last" in
   *) printf '%s' "999" ;;
 esac
 """
+
+
+CURL_LOG_NAME = "curl_requests"
+
+
+def requested_urls(tmp_path: Path) -> list[str]:
+    """URLs the fake curl was asked for, in order (empty when none)."""
+    log = tmp_path / CURL_LOG_NAME
+    return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
 
 
 def preflight_script(file_name: str, job_id: str) -> str:
@@ -170,6 +182,7 @@ def run_preflight(
         "GITHUB_REPOSITORY": "o/r",
         "GITHUB_OUTPUT": str(out),
         "CI_BOT_TOKEN": token,
+        "CURL_LOG": str(tmp_path / CURL_LOG_NAME),
     }
     if check_code_scanning is not None:
         env["CHECK_CODE_SCANNING"] = check_code_scanning
@@ -355,6 +368,8 @@ def test_local_valid_token_skips_the_probe(local_script: str, tmp_path: Path):
     assert code == 0
     assert "CI_BOT_TOKEN is valid." in stdout
     assert outputs == ["use_pat=true"]
+    # Only /rate_limit was requested: a probe whose answer is ignored still fails.
+    assert [u.rsplit("/", 1)[-1] for u in requested_urls(tmp_path)] == ["rate_limit"]
 
 
 @requires_bash
@@ -385,6 +400,7 @@ def test_probe_off_ignores_the_code_scanning_answer(tmp_path: Path, cs: str):
     )
     assert code == 0
     assert outputs == ["use_pat=true"]
+    assert not any("code-scanning" in u for u in requested_urls(tmp_path))
 
 
 @requires_bash

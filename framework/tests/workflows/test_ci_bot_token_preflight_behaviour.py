@@ -102,20 +102,34 @@ for arg; do
   if [ "$prev" = "-H" ] && [ "$arg" = "Authorization: Bearer $CI_BOT_TOKEN" ]; then
     auth=1
   fi
+  case "$arg" in
+    http://*|https://*) url="$arg" ;;
+  esac
   prev="$arg"
-  last="$arg"
 done
+if [ -n "$CURL_LOG" ] && [ -n "$url" ]; then
+  echo "$url" >> "$CURL_LOG"
+fi
 if [ "$auth" != 1 ]; then
-  echo "unauthenticated curl call: $last" >&2
+  echo "unauthenticated curl call: $url" >&2
   printf '%s' "000"
   exit 0
 fi
-case "$last" in
+case "$url" in
   */rate_limit) printf '%s' "{rate}" ;;
   */repos/o/r/code-scanning/analyses?per_page=1) printf '%s' "{cs}" ;;
   *) printf '%s' "999" ;;
 esac
 """
+
+
+CURL_LOG_NAME = "curl_requests"
+
+
+def requested_urls(tmp_path: Path) -> list[str]:
+    """URLs the fake curl was asked for, in order (empty when none)."""
+    log = tmp_path / CURL_LOG_NAME
+    return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
 
 
 def preflight_script(file_name: str, job_id: str) -> str:
@@ -170,6 +184,7 @@ def run_preflight(
         "GITHUB_REPOSITORY": "o/r",
         "GITHUB_OUTPUT": str(out),
         "CI_BOT_TOKEN": token,
+        "CURL_LOG": str(tmp_path / CURL_LOG_NAME),
     }
     if check_code_scanning is not None:
         env["CHECK_CODE_SCANNING"] = check_code_scanning
@@ -183,6 +198,20 @@ def run_preflight(
     )
     assert "unauthenticated curl call" not in proc.stderr, proc.stderr
     return proc.returncode, proc.stdout, out.read_text(encoding="utf-8").splitlines()
+
+
+@requires_bash
+def test_fake_curl_logs_the_url_wherever_it_sits_in_the_arguments(tmp_path: Path):
+    # The URL is identified by its scheme, not by being the last argument, so a
+    # call with an option after the URL is still logged (and answered) by URL.
+    url = "https://api.github.com/repos/o/r/code-scanning/analyses?per_page=1"
+    script = (
+        f'curl "{url}" -H "Authorization: Bearer $CI_BOT_TOKEN" -sS -o /dev/null\n'
+        f'curl -sS "{url}" -H "Authorization: Bearer $CI_BOT_TOKEN"'
+    )
+    code, _, _ = run_preflight(script, tmp_path, "tok", "200", "200")
+    assert code == 0
+    assert requested_urls(tmp_path) == [url, url]
 
 
 @pytest.fixture(params=PREFLIGHT_JOBS, ids=lambda p: f"{p[0]}:{p[1]}")
@@ -355,6 +384,8 @@ def test_local_valid_token_skips_the_probe(local_script: str, tmp_path: Path):
     assert code == 0
     assert "CI_BOT_TOKEN is valid." in stdout
     assert outputs == ["use_pat=true"]
+    # Only /rate_limit was requested: a probe whose answer is ignored still fails.
+    assert [u.rsplit("/", 1)[-1] for u in requested_urls(tmp_path)] == ["rate_limit"]
 
 
 @requires_bash
@@ -385,6 +416,7 @@ def test_probe_off_ignores_the_code_scanning_answer(tmp_path: Path, cs: str):
     )
     assert code == 0
     assert outputs == ["use_pat=true"]
+    assert not any("code-scanning" in u for u in requested_urls(tmp_path))
 
 
 @requires_bash

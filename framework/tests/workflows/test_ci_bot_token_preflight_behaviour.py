@@ -102,18 +102,20 @@ for arg; do
   if [ "$prev" = "-H" ] && [ "$arg" = "Authorization: Bearer $CI_BOT_TOKEN" ]; then
     auth=1
   fi
+  case "$arg" in
+    http://*|https://*) url="$arg" ;;
+  esac
   prev="$arg"
-  last="$arg"
 done
-if [ -n "$CURL_LOG" ]; then
-  echo "$last" >> "$CURL_LOG"
+if [ -n "$CURL_LOG" ] && [ -n "$url" ]; then
+  echo "$url" >> "$CURL_LOG"
 fi
 if [ "$auth" != 1 ]; then
-  echo "unauthenticated curl call: $last" >&2
+  echo "unauthenticated curl call: $url" >&2
   printf '%s' "000"
   exit 0
 fi
-case "$last" in
+case "$url" in
   */rate_limit) printf '%s' "{rate}" ;;
   */repos/o/r/code-scanning/analyses?per_page=1) printf '%s' "{cs}" ;;
   *) printf '%s' "999" ;;
@@ -196,6 +198,20 @@ def run_preflight(
     )
     assert "unauthenticated curl call" not in proc.stderr, proc.stderr
     return proc.returncode, proc.stdout, out.read_text(encoding="utf-8").splitlines()
+
+
+@requires_bash
+def test_fake_curl_logs_the_url_wherever_it_sits_in_the_arguments(tmp_path: Path):
+    # The URL is identified by its scheme, not by being the last argument, so a
+    # call with an option after the URL is still logged (and answered) by URL.
+    url = "https://api.github.com/repos/o/r/code-scanning/analyses?per_page=1"
+    script = (
+        f'curl "{url}" -H "Authorization: Bearer $CI_BOT_TOKEN" -sS -o /dev/null\n'
+        f'curl -sS "{url}" -H "Authorization: Bearer $CI_BOT_TOKEN"'
+    )
+    code, _, _ = run_preflight(script, tmp_path, "tok", "200", "200")
+    assert code == 0
+    assert requested_urls(tmp_path) == [url, url]
 
 
 @pytest.fixture(params=PREFLIGHT_JOBS, ids=lambda p: f"{p[0]}:{p[1]}")

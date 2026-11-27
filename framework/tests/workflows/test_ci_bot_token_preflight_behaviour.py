@@ -17,6 +17,8 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+ACTION_PATH = REPO_ROOT / ".github" / "actions" / "verify-ci-bot-token" / "action.yml"
+ACTION_USES_PREFIX = "Claire-s-Monster/ci-framework/.github/actions/verify-ci-bot-token"
 PREFLIGHT_STEP_NAME = "Verify CI_BOT_TOKEN is valid"
 PREFLIGHT_JOBS = [
     ("reusable-ci.yml", "sast-semgrep"),
@@ -26,14 +28,47 @@ PREFLIGHT_JOBS = [
     ("reusable-ci.yml", "scorecard-token-preflight"),
     ("reusable-security.yml", "scorecard-token-preflight"),
 ]
+# Standalone sites calling the action through the local `./` form, probe off.
+LOCAL_USES = "./.github/actions/verify-ci-bot-token"
+LOCAL_JOBS = [
+    ("release-please.yml", "release-please"),
+    ("auto-merge-release.yml", "auto-merge-release"),
+    ("sync-main-to-development.yml", "sync-to-development"),
+]
+
+# The pre-action inline preflight, kept verbatim as a fixture: the equivalence
+# test proves the action with `check-code-scanning: 'false'` behaves the same.
+INLINE_FIXTURE = r"""if [ -z "${CI_BOT_TOKEN}" ]; then
+  echo "CI_BOT_TOKEN not set; using the github.token fallback."
+  exit 0
+fi
+if ! command -v curl >/dev/null 2>&1; then
+  echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
+  exit 0
+fi
+status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
+  -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+  https://api.github.com/rate_limit) || status="000"
+case "${status}" in
+  200) echo "CI_BOT_TOKEN is valid." ;;
+  401)
+    msg="CI_BOT_TOKEN is invalid or expired (HTTP 401)."
+    msg="${msg} Rotate it, or delete the secret to fall back to github.token."
+    echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+    exit 1
+    ;;
+  *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
+esac
+"""
 
 
 def standalone_preflight_jobs() -> list[tuple[str, str]]:
     """Every (workflow, job) outside PREFLIGHT_JOBS with a `run:` preflight step.
 
-    Found by walking `.github/workflows/`, so a new standalone workflow that
-    copies the preflight is covered without editing a list. These copies only
-    run the /rate_limit check (no code-scanning probe, no GITHUB_OUTPUT).
+    Found by walking `.github/workflows/`, so a workflow that copies the
+    preflight is covered without editing a list. Only the two `workflow_call`
+    workflows (self-healing, cleanup-dev-files) still carry one; these copies
+    only run the /rate_limit check (no code-scanning probe, no GITHUB_OUTPUT).
     """
     found: list[tuple[str, str]] = []
     for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
@@ -67,15 +102,20 @@ for arg; do
   if [ "$prev" = "-H" ] && [ "$arg" = "Authorization: Bearer $CI_BOT_TOKEN" ]; then
     auth=1
   fi
+  case "$arg" in
+    http://*|https://*) url="$arg" ;;
+  esac
   prev="$arg"
-  last="$arg"
 done
+if [ -n "$CURL_LOG" ] && [ -n "$url" ]; then
+  echo "$url" >> "$CURL_LOG"
+fi
 if [ "$auth" != 1 ]; then
-  echo "unauthenticated curl call: $last" >&2
+  echo "unauthenticated curl call: $url" >&2
   printf '%s' "000"
   exit 0
 fi
-case "$last" in
+case "$url" in
   */rate_limit) printf '%s' "{rate}" ;;
   */repos/o/r/code-scanning/analyses?per_page=1) printf '%s' "{cs}" ;;
   *) printf '%s' "999" ;;
@@ -83,34 +123,71 @@ esac
 """
 
 
+CURL_LOG_NAME = "curl_requests"
+
+
+def requested_urls(tmp_path: Path) -> list[str]:
+    """URLs the fake curl was asked for, in order (empty when none)."""
+    log = tmp_path / CURL_LOG_NAME
+    return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
 def preflight_script(file_name: str, job_id: str) -> str:
+    """The script a job's preflight step runs.
+
+    An action call (the six reusable sites, remote form; the three standalone
+    sites, `./` form) runs the composite action's script; an inline step (the
+    two workflow_call workflows) carries its own.
+    """
     doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text(encoding="utf-8"))
     step = next(
         s for s in doc["jobs"][job_id]["steps"] if s.get("name") == PREFLIGHT_STEP_NAME
     )
+    if "uses" in step:
+        assert (
+            step["uses"].startswith(ACTION_USES_PREFIX) or step["uses"] == LOCAL_USES
+        ), step["uses"]
+        action = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
+        step = next(
+            s for s in action["runs"]["steps"] if s.get("id") == "token-preflight"
+        )
     run = step["run"]
     assert "${{" not in run
     return run
 
 
 def run_preflight(
-    script: str, tmp_path: Path, token: str, rate: str, cs: str
+    script: str,
+    tmp_path: Path,
+    token: str,
+    rate: str,
+    cs: str,
+    check_code_scanning: str | None = None,
+    curl_available: bool = True,
 ) -> tuple[int, str, list[str]]:
-    """Run `script` with a fake curl; return (exit code, stdout, GITHUB_OUTPUT lines)."""
+    """Run `script` with a fake curl; return (exit code, stdout, GITHUB_OUTPUT lines).
+
+    `check_code_scanning` sets CHECK_CODE_SCANNING like the action's input does
+    (None leaves it unset); `curl_available=False` leaves curl off PATH entirely.
+    """
     assert BASH is not None
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    curl = bin_dir / "curl"
-    curl.write_text(FAKE_CURL.format(rate=rate, cs=cs), encoding="utf-8")
-    curl.chmod(0o755)
+    if curl_available:
+        curl = bin_dir / "curl"
+        curl.write_text(FAKE_CURL.format(rate=rate, cs=cs), encoding="utf-8")
+        curl.chmod(0o755)
     out = tmp_path / "github_output"
     out.write_text("", encoding="utf-8")
     env = {
-        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "PATH": f"{bin_dir}:/usr/bin:/bin" if curl_available else str(bin_dir),
         "GITHUB_REPOSITORY": "o/r",
         "GITHUB_OUTPUT": str(out),
         "CI_BOT_TOKEN": token,
+        "CURL_LOG": str(tmp_path / CURL_LOG_NAME),
     }
+    if check_code_scanning is not None:
+        env["CHECK_CODE_SCANNING"] = check_code_scanning
     proc = subprocess.run(  # noqa: S603
         [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
         env=env,
@@ -121,6 +198,20 @@ def run_preflight(
     )
     assert "unauthenticated curl call" not in proc.stderr, proc.stderr
     return proc.returncode, proc.stdout, out.read_text(encoding="utf-8").splitlines()
+
+
+@requires_bash
+def test_fake_curl_logs_the_url_wherever_it_sits_in_the_arguments(tmp_path: Path):
+    # The URL is identified by its scheme, not by being the last argument, so a
+    # call with an option after the URL is still logged (and answered) by URL.
+    url = "https://api.github.com/repos/o/r/code-scanning/analyses?per_page=1"
+    script = (
+        f'curl "{url}" -H "Authorization: Bearer $CI_BOT_TOKEN" -sS -o /dev/null\n'
+        f'curl -sS "{url}" -H "Authorization: Bearer $CI_BOT_TOKEN"'
+    )
+    code, _, _ = run_preflight(script, tmp_path, "tok", "200", "200")
+    assert code == 0
+    assert requested_urls(tmp_path) == [url, url]
 
 
 @pytest.fixture(params=PREFLIGHT_JOBS, ids=lambda p: f"{p[0]}:{p[1]}")
@@ -246,18 +337,141 @@ def test_standalone_probe_without_bearer_header_is_rejected(
 
 
 def test_standalone_preflight_jobs_are_found():
-    # Non-vacuity floor: the five plain copies (self-healing, cleanup-dev-files,
-    # sync-main-to-development, release-please, auto-merge-release) must be found,
-    # otherwise the parametrised standalone tests above would silently run zero cases.
-    files = {file_name for file_name, _ in STANDALONE_PREFLIGHT_JOBS}
-    assert len(STANDALONE_PREFLIGHT_JOBS) >= 5
-    assert {
-        "self-healing.yml",
-        "cleanup-dev-files.yml",
-        "sync-main-to-development.yml",
-        "release-please.yml",
-        "auto-merge-release.yml",
-    } <= files
+    # Non-vacuity floor: exactly the two workflow_call copies (self-healing,
+    # cleanup-dev-files) must be found, otherwise the parametrised inline tests
+    # above would silently run zero cases.
+    assert sorted(STANDALONE_PREFLIGHT_JOBS) == [
+        ("cleanup-dev-files.yml", "cleanup-dev-files"),
+        ("self-healing.yml", "self-healing"),
+    ]
+
+
+@pytest.fixture(params=LOCAL_JOBS, ids=lambda p: f"{p[0]}:{p[1]}")
+def local_script(request: pytest.FixtureRequest) -> str:
+    return preflight_script(*request.param)
+
+
+def test_local_sites_call_the_action_with_the_probe_off():
+    assert len(LOCAL_JOBS) == 3
+    for file_name, job_id in LOCAL_JOBS:
+        doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text(encoding="utf-8"))
+        step = next(
+            s
+            for s in doc["jobs"][job_id]["steps"]
+            if s.get("name") == PREFLIGHT_STEP_NAME
+        )
+        assert step["uses"] == LOCAL_USES
+        assert step["with"]["check-code-scanning"] == "false"
+        assert "run" not in step
+
+
+@requires_bash
+def test_local_empty_token_uses_fallback(local_script: str, tmp_path: Path):
+    code, stdout, outputs = run_preflight(
+        local_script, tmp_path, "", "200", "200", check_code_scanning="false"
+    )
+    assert code == 0
+    assert "not set; using the github.token fallback" in stdout
+    assert outputs == ["use_pat=false"]
+
+
+@requires_bash
+def test_local_valid_token_skips_the_probe(local_script: str, tmp_path: Path):
+    # cs=401 would fail the run if the code-scanning probe were issued.
+    code, stdout, outputs = run_preflight(
+        local_script, tmp_path, "tok", "200", "401", check_code_scanning="false"
+    )
+    assert code == 0
+    assert "CI_BOT_TOKEN is valid." in stdout
+    assert outputs == ["use_pat=true"]
+    # Only /rate_limit was requested: a probe whose answer is ignored still fails.
+    assert [u.rsplit("/", 1)[-1] for u in requested_urls(tmp_path)] == ["rate_limit"]
+
+
+@requires_bash
+def test_local_invalid_token_fails_hard(local_script: str, tmp_path: Path):
+    code, stdout, outputs = run_preflight(
+        local_script, tmp_path, "tok", "401", "200", check_code_scanning="false"
+    )
+    assert code == 1
+    assert "::error title=CI_BOT_TOKEN invalid::" in stdout
+    assert outputs == []
+
+
+@requires_bash
+def test_local_other_status_warns_without_failing(local_script: str, tmp_path: Path):
+    code, stdout, _ = run_preflight(
+        local_script, tmp_path, "tok", "503", "404", check_code_scanning="false"
+    )
+    assert code == 0
+    assert "::warning title=CI_BOT_TOKEN unchecked::" in stdout
+
+
+@requires_bash
+@pytest.mark.parametrize("cs", ["200", "401", "403", "404", "500"])
+def test_probe_off_ignores_the_code_scanning_answer(tmp_path: Path, cs: str):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, _, outputs = run_preflight(
+        script, tmp_path, "tok", "200", cs, check_code_scanning="false"
+    )
+    assert code == 0
+    assert outputs == ["use_pat=true"]
+    assert not any("code-scanning" in u for u in requested_urls(tmp_path))
+
+
+@requires_bash
+@pytest.mark.parametrize("flag", [None, "true"])
+def test_probe_on_by_default_and_when_true(tmp_path: Path, flag: str | None):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, _, outputs = run_preflight(
+        script, tmp_path, "tok", "200", "404", check_code_scanning=flag
+    )
+    assert code == 0
+    assert outputs == ["use_pat=false"]
+
+
+EQUIVALENCE_CASES = [
+    pytest.param("", "200", {}, id="empty-token"),
+    pytest.param("tok", "200", {}, id="200"),
+    pytest.param("tok", "401", {}, id="401"),
+    pytest.param("tok", "503", {}, id="503"),
+    pytest.param("tok", "000", {}, id="000"),
+    pytest.param("tok", "200", {"curl_available": False}, id="curl-missing"),
+]
+
+
+@requires_bash
+@pytest.mark.parametrize(("token", "rate", "extra"), EQUIVALENCE_CASES)
+def test_probe_off_action_matches_the_old_inline_copy(
+    tmp_path: Path, token: str, rate: str, extra: dict
+):
+    # Same stubbed curl for both; the code-scanning answer (401) would change the
+    # outcome if the action probed, so equal results prove the probe is skipped.
+    action_script = preflight_script(*PREFLIGHT_JOBS[0])
+    inline_dir = tmp_path / "inline"
+    action_dir = tmp_path / "action"
+    inline_dir.mkdir()
+    action_dir.mkdir()
+    inline_code, inline_out, _ = run_preflight(
+        INLINE_FIXTURE, inline_dir, token, rate, "401", **extra
+    )
+    action_code, action_out, _ = run_preflight(
+        action_script,
+        action_dir,
+        token,
+        rate,
+        "401",
+        check_code_scanning="false",
+        **extra,
+    )
+    assert action_code == inline_code
+    assert action_out == inline_out
+
+
+def test_inline_fixture_matches_the_remaining_inline_copies():
+    # The fixture must stay the exact script the two workflow_call workflows run.
+    for file_name, job_id in STANDALONE_PREFLIGHT_JOBS:
+        assert preflight_script(file_name, job_id) == INLINE_FIXTURE, file_name
 
 
 def test_preflight_jobs_are_found():

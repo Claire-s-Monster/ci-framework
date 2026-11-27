@@ -5,18 +5,21 @@ the secret is EMPTY. An expired or revoked PAT is still non-empty, so it wins
 the `||` and the API rejects it with HTTP 401 (Bad credentials). At the SARIF
 sites (`continue-on-error: true`) that failure is silent.
 
-The fix is an inline preflight step, `Verify CI_BOT_TOKEN is valid`, as the
-FIRST step of every job that references the secret. It is inline rather than a
-composite action because in-repo composite actions are referenced remotely and
-pinned to a tag, where a new action would not exist, and `./` references in a
-reusable workflow resolve against the CALLER's checkout (#262).
+The fix is a preflight step, `Verify CI_BOT_TOKEN is valid`, as the FIRST step
+of every job that references the secret. The six SARIF sites in the reusable
+workflows call the `verify-ci-bot-token` composite action pinned to a release
+tag (`./` references in a reusable workflow resolve against the CALLER's
+checkout, #262); three standalone workflows use the local `./` form after a
+sparse `.github/actions` checkout, and the two `workflow_call` ones keep an
+inline `run:` copy (follow-up).
 
 This guard enforces, for every job in every workflow and workflow template:
 
   * the job's first step is the preflight (by exact name);
-  * the preflight passes the token through `env:` and never interpolates
-    `${{ ... }}` inside `run:` (script injection);
-  * the preflight probes `/rate_limit` and hard-fails (`exit 1`) on 401;
+  * an inline preflight passes the token through `env:` and never interpolates
+    `${{ ... }}` inside `run:` (script injection); an action call passes it as
+    `with.token` and carries no `run:`;
+  * an inline preflight probes `/rate_limit` and hard-fails (`exit 1`) on 401;
   * the preflight has neither `continue-on-error` nor `if`, so it can neither
     be swallowed nor skipped.
 
@@ -41,6 +44,10 @@ PREFLIGHT_STEP_NAME = "Verify CI_BOT_TOKEN is valid"
 TOKEN_REFERENCE = re.compile(r"secrets\.CI_BOT_TOKEN\b")
 EXPECTED_ENV_VALUE = "${{ secrets.CI_BOT_TOKEN }}"
 PREFLIGHT_STEP_ID = "token-preflight"
+# The reusable workflows call the composite action at a release tag (a `./`
+# reference would resolve against the CALLER's checkout, #262).
+ACTION_USES_PREFIX = "Claire-s-Monster/ci-framework/.github/actions/verify-ci-bot-token"
+ACTION_USES_PATTERN = re.compile(re.escape(ACTION_USES_PREFIX) + r"@v\d+\.\d+\.\d+")
 RUN_NEEDLES = (
     "/rate_limit",
     "401",
@@ -158,12 +165,8 @@ def job_references_token(job: object) -> bool:
     return any(TOKEN_REFERENCE.search(text) for text in iter_strings(job))
 
 
-def preflight_problems(step: dict, sarif: bool = False) -> list[str]:
-    """Everything wrong with a preflight step (empty list means it is sound).
-
-    `sarif` marks a job that uploads SARIF with the token; its preflight must
-    also probe code-scanning access and expose `use_pat` under the fixed id.
-    """
+def _inline_preflight_problems(step: dict, sarif: bool) -> list[str]:
+    """Problems with an inline (`run:`) preflight step."""
     problems: list[str] = []
     env = step.get("env")
     env_value = env.get("CI_BOT_TOKEN") if isinstance(env, dict) else None
@@ -182,11 +185,56 @@ def preflight_problems(step: dict, sarif: bool = False) -> list[str]:
             problems.append(f"step must have id: {PREFLIGHT_STEP_ID}")
     if "${{" in run:
         problems.append("run must not interpolate ${{ }} (script injection)")
+    return problems
+
+
+def preflight_problems(step: dict, sarif: bool = False) -> list[str]:
+    """Everything wrong with a preflight step (empty list means it is sound).
+
+    `sarif` marks a job that uploads SARIF with the token; its preflight must
+    also probe code-scanning access and expose `use_pat` under the fixed id.
+    """
+    problems: list[str] = []
+    if "uses" in step:
+        # The composite action form: the script lives in (and is tested via)
+        # the action, so only the call wiring is checked here.
+        with_ = step.get("with")
+        token = with_.get("token") if isinstance(with_, dict) else None
+        if token != EXPECTED_ENV_VALUE:
+            problems.append(f"with.token must be {EXPECTED_ENV_VALUE!r}")
+        if "run" in step:
+            problems.append("an action call must not also carry a run:")
+        if sarif and step.get("id") != PREFLIGHT_STEP_ID:
+            problems.append(f"step must have id: {PREFLIGHT_STEP_ID}")
+    else:
+        problems += _inline_preflight_problems(step, sarif)
     if "continue-on-error" in step:
         problems.append("must not set continue-on-error")
     if "if" in step:
         problems.append("must not have an `if:`")
     return problems
+
+
+def is_action_checkout(step: object) -> bool:
+    """True for a credential-less sparse checkout of `.github/actions` only.
+
+    `path` must be absent: a `path:` outside the workspace root would leave
+    `./.github/actions/...` unresolved, or place the action under a directory the
+    caller did not intend.
+    """
+    if not isinstance(step, dict):
+        return False
+    uses = step.get("uses")
+    with_ = step.get("with")
+    return (
+        isinstance(uses, str)
+        and uses.startswith("actions/checkout@")
+        and isinstance(with_, dict)
+        and with_.get("sparse-checkout") == ".github/actions"
+        and with_.get("persist-credentials") is False
+        and "token" not in with_
+        and "path" not in with_
+    )
 
 
 def job_problems(job: object) -> list[str]:
@@ -202,6 +250,10 @@ def job_problems(job: object) -> list[str]:
     if not steps:
         return ["consumes CI_BOT_TOKEN but has no steps to host the preflight"]
     first = steps[0]
+    if is_action_checkout(first) and len(steps) > 1:
+        # The `./` form needs the action on disk: a sparse checkout of
+        # `.github/actions` may precede the preflight (and nothing else).
+        first = steps[1]
     if first.get("name") != PREFLIGHT_STEP_NAME:
         return [f"first step must be named {PREFLIGHT_STEP_NAME!r}"]
     return preflight_problems(first, sarif=bool(sarif_token_sites("", "", job)))
@@ -429,6 +481,102 @@ def test_scorecard_jobs_have_no_run_steps_and_only_use_actions():
         for step in steps:
             assert "run" not in step, f"{file_name}:{job_id} has a run: step"
             assert isinstance(step.get("uses"), str), f"{file_name}:{job_id}: {step}"
+
+
+def reusable_preflight_steps() -> list[tuple[str, dict]]:
+    """(file:job label, step) of every preflight step in the reusable workflows."""
+    return [
+        (f"{path.name}:{job_id}", step)
+        for path in workflow_files()
+        if path.name in SARIF_WORKFLOWS
+        for job_id, job in load_jobs(path).items()
+        for step in job_steps(job)
+        if step.get("name") == PREFLIGHT_STEP_NAME
+    ]
+
+
+def action_form_problems(label: str, step: dict) -> list[str]:
+    """Problems with a reusable-workflow preflight that must call the action."""
+    uses = step.get("uses")
+    if not isinstance(uses, str) or not ACTION_USES_PATTERN.fullmatch(uses):
+        return [
+            f"{label}: uses must match {ACTION_USES_PATTERN.pattern!r}, got {uses!r}"
+        ]
+    return []
+
+
+def test_all_six_reusable_preflights_use_the_action():
+    # 3 jobs (sast-semgrep, sast-codeql, scorecard-token-preflight) in each of
+    # reusable-ci.yml and reusable-security.yml. Exactly 6: a miscount means the
+    # walk or the matcher is broken, not that the guard passed.
+    steps = reusable_preflight_steps()
+    assert len(steps) == MINIMUM_EXPECTED_SARIF_SITES, (
+        f"walk found {len(steps)} reusable preflights, expected exactly "
+        f"{MINIMUM_EXPECTED_SARIF_SITES}"
+    )
+    failures = [p for label, step in steps for p in action_form_problems(label, step)]
+    assert not failures, "\n".join(failures)
+
+
+def _sparse_checkout(**with_overrides: object) -> dict:
+    return {
+        "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "with": {
+            "sparse-checkout": ".github/actions",
+            "persist-credentials": False,
+            **with_overrides,
+        },
+    }
+
+
+def test_selftest_action_checkout_may_precede_the_preflight():
+    local = {
+        "name": PREFLIGHT_STEP_NAME,
+        "uses": "./.github/actions/verify-ci-bot-token",
+        "with": {"token": EXPECTED_ENV_VALUE, "check-code-scanning": "false"},
+    }
+    consumer = {"env": {"GH_TOKEN": EXPECTED_ENV_VALUE}, "run": "true"}
+    assert is_action_checkout(_sparse_checkout())
+    assert job_problems({"steps": [_sparse_checkout(), local, consumer]}) == []
+    # Anything else first, or a checkout that is not credential-less/sparse, fails.
+    assert job_problems({"steps": [consumer, local]})
+    for override in (
+        {"persist-credentials": True},
+        {"sparse-checkout": "."},
+        {"token": EXPECTED_ENV_VALUE},
+        {"path": "../outside"},
+        {"path": "sub"},
+    ):
+        bad = _sparse_checkout(**override)
+        assert not is_action_checkout(bad), override
+        assert job_problems({"steps": [bad, local, consumer]}), override
+    assert not is_action_checkout("not a dict")
+
+
+def test_selftest_action_form_requires_a_pinned_action_call():
+    good = {"uses": f"{ACTION_USES_PREFIX}@v5.2.0"}
+    assert action_form_problems("w", good) == []
+    for bad in (
+        {"run": "true"},
+        {"uses": f"{ACTION_USES_PREFIX}@main"},
+        {"uses": f"{ACTION_USES_PREFIX}@v5"},
+        {"uses": "./.github/actions/verify-ci-bot-token"},
+    ):
+        assert action_form_problems("w", bad), bad
+
+
+def test_selftest_action_call_step_is_checked_for_token_id_and_run():
+    step = {
+        "name": PREFLIGHT_STEP_NAME,
+        "id": PREFLIGHT_STEP_ID,
+        "uses": f"{ACTION_USES_PREFIX}@v5.2.0",
+        "with": {"token": EXPECTED_ENV_VALUE},
+    }
+    assert preflight_problems(step, sarif=True) == []
+    assert preflight_problems({**step, "with": {}}, sarif=True)
+    assert preflight_problems({**step, "id": "other"}, sarif=True)
+    assert preflight_problems({**step, "run": "true"}, sarif=True)
+    assert preflight_problems({**step, "if": "always()"}, sarif=True)
 
 
 # --- Classifier self-tests (guard against a vacuously passing walk) ----------

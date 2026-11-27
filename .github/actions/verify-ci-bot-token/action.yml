@@ -9,18 +9,19 @@ description: >-
 
 # This action is the CANONICAL copy of the "Verify CI_BOT_TOKEN is valid"
 # preflight (#355, #482). Call sites:
-#   * 6 in reusable-ci.yml and reusable-security.yml (sast-semgrep, sast-codeql,
-#     scorecard-token-preflight) use the remote form pinned to a release tag: a
-#     reusable workflow cannot use the `./` form (it resolves against the
-#     CALLER's checkout, #262).
-#   * 3 standalone workflows (release-please, auto-merge-release,
-#     sync-main-to-development) use the local `./` form with
-#     `check-code-scanning: 'false'`, after a sparse checkout of
+#   * 6 remote (probe on) in reusable-ci.yml and reusable-security.yml
+#     (sast-semgrep, sast-codeql, scorecard-token-preflight) use the remote form
+#     pinned to a release tag: a reusable workflow cannot use the `./` form (it
+#     resolves against the CALLER's checkout, #262).
+#   * 2 remote (probe off, `check-code-scanning: 'false'`) in the workflow_call
+#     workflows self-healing and cleanup-dev-files, pinned the same way.
+#   * 3 local (probe off) in the standalone workflows release-please,
+#     auto-merge-release and sync-main-to-development use the local `./` form
+#     with `check-code-scanning: 'false'`, after a sparse checkout of
 #     `.github/actions`.
-#   * 2 workflow_call workflows (self-healing, cleanup-dev-files) still carry
-#     an inline copy, pending a follow-up that moves them to the remote form.
-# The guard test_verify_ci_bot_token_action.py asserts the site counts, that no
-# other inline copy exists and that every remote call site is pinned.
+# No inline copies remain. The guard test_verify_ci_bot_token_action.py asserts
+# the site counts, that no inline copy exists and that every remote call site is
+# pinned.
 #
 # A composite action cannot read the `secrets` context, so the caller passes the
 # token as the `token` input: `token: ${{ secrets.CI_BOT_TOKEN }}`.

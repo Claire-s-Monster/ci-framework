@@ -4,19 +4,23 @@
 CI_BOT_TOKEN preflight (#355, #482). The six former inline copies in
 reusable-ci.yml and reusable-security.yml (sast-semgrep, sast-codeql,
 scorecard-token-preflight) call it through the remote form pinned to a
-release tag: a reusable workflow cannot use `./` (#262). Three standalone
-workflows (release-please, auto-merge-release, sync-main-to-development) call
-it through the local `./` form with `check-code-scanning: 'false'`.
+release tag: a reusable workflow cannot use `./` (#262). The two
+`workflow_call` workflows self-healing and cleanup-dev-files use the same
+remote form with `check-code-scanning: 'false'`. Three standalone workflows
+(release-please, auto-merge-release, sync-main-to-development) call it through
+the local `./` form with `check-code-scanning: 'false'`.
 
 This guard enforces, for every `*.yml` / `*.yaml` workflow:
 
   * NO inline copy (a `run:` step named like the preflight, carrying its id, or
-    running its `/rate_limit` probe / `CI_BOT_TOKEN` env) remains anywhere,
-    except in the explicit INLINE_ALLOWLIST of `workflow_call` workflows;
-  * exactly six remote call sites exist, each `uses:` the action at the released
-    tag in `.release-please-manifest.json`,
-    keeping the id, passing `with.token: ${{ secrets.CI_BOT_TOKEN }}` and
-    nothing else;
+    running its `/rate_limit` probe / a `curl` with `CI_BOT_TOKEN` env) remains
+    anywhere; the
+    INLINE_ALLOWLIST is empty;
+  * exactly eight remote call sites exist (six probe-on in reusable-*, two
+    probe-off in self-healing and cleanup-dev-files), each `uses:` the action at
+    the released tag in `.release-please-manifest.json`, keeping the id, passing
+    `with.token: ${{ secrets.CI_BOT_TOKEN }}` (plus `check-code-scanning:
+    'false'` for the two probe-off sites) and nothing else;
   * exactly three local `./` call sites exist, each preceded by a credential-less
     sparse checkout of `.github/actions` (at the base SHA when the workflow runs
     on `pull_request`) and never in a `pull_request_target` / `workflow_run`
@@ -61,9 +65,14 @@ ALLOWED_SITE_KEYS = frozenset({"name", "id", "uses", "with"})
 RELEASE_MARKER = "# x-release-please-version"
 
 # 3 jobs (sast-semgrep, sast-codeql, scorecard-token-preflight) in each of
-# reusable-ci.yml and reusable-security.yml. EXACT by design: adding or removing
-# a site is deliberate and updates this constant in the same commit.
-EXPECTED_SITES = 6
+# reusable-ci.yml and reusable-security.yml (probe on), plus self-healing.yml
+# and cleanup-dev-files.yml (probe off). EXACT by design: adding or removing a
+# site is deliberate and updates these constants in the same commit.
+EXPECTED_PROBE_ON_SITES = 6
+EXPECTED_PROBE_OFF_SITES = 2
+EXPECTED_SITES = EXPECTED_PROBE_ON_SITES + EXPECTED_PROBE_OFF_SITES
+PROBE_OFF_REMOTE_FILES = frozenset({"self-healing.yml", "cleanup-dev-files.yml"})
+REMOTE_PROBE_OFF_WITH = {"token": EXPECTED_ENV_VALUE, "check-code-scanning": "false"}
 # release-please, auto-merge-release and sync-main-to-development, `./` form.
 EXPECTED_LOCAL_SITES = 3
 LOCAL_USES = "./.github/actions/verify-ci-bot-token"
@@ -71,11 +80,8 @@ LOCAL_WITH = {"token": EXPECTED_ENV_VALUE, "check-code-scanning": "false"}
 LOCAL_SITE_KEYS = frozenset({"name", "uses", "with"})
 BASE_SHA_REF = "${{ github.event.pull_request.base.sha }}"
 UNTRUSTED_TRIGGERS = frozenset({"pull_request_target", "workflow_run"})
-# The only workflows allowed to keep an inline copy: both are `workflow_call`
-# reusables whose `./` would resolve against the caller's checkout (#262) and
-# that need the remote pinned form instead.
-# TODO(follow-up): move them to the remote form and empty this allowlist.
-INLINE_ALLOWLIST = frozenset({"self-healing.yml", "cleanup-dev-files.yml"})
+# No workflow may keep an inline copy of the preflight.
+INLINE_ALLOWLIST: frozenset[str] = frozenset()
 
 
 def workflow_yaml_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
@@ -90,8 +96,10 @@ def workflow_yaml_files(directory: Path = WORKFLOWS_DIR) -> list[Path]:
 def is_inline_copy(step: object) -> bool:
     """True for any `run:` step that looks like the preflight.
 
-    Matched by name, by id, or by script content (the `/rate_limit` probe or the
-    `CI_BOT_TOKEN` env), so renaming or re-id'ing a retained copy does not hide it.
+    Matched by name, by id, or by script content (the `/rate_limit` probe, or a
+    `curl`/api call carrying the `CI_BOT_TOKEN` env), so renaming or re-id'ing a
+    retained copy does not hide it. A step that merely exports the token to `gh`
+    is a consumer, not a copy.
     """
     if not isinstance(step, dict) or not isinstance(step.get("run"), str):
         return False
@@ -100,7 +108,11 @@ def is_inline_copy(step: object) -> bool:
         step.get("name") == PREFLIGHT_STEP_NAME
         or step.get("id") == PREFLIGHT_STEP_ID
         or "/rate_limit" in step["run"]
-        or (isinstance(env, dict) and "CI_BOT_TOKEN" in env)
+        or (
+            isinstance(env, dict)
+            and "CI_BOT_TOKEN" in env
+            and ("curl" in step["run"] or "api.github.com" in step["run"])
+        )
     )
 
 
@@ -206,8 +218,14 @@ def released_tag() -> str:
     return f"v{manifest['.']}"
 
 
-def site_problems(step: dict, expected_tag: str | None = None) -> list[str]:
-    """Everything wrong with one action call site."""
+def site_problems(
+    step: dict, expected_tag: str | None = None, probe_off: bool = False
+) -> list[str]:
+    """Everything wrong with one remote action call site.
+
+    `probe_off` selects the `check-code-scanning: 'false'` shape expected of the
+    workflow_call sites in PROBE_OFF_REMOTE_FILES.
+    """
     problems: list[str] = []
     if not ACTION_USES_PATTERN.fullmatch(str(step.get("uses"))):
         problems.append(
@@ -224,8 +242,11 @@ def site_problems(step: dict, expected_tag: str | None = None) -> list[str]:
         problems.append(f"name must be {PREFLIGHT_STEP_NAME!r}")
     if step.get("id") != PREFLIGHT_STEP_ID:
         problems.append(f"id must be {PREFLIGHT_STEP_ID!r}")
-    if step.get("with") != {"token": EXPECTED_ENV_VALUE}:
-        problems.append(f"with must be exactly token: {EXPECTED_ENV_VALUE}")
+    expected_with = (
+        REMOTE_PROBE_OFF_WITH if probe_off else {"token": EXPECTED_ENV_VALUE}
+    )
+    if step.get("with") != expected_with:
+        problems.append(f"with must be exactly {expected_with}")
     extra = sorted(set(step) - ALLOWED_SITE_KEYS)
     if extra:
         problems.append(f"unexpected keys {extra}")
@@ -339,28 +360,31 @@ def test_walk_finds_exactly_the_expected_action_sites():
     )
 
 
-def test_no_inline_copy_remains_outside_the_allowlist():
+def test_no_inline_copy_remains_anywhere():
+    assert not INLINE_ALLOWLIST, "the inline allowlist must stay empty"
     assert not inline_copies(), (
         "inline preflight copies must be replaced by the action: "
         f"{[label for label, _ in inline_copies()]}"
     )
+    assert not allowlisted_inline_copies()
+    assert not steps_matching(is_inline_copy)
 
 
-def test_inline_allowlist_is_exactly_the_two_workflow_call_files():
-    # Non-vacuity: the allowlist names exactly the files that still carry an
-    # inline preflight, and both are workflow_call reusables.
-    copies = allowlisted_inline_copies()
-    assert {label.split(":")[0] for label, _ in copies} == INLINE_ALLOWLIST
-    named = [s for _, s in copies if s.get("name") == PREFLIGHT_STEP_NAME]
-    assert len(named) == len(INLINE_ALLOWLIST)
-    for name in INLINE_ALLOWLIST:
-        doc = yaml.safe_load((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
-        assert "workflow_call" in workflow_triggers(doc), name
-
-
-def test_remote_sites_are_only_in_reusable_workflows():
-    stray = [label for label, _ in action_sites() if not label.startswith("reusable-")]
-    assert not stray, f"remote-pinned call outside a reusable-* workflow: {stray}"
+def test_remote_sites_split_into_probe_on_and_probe_off():
+    found = action_sites()
+    off = sorted(
+        label for label, _ in found if label.split(":")[0] in PROBE_OFF_REMOTE_FILES
+    )
+    on = [
+        label for label, _ in found if label.split(":")[0] not in PROBE_OFF_REMOTE_FILES
+    ]
+    assert len(off) == EXPECTED_PROBE_OFF_SITES, off
+    assert len(on) == EXPECTED_PROBE_ON_SITES, on
+    assert {label.split(":")[0] for label in off} == PROBE_OFF_REMOTE_FILES
+    assert all(label.startswith("reusable-") for label in on), on
+    for path_name in PROBE_OFF_REMOTE_FILES:
+        doc = yaml.safe_load((WORKFLOWS_DIR / path_name).read_text(encoding="utf-8"))
+        assert "workflow_call" in workflow_triggers(doc), path_name
 
 
 def test_walk_finds_exactly_the_expected_local_sites():
@@ -396,7 +420,11 @@ def test_every_site_calls_the_action_at_a_pinned_tag():
     failures = [
         f"{label}: {problem}"
         for label, step in action_sites()
-        for problem in site_problems(step, released_tag())
+        for problem in site_problems(
+            step,
+            released_tag(),
+            probe_off=label.split(":")[0] in PROBE_OFF_REMOTE_FILES,
+        )
     ]
     assert not failures, "\n".join(failures)
 
@@ -524,7 +552,12 @@ def test_selftest_inline_and_call_matchers_are_distinct():
     assert is_inline_copy(
         {**inline, "id": "other"} | {"name": "x", "run": "curl /rate_limit"}
     )
-    assert is_inline_copy({"run": "true", "env": {"CI_BOT_TOKEN": "x"}})
+    probe = {"run": "curl -H x https://example.test", "env": {"CI_BOT_TOKEN": "x"}}
+    assert is_inline_copy(probe)
+    # A legitimate token consumer (env + a non-probe script) is not a copy.
+    assert not is_inline_copy(
+        {"run": "export GH_TOKEN=$T", "env": {"CI_BOT_TOKEN": "x"}}
+    )
     assert not is_inline_copy({"run": "echo hi"})
     assert not is_inline_copy({**inline, "run": None, "id": "other", "name": "x"})
     assert not is_inline_copy("not a dict")
@@ -621,11 +654,26 @@ def test_selftest_workflow_triggers_handles_yaml_on_forms():
     assert workflow_triggers("not a dict") == set()
 
 
-def test_selftest_allowlist_names_only_the_two_workflow_call_files():
+def test_selftest_inline_copy_classifier_detects_a_copy_in_a_tree(tmp_path: Path):
+    # Non-vacuity: the classifier the real guard uses must flag a real inline copy.
     inline = {"name": PREFLIGHT_STEP_NAME, "run": "curl /rate_limit"}
     assert is_inline_copy(inline)
-    assert "self-healing.yml" in INLINE_ALLOWLIST
-    assert "release-please.yml" not in INLINE_ALLOWLIST
+    doc = {"jobs": {"j": {"steps": [inline, _site()]}}}
+    (tmp_path / "w.yml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+    flagged = [
+        step
+        for job in load_jobs(tmp_path / "w.yml").values()
+        for step in job_steps(job)
+        if is_inline_copy(step)
+    ]
+    assert flagged == [inline]
+
+
+def test_selftest_probe_off_remote_site_shape():
+    off = _site(**{"with": dict(REMOTE_PROBE_OFF_WITH)})
+    assert site_problems(off, probe_off=True) == []
+    assert site_problems(off)  # probe-on shape rejects it
+    assert site_problems(_site(), probe_off=True)  # and vice versa
 
 
 def test_selftest_walk_classifies_a_synthetic_tree(tmp_path: Path):

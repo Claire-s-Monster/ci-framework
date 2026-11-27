@@ -35,9 +35,16 @@ LOCAL_JOBS = [
     ("auto-merge-release.yml", "auto-merge-release"),
     ("sync-main-to-development.yml", "sync-to-development"),
 ]
+# workflow_call sites calling the action through the remote form, probe off.
+REMOTE_PROBE_OFF_JOBS = [
+    ("self-healing.yml", "self-healing"),
+    ("cleanup-dev-files.yml", "cleanup-dev-files"),
+]
+PROBE_OFF_JOBS = LOCAL_JOBS + REMOTE_PROBE_OFF_JOBS
 
-# The pre-action inline preflight, kept verbatim as a fixture: the equivalence
-# test proves the action with `check-code-scanning: 'false'` behaves the same.
+# The pre-action inline preflight, frozen as a fixture (the inline copies no
+# longer exist in any workflow): the equivalence test proves the action with
+# `check-code-scanning: 'false'` behaves the same as that script did.
 INLINE_FIXTURE = r"""if [ -z "${CI_BOT_TOKEN}" ]; then
   echo "CI_BOT_TOKEN not set; using the github.token fallback."
   exit 0
@@ -62,31 +69,20 @@ esac
 """
 
 
-def standalone_preflight_jobs() -> list[tuple[str, str]]:
-    """Every (workflow, job) outside PREFLIGHT_JOBS with a `run:` preflight step.
+def test_no_workflow_carries_an_inline_preflight_run_step():
+    # The inline copies are gone: any `run:` step named like the preflight in any
+    # workflow would be an unpinned, untested copy of the action's script.
+    inline = [
+        f"{path.name}:{job_id}"
+        for path in sorted(WORKFLOWS_DIR.glob("*.yml"))
+        for job_id, job in (yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+        .get("jobs", {})
+        .items()
+        for s in (job.get("steps") or [] if isinstance(job, dict) else [])
+        if isinstance(s, dict) and s.get("name") == PREFLIGHT_STEP_NAME and "run" in s
+    ]
+    assert not inline, inline
 
-    Found by walking `.github/workflows/`, so a workflow that copies the
-    preflight is covered without editing a list. Only the two `workflow_call`
-    workflows (self-healing, cleanup-dev-files) still carry one; these copies
-    only run the /rate_limit check (no code-scanning probe, no GITHUB_OUTPUT).
-    """
-    found: list[tuple[str, str]] = []
-    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        for job_id, job in (doc.get("jobs") or {}).items():
-            steps = job.get("steps") or [] if isinstance(job, dict) else []
-            has_step = any(
-                isinstance(s, dict)
-                and s.get("name") == PREFLIGHT_STEP_NAME
-                and "run" in s
-                for s in steps
-            )
-            if has_step and (path.name, job_id) not in PREFLIGHT_JOBS:
-                found.append((path.name, job_id))
-    return found
-
-
-STANDALONE_PREFLIGHT_JOBS = standalone_preflight_jobs()
 
 BASH = shutil.which("bash")
 requires_bash = pytest.mark.skipif(BASH is None, reason="bash is not available")
@@ -135,22 +131,20 @@ def requested_urls(tmp_path: Path) -> list[str]:
 def preflight_script(file_name: str, job_id: str) -> str:
     """The script a job's preflight step runs.
 
-    An action call (the six reusable sites, remote form; the three standalone
-    sites, `./` form) runs the composite action's script; an inline step (the
-    two workflow_call workflows) carries its own.
+    Every site is an action call (remote form in the reusable-* and workflow_call
+    workflows, `./` form in the standalone ones) and runs the composite action's
+    script; no inline copy remains.
     """
     doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text(encoding="utf-8"))
     step = next(
         s for s in doc["jobs"][job_id]["steps"] if s.get("name") == PREFLIGHT_STEP_NAME
     )
-    if "uses" in step:
-        assert (
-            step["uses"].startswith(ACTION_USES_PREFIX) or step["uses"] == LOCAL_USES
-        ), step["uses"]
-        action = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
-        step = next(
-            s for s in action["runs"]["steps"] if s.get("id") == "token-preflight"
-        )
+    assert "uses" in step, f"{file_name}:{job_id} has an inline preflight"
+    assert step["uses"].startswith(ACTION_USES_PREFIX) or step["uses"] == LOCAL_USES, (
+        step["uses"]
+    )
+    action = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
+    step = next(s for s in action["runs"]["steps"] if s.get("id") == "token-preflight")
     run = step["run"]
     assert "${{" not in run
     return run
@@ -287,80 +281,29 @@ def test_probes_without_bearer_header_are_rejected(script: str, tmp_path: Path):
         run_preflight(stripped, tmp_path, "tok", "200", "200")
 
 
-@pytest.fixture(params=STANDALONE_PREFLIGHT_JOBS, ids=lambda p: f"{p[0]}:{p[1]}")
-def standalone_script(request: pytest.FixtureRequest) -> str:
-    return preflight_script(*request.param)
-
-
-@requires_bash
-def test_standalone_empty_token_uses_fallback(standalone_script: str, tmp_path: Path):
-    code, stdout, _ = run_preflight(standalone_script, tmp_path, "", "200", "200")
-    assert code == 0
-    assert "not set; using the github.token fallback" in stdout
-
-
-@requires_bash
-def test_standalone_valid_token_passes(standalone_script: str, tmp_path: Path):
-    code, stdout, _ = run_preflight(standalone_script, tmp_path, "tok", "200", "200")
-    assert code == 0
-    assert "CI_BOT_TOKEN is valid." in stdout
-
-
-@requires_bash
-def test_standalone_invalid_token_fails_hard(standalone_script: str, tmp_path: Path):
-    code, stdout, _ = run_preflight(standalone_script, tmp_path, "tok", "401", "200")
-    assert code == 1
-    assert "::error title=CI_BOT_TOKEN invalid::" in stdout
-
-
-@requires_bash
-def test_standalone_other_status_warns_without_failing(
-    standalone_script: str, tmp_path: Path
-):
-    code, stdout, _ = run_preflight(standalone_script, tmp_path, "tok", "503", "200")
-    assert code == 0
-    assert "::warning title=CI_BOT_TOKEN unchecked::" in stdout
-
-
-@requires_bash
-def test_standalone_probe_without_bearer_header_is_rejected(
-    standalone_script: str, tmp_path: Path
-):
-    stripped = "\n".join(
-        line
-        for line in standalone_script.splitlines()
-        if "Authorization: Bearer" not in line
-    )
-    assert stripped != standalone_script
-    with pytest.raises(AssertionError, match="unauthenticated curl call"):
-        run_preflight(stripped, tmp_path, "tok", "200", "200")
-
-
-def test_standalone_preflight_jobs_are_found():
-    # Non-vacuity floor: exactly the two workflow_call copies (self-healing,
-    # cleanup-dev-files) must be found, otherwise the parametrised inline tests
-    # above would silently run zero cases.
-    assert sorted(STANDALONE_PREFLIGHT_JOBS) == [
-        ("cleanup-dev-files.yml", "cleanup-dev-files"),
-        ("self-healing.yml", "self-healing"),
-    ]
-
-
-@pytest.fixture(params=LOCAL_JOBS, ids=lambda p: f"{p[0]}:{p[1]}")
+@pytest.fixture(params=PROBE_OFF_JOBS, ids=lambda p: f"{p[0]}:{p[1]}")
 def local_script(request: pytest.FixtureRequest) -> str:
     return preflight_script(*request.param)
 
 
-def test_local_sites_call_the_action_with_the_probe_off():
+def _preflight_step(file_name: str, job_id: str) -> dict:
+    doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text(encoding="utf-8"))
+    return next(
+        s for s in doc["jobs"][job_id]["steps"] if s.get("name") == PREFLIGHT_STEP_NAME
+    )
+
+
+def test_probe_off_sites_call_the_action_with_the_probe_off():
     assert len(LOCAL_JOBS) == 3
+    assert len(REMOTE_PROBE_OFF_JOBS) == 2
     for file_name, job_id in LOCAL_JOBS:
-        doc = yaml.safe_load((WORKFLOWS_DIR / file_name).read_text(encoding="utf-8"))
-        step = next(
-            s
-            for s in doc["jobs"][job_id]["steps"]
-            if s.get("name") == PREFLIGHT_STEP_NAME
-        )
+        step = _preflight_step(file_name, job_id)
         assert step["uses"] == LOCAL_USES
+        assert step["with"]["check-code-scanning"] == "false"
+        assert "run" not in step
+    for file_name, job_id in REMOTE_PROBE_OFF_JOBS:
+        step = _preflight_step(file_name, job_id)
+        assert step["uses"].startswith(ACTION_USES_PREFIX + "@v")
         assert step["with"]["check-code-scanning"] == "false"
         assert "run" not in step
 
@@ -466,12 +409,6 @@ def test_probe_off_action_matches_the_old_inline_copy(
     )
     assert action_code == inline_code
     assert action_out == inline_out
-
-
-def test_inline_fixture_matches_the_remaining_inline_copies():
-    # The fixture must stay the exact script the two workflow_call workflows run.
-    for file_name, job_id in STANDALONE_PREFLIGHT_JOBS:
-        assert preflight_script(file_name, job_id) == INLINE_FIXTURE, file_name
 
 
 def test_preflight_jobs_are_found():

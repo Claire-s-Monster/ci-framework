@@ -5,6 +5,39 @@ All notable changes to the CI Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0](https://github.com/Claire-s-Monster/ci-framework/compare/v5.2.0...v5.3.0) (2026-11-27)
+
+
+### 🚀 Features
+
+* **actions:** add check-code-scanning input; standalone workflows use the local preflight action ([f78cb85](https://github.com/Claire-s-Monster/ci-framework/commit/f78cb85af8db7d416494b51d4356e44e56783284))
+* **actions:** check-code-scanning input; standalone workflows use the local preflight action ([75f1731](https://github.com/Claire-s-Monster/ci-framework/commit/75f17316d1ec21d333a70862cc85b73e9932ab66))
+
+
+### 🐛 Bug Fixes
+
+* **actions:** fix mypy CI failure, reject checkout path, guard use_pat trap ([9dc763a](https://github.com/Claire-s-Monster/ci-framework/commit/9dc763a4b9164dd857895cb28d091d6d8064128b))
+
+
+### 🔧 Maintenance
+
+* promote development to main (verify-ci-bot-token rollout, expected v5.3.0) ([e685338](https://github.com/Claire-s-Monster/ci-framework/commit/e685338d7538eb2a69b5eb21468a96e6adc1c1ad))
+* sync main back to development ([9ba0c46](https://github.com/Claire-s-Monster/ci-framework/commit/9ba0c467367f4389e45a054641b9704d5391abcc))
+
+
+### ♻️ Code Refactoring
+
+* **reusable:** switch CI_BOT_TOKEN preflights to verify-ci-bot-token@v5.2.0 ([8b4d268](https://github.com/Claire-s-Monster/ci-framework/commit/8b4d268b486709bb3b251a6f59956aefde64527a))
+* **reusable:** switch CI_BOT_TOKEN preflights to verify-ci-bot-token@v5.2.0 ([015904b](https://github.com/Claire-s-Monster/ci-framework/commit/015904bed3fc06f57f15f6eef9eb1d5961363574))
+
+
+### 🧪 Tests
+
+* **workflows:** assert the probe-off preflight never requests the code-scanning endpoint ([d392e09](https://github.com/Claire-s-Monster/ci-framework/commit/d392e090339f2f37a85862d58253e1da8c6baa39))
+* **workflows:** assert the probe-off preflight never requests the code-scanning endpoint ([921dbf0](https://github.com/Claire-s-Monster/ci-framework/commit/921dbf02f4d9d62876b99925342ce99bf925bb15))
+* **workflows:** fake curl identifies the URL argument instead of assuming it is last ([cf6576d](https://github.com/Claire-s-Monster/ci-framework/commit/cf6576d68d46ac21d9ddaef39553264e0445a7e0))
+* **workflows:** pin guard to the released tag and catch renamed inline copies ([7a28be3](https://github.com/Claire-s-Monster/ci-framework/commit/7a28be3d78313088315bcf012eb275245b5d3f7e))
+
 ## [5.2.0](https://github.com/Claire-s-Monster/ci-framework/compare/v5.1.1...v5.2.0) (2026-11-26)
 
 

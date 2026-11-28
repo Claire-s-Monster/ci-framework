@@ -10,6 +10,13 @@ remote form with `check-code-scanning: 'false'`. Three standalone workflows
 (release-please, auto-merge-release, sync-main-to-development) call it through
 the local `./` form with `check-code-scanning: 'false'`.
 
+Those eight probe-off jobs never read `use_pat` for SARIF, but they must still
+use the PAT only when the preflight accepted it (#509): a read-only classic PAT
+yields `use_pat=false`. Every token selection in such a job is therefore exactly
+`steps.token-preflight.outputs.use_pat == 'true' && secrets.CI_BOT_TOKEN ||
+github.token`, and `use_pat` of a probe-off step never gates SARIF upload (that
+needs the code-scanning probe).
+
 This guard enforces, for every `*.yml` / `*.yaml` workflow:
 
   * NO inline copy (a `run:` step named like the preflight, carrying its id, or
@@ -49,6 +56,7 @@ from framework.tests.workflows.test_ci_bot_token_preflight import (
     PREFLIGHT_STEP_ID,
     PREFLIGHT_STEP_NAME,
     REPO_ROOT,
+    SARIF_ACTION_PREFIXES,
     WORKFLOWS_DIR,
     is_action_checkout,
     iter_strings,
@@ -77,7 +85,12 @@ REMOTE_PROBE_OFF_WITH = {"token": EXPECTED_ENV_VALUE, "check-code-scanning": "fa
 EXPECTED_LOCAL_SITES = 3
 LOCAL_USES = "./.github/actions/verify-ci-bot-token"
 LOCAL_WITH = {"token": EXPECTED_ENV_VALUE, "check-code-scanning": "false"}
-LOCAL_SITE_KEYS = frozenset({"name", "uses", "with"})
+LOCAL_SITE_KEYS = frozenset({"name", "id", "uses", "with"})
+# `${{ ... }}` expressions, and the two token mentions a probe-off job may keep
+# besides the gated selection: pure presence tests (#509).
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+PRESENCE_TEST = re.compile(r"secrets\.CI_BOT_TOKEN (?:==|!=) ''")
+SARIF_USES = re.compile("|".join(re.escape(p) for p in SARIF_ACTION_PREFIXES))
 BASE_SHA_REF = "${{ github.event.pull_request.base.sha }}"
 UNTRUSTED_TRIGGERS = frozenset({"pull_request_target", "workflow_run"})
 # Inline-copy detection, as compiled patterns (not substring tests on URLs).
@@ -90,7 +103,33 @@ API_CALL = re.compile(
     r"|https?://api\.github\.com(?:[/:\s\"']|$)"
     r"|\$\{?GITHUB_API_URL\b"
 )
-SECRET_REFERENCE = re.compile(r"secrets\.CI_BOT_TOKEN\b")
+SECRET_REFERENCE = re.compile(r"secrets(?:\.|\[\s*['\"])CI_BOT_TOKEN\b", re.IGNORECASE)
+# Jobs whose pushes must trigger downstream workflows: a set-but-rejected
+# CI_BOT_TOKEN must fail them instead of silently using github.token.
+REQUIRE_STEP_NAME = "Require a write-capable CI_BOT_TOKEN"
+REQUIRE_STEP_ENV = {
+    "HAS_PAT": "${{ secrets.CI_BOT_TOKEN != '' }}",
+    "USE_PAT": "${{ steps." + PREFLIGHT_STEP_ID + ".outputs.use_pat }}",
+}
+EXPECTED_REQUIRE_JOBS = frozenset(
+    {
+        "auto-merge-release.yml:auto-merge-release",
+        "release-please.yml:release-please",
+        "sync-main-to-development.yml:sync-to-development",
+    }
+)
+# Exact number of gated token selections per probe-off job (#509). Pinning the
+# count per job (not "at least one") means switching any single consumer to a
+# bare `github.token`, or dropping it, is caught even when another stays gated.
+EXPECTED_GATED_CONSUMERS = {
+    "auto-merge-release.yml:auto-merge-release": 1,
+    "cleanup-dev-files.yml:cleanup-dev-files": 2,
+    "release-please.yml:release-please": 1,
+    "self-healing.yml:self-healing": 2,
+    "sync-main-to-development.yml:sync-to-development": 1,
+}
+# A step writing to these files can re-export a value to later steps or jobs.
+STATE_FILE_WRITE = re.compile(r"\bGITHUB_(?:OUTPUT|ENV|STATE)\b")
 # No workflow may keep an inline copy of the preflight.
 INLINE_ALLOWLIST: frozenset[str] = frozenset()
 
@@ -207,6 +246,8 @@ def local_site_problems(steps: list[dict], index: int, triggers: set[str]) -> li
     problems: list[str] = []
     if step.get("name") != PREFLIGHT_STEP_NAME:
         problems.append(f"name must be {PREFLIGHT_STEP_NAME!r}")
+    if step.get("id") != PREFLIGHT_STEP_ID:
+        problems.append(f"id must be {PREFLIGHT_STEP_ID!r} (callers gate on use_pat)")
     if step.get("with") != LOCAL_WITH:
         problems.append(f"with must be exactly {LOCAL_WITH}")
     extra = sorted(set(step) - LOCAL_SITE_KEYS)
@@ -342,27 +383,192 @@ def skips_code_scanning_probe(step: object) -> bool:
     return isinstance(with_, dict) and str(with_.get("check-code-scanning")) == "false"
 
 
-def use_pat_trap_problems(job: object) -> list[str]:
-    """`use_pat` reads in a job whose action call skipped the code-scanning probe.
+def probe_off_ids(job: object) -> set[str]:
+    """Ids of the probe-skipping action calls of a job."""
+    return {
+        step["id"]
+        for step in job_steps(job)
+        if skips_code_scanning_probe(step) and isinstance(step.get("id"), str)
+    }
+
+
+def gated_token(step_id: str) -> str:
+    """The one allowed token selection, gated on the job's own preflight (#509)."""
+    return (
+        f"steps.{step_id}.outputs.use_pat == 'true' "
+        "&& secrets.CI_BOT_TOKEN || github.token"
+    )
+
+
+def gated_consumer_count(job: object, step_id: str) -> int:
+    """Number of `${{ }}` expressions in the job equal to the gated selection."""
+    gated = gated_token(step_id)
+    return sum(
+        " ".join(expr.split()) == gated
+        for text in iter_strings(job)
+        for expr in EXPRESSION.findall(text)
+    )
+
+
+def without_gated_token(text: str, step_id: str) -> str:
+    """The text with each gated token expression removed."""
+    gated = gated_token(step_id)
+    return EXPRESSION.sub(
+        lambda m: "" if " ".join(m.group(1).split()) == gated else m.group(0), text
+    )
+
+
+def consumes_gated_token(step: object, step_id: str) -> bool:
+    """True when any string of the step holds the gated token selection."""
+    gated = gated_token(step_id)
+    return any(gated in " ".join(text.split()) for text in iter_strings(step))
+
+
+def preflight_order_problems(job: object) -> list[str]:
+    """Steps consuming the gated token before the preflight that gates it."""
+    if not isinstance(job, dict):
+        return []
+    steps = job_steps(job)
+    problems: list[str] = []
+    for index, step in enumerate(steps):
+        step_id = step.get("id")
+        if not (skips_code_scanning_probe(step) and isinstance(step_id, str)):
+            continue
+        problems += [
+            f"step {earlier} consumes {step_id!r} before its preflight (step {index})"
+            for earlier in range(index)
+            if consumes_gated_token(steps[earlier], step_id)
+        ]
+    return problems
+
+
+def require_step_problems(job: object) -> list[str]:
+    """Everything wrong with the fail-loud step of a job that needs the PAT.
+
+    Exactly one step named REQUIRE_STEP_NAME, after the preflight and before any
+    consumer of the gated token, unconditional, with presence and verdict passed
+    through env (never `${{ }}` in the script), failing on set-but-rejected.
+    """
+    if not isinstance(job, dict):
+        return ["not a job"]
+    steps = job_steps(job)
+    found = [i for i, s in enumerate(steps) if s.get("name") == REQUIRE_STEP_NAME]
+    pre = [i for i, s in enumerate(steps) if s.get("id") == PREFLIGHT_STEP_ID]
+    if len(found) != 1 or len(pre) != 1:
+        return [f"needs exactly one {REQUIRE_STEP_NAME!r} step and one preflight"]
+    step, problems = steps[found[0]], []
+    if found[0] < pre[0]:
+        problems.append("require step must come after the preflight")
+    if any(consumes_gated_token(s, PREFLIGHT_STEP_ID) for s in steps[: found[0]]):
+        problems.append("a gated consumer runs before the require step")
+    if step.get("env") != REQUIRE_STEP_ENV:
+        problems.append(f"env must be exactly {REQUIRE_STEP_ENV}")
+    run = step.get("run")
+    if not isinstance(run, str) or "${{" in run:
+        problems.append("run must be a script without ${{ }}")
+    elif not (
+        "::error title=CI_BOT_TOKEN rejected::" in run
+        and "exit 1" in run
+        and 'HAS_PAT}" = "true"' in run
+        and 'USE_PAT}" != "true"' in run
+    ):
+        problems.append("run must exit 1 with the error when HAS_PAT and not USE_PAT")
+    if "if" in step or "continue-on-error" in step:
+        problems.append("require step must be unconditional")
+    return problems
+
+
+def probe_off_token_problems(job: object, workflow_env: object = None) -> list[str]:
+    """Token selections in a probe-skipping job that ignore its `use_pat` (#509).
+
+    A probe-off caller never reads `use_pat` for SARIF, but it must still use the
+    PAT only when the preflight accepted it: with a read-only classic PAT the
+    action reports `use_pat=false`. Every `${{ }}` expression outside the
+    preflight step that mentions `secrets.CI_BOT_TOKEN` must be the gated form of
+    one of the job's own probe-off step ids, or a pure `== ''` / `!= ''`
+    presence test. A probe-off step without an id cannot be gated and is flagged.
+    """
+    if not isinstance(job, dict):
+        return []
+    problems: list[str] = []
+    allowed = {gated_token(step_id) for step_id in probe_off_ids(job)}
+    nodes: list[object] = [{key: val for key, val in job.items() if key != "steps"}]
+    if workflow_env is not None:
+        nodes.append(workflow_env)
+    for step in job_steps(job):
+        if not skips_code_scanning_probe(step):
+            nodes.append(step)
+        elif not isinstance(step.get("id"), str):
+            problems.append("probe-off preflight step has no id to gate on")
+    for text in (text for node in nodes for text in iter_strings(node)):
+        for expr in EXPRESSION.findall(text):
+            normalized = " ".join(expr.split())
+            if SECRET_REFERENCE.search(normalized) is None:
+                continue
+            if PRESENCE_TEST.fullmatch(normalized) or normalized in allowed:
+                continue
+            problems.append(f"token selection {normalized!r} ignores use_pat")
+    return problems
+
+
+def probe_off_sarif_problems(job: object) -> list[str]:
+    """`use_pat` reads that feed SARIF upload in a job that skipped the probe.
 
     With the probe skipped, `use_pat` only means "the token is valid", NOT "the
-    token can upload SARIF", so a consumer would send SARIF to an unusable token.
-    A skipping step with an id whose `steps.<id>.outputs.use_pat` is read anywhere
-    in the job (including the job's `outputs:`, which feed `needs.*.outputs.use_pat`
-    consumers) is flagged.
+    token can upload SARIF" (that needs the code-scanning probe), so a SARIF
+    upload step, or a job output feeding `needs.*.outputs.use_pat` consumers,
+    must not read it.
     """
+    if not isinstance(job, dict):
+        return []
     problems: list[str] = []
-    for step in job_steps(job):
-        step_id = step.get("id")
-        if not skips_code_scanning_probe(step) or not isinstance(step_id, str):
-            continue
+    sarif_steps = [
+        step
+        for step in job_steps(job)
+        if isinstance(step.get("uses"), str) and SARIF_USES.match(step["uses"])
+    ]
+    for step_id in sorted(probe_off_ids(job)):
         reader = re.compile(r"steps\." + re.escape(step_id) + r"\.outputs\.use_pat\b")
-        if any(reader.search(text) for text in iter_strings(job)):
-            problems.append(
-                f"step id {step_id!r} skips the code-scanning probe but its "
-                "use_pat output is read"
-            )
+        if any(reader.search(t) for s in sarif_steps for t in iter_strings(s)):
+            problems.append(f"SARIF step gated on probe-off step {step_id!r} use_pat")
+        if any(reader.search(t) for t in iter_strings(job.get("outputs"))):
+            problems.append(f"job output exports probe-off step {step_id!r} use_pat")
+        # Propagation: a step that reads use_pat (outside the gated token) and
+        # writes to GITHUB_OUTPUT/GITHUB_ENV/GITHUB_STATE can hand the copy on to
+        # a SARIF consumer, which the direct-read checks above would never see.
+        for step in job_steps(job):
+            run = step.get("run")
+            if not isinstance(run, str) or STATE_FILE_WRITE.search(run) is None:
+                continue
+            if any(
+                reader.search(without_gated_token(t, step_id))
+                for t in iter_strings(step)
+            ):
+                problems.append(
+                    f"step re-exports probe-off step {step_id!r} use_pat "
+                    "through a state file"
+                )
     return problems
+
+
+def probe_off_job_problems(job: object, workflow_env: object = None) -> list[str]:
+    return (
+        probe_off_token_problems(job, workflow_env)
+        + probe_off_sarif_problems(job)
+        + preflight_order_problems(job)
+    )
+
+
+def probe_off_jobs() -> list[tuple[str, object, object]]:
+    """(file:job label, job, workflow-level env) of each probe-skipping job."""
+    found = []
+    for path in workflow_yaml_files():
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        workflow_env = doc.get("env") if isinstance(doc, dict) else None
+        for job_id, job in load_jobs(path).items():
+            if any(skips_code_scanning_probe(step) for step in job_steps(job)):
+                found.append((f"{path.name}:{job_id}", job, workflow_env))
+    return found
 
 
 def load_workflows() -> dict[str, object]:
@@ -480,12 +686,43 @@ def test_action_has_a_single_composite_preflight_step():
     assert action["inputs"]["check-code-scanning"].get("required") is False
 
 
-def test_no_use_pat_consumer_follows_a_probe_skipping_site():
+def test_walk_finds_every_probe_off_job_and_each_has_a_gated_token():
+    jobs = probe_off_jobs()
+    assert len(jobs) == EXPECTED_PROBE_OFF_SITES + EXPECTED_LOCAL_SITES, [
+        label for label, _, _ in jobs
+    ]
+    assert {label for label, _, _ in jobs} == set(EXPECTED_GATED_CONSUMERS)
+    for label, job, _ in jobs:
+        ids = probe_off_ids(job)
+        assert ids == {PREFLIGHT_STEP_ID}, (label, ids)
+        found = gated_consumer_count(job, PREFLIGHT_STEP_ID)
+        assert found == EXPECTED_GATED_CONSUMERS[label], (
+            f"{label}: {found} gated token selections, "
+            f"expected {EXPECTED_GATED_CONSUMERS[label]}"
+        )
+
+
+def test_probe_off_jobs_honour_use_pat_and_never_gate_sarif_on_it():
     failures = [
-        f"{path.name}:{job_id}: {problem}"
-        for path in workflow_yaml_files()
-        for job_id, job in load_jobs(path).items()
-        for problem in use_pat_trap_problems(job)
+        f"{label}: {problem}"
+        for label, job, workflow_env in probe_off_jobs()
+        for problem in probe_off_job_problems(job, workflow_env)
+    ]
+    assert not failures, "\n".join(failures)
+
+
+def test_fail_loud_step_exists_in_exactly_the_push_triggering_jobs():
+    with_step = {
+        label
+        for label, job, _ in probe_off_jobs()
+        if any(s.get("name") == REQUIRE_STEP_NAME for s in job_steps(job))
+    }
+    assert with_step == EXPECTED_REQUIRE_JOBS, with_step
+    failures = [
+        f"{label}: {problem}"
+        for label, job, _ in probe_off_jobs()
+        if label in EXPECTED_REQUIRE_JOBS
+        for problem in require_step_problems(job)
     ]
     assert not failures, "\n".join(failures)
 
@@ -627,11 +864,16 @@ def _checkout(**with_overrides: object) -> dict:
 def _local(**overrides: object) -> dict:
     step: dict = {
         "name": PREFLIGHT_STEP_NAME,
+        "id": PREFLIGHT_STEP_ID,
         "uses": LOCAL_USES,
         "with": dict(LOCAL_WITH),
     }
     step.update(overrides)
     return step
+
+
+def _without_id(step: dict) -> dict:
+    return {key: value for key, value in step.items() if key != "id"}
 
 
 def test_selftest_local_site_rules():
@@ -653,6 +895,8 @@ def test_selftest_local_site_rules():
         [_checkout(), _local(**{"with": {"token": "x"}})], 1, push
     )
     assert local_site_problems([_checkout(), _local(**{"if": "true"})], 1, push)
+    assert local_site_problems([_checkout(), _local(id="other")], 1, push)
+    assert local_site_problems([_checkout(), _without_id(_local())], 1, push)
     assert is_local_call(_local())
     assert not is_local_call(_site())
     assert not is_local_call("not a dict")
@@ -666,25 +910,140 @@ def test_selftest_local_site_rejects_a_checkout_path():
         assert any("sparse checkout" in p for p in problems), path
 
 
-def test_selftest_use_pat_trap_is_flagged():
-    local = _local(id="pf")
-    consumer = {"uses": "x", "with": {"token": "${{ steps.pf.outputs.use_pat }}"}}
-    # Probe skipped and use_pat read in a step or a job output: flagged.
-    assert use_pat_trap_problems({"steps": [local, consumer]})
+def _gated(step_id: str = "token-preflight") -> str:
+    return "${{ " + gated_token(step_id) + " }}"
+
+
+def _remote_off(**overrides: object) -> dict:
+    return _site(**{"with": dict(REMOTE_PROBE_OFF_WITH)}) | overrides
+
+
+def test_selftest_probe_off_token_gated_on_use_pat_is_not_flagged():
+    consumer = {"env": {"GH_TOKEN": _gated()}}
+    multiline = {
+        "with": {
+            "token": "${{ steps.token-preflight.outputs.use_pat\n"
+            "  == 'true' && secrets.CI_BOT_TOKEN || github.token }}"
+        }
+    }
+    presence = {
+        "run": "echo ${{ secrets.CI_BOT_TOKEN != '' }} ${{ secrets.CI_BOT_TOKEN == '' }}"
+    }
+    for site in (_local(id="token-preflight"), _remote_off()):
+        job = {"steps": [site, consumer, multiline, presence]}
+        assert probe_off_job_problems(job) == []
+
+
+def test_selftest_probe_off_bare_or_misgated_token_is_flagged():
+    site = _local(id="token-preflight")
+    bad = [
+        "${{ secrets.CI_BOT_TOKEN || github.token }}",
+        "${{ secrets.CI_BOT_TOKEN || secrets.GITHUB_TOKEN }}",
+        "${{ secrets.CI_BOT_TOKEN }}",
+        "${{ steps.token-preflight.outputs.use_pat == 'false' "
+        "&& secrets.CI_BOT_TOKEN || github.token }}",
+        "${{ steps.other.outputs.use_pat == 'true' "
+        "&& secrets.CI_BOT_TOKEN || github.token }}",
+        "${{ github.token && secrets.CI_BOT_TOKEN != '' }}",
+    ]
+    for token in bad:
+        for key in ("env", "with"):
+            job = {"steps": [site, {key: {"X": token}}]}
+            assert probe_off_token_problems(job), (key, token)
+    # Job-level env is walked too, and an id-less probe-off step cannot be gated.
+    assert probe_off_token_problems({"env": {"T": bad[0]}, "steps": [site]})
+    idless = _without_id(_local())
+    assert probe_off_token_problems({"steps": [idless, {"env": {"T": _gated()}}]})
+    assert probe_off_token_problems("not a dict") == []
+
+
+def test_selftest_probe_off_use_pat_must_not_gate_sarif_upload():
+    site = _local(id="pf")
+    upload = {
+        "uses": "github/codeql-action/upload-sarif@abc",
+        "with": {"token": "${{ steps.pf.outputs.use_pat == 'true' && 'x' }}"},
+    }
+    gated_if = {
+        "uses": "github/codeql-action/analyze@abc",
+        "if": "steps.pf.outputs.use_pat",
+    }
     exported = {
         "outputs": {"use_pat": "${{ steps.pf.outputs.use_pat }}"},
-        "steps": [local],
+        "steps": [site],
     }
-    assert use_pat_trap_problems(exported)
-    remote = _site(id="pf", **{"with": {"token": "t", "check-code-scanning": "false"}})
-    assert use_pat_trap_problems({"steps": [remote, consumer]})
-    # Not flagged: probe on (default), no id, or the output is never read.
-    assert use_pat_trap_problems({"steps": [_site(), consumer]}) == []
-    assert use_pat_trap_problems({"steps": [_local(), consumer]}) == []
-    assert use_pat_trap_problems({"steps": [local, {"run": "true"}]}) == []
+    assert probe_off_sarif_problems({"steps": [site, upload]})
+    assert probe_off_sarif_problems({"steps": [site, gated_if]})
+    assert probe_off_sarif_problems(exported)
+    remote = _remote_off(id="pf")
+    assert probe_off_sarif_problems({"steps": [remote, upload]})
+    # Not flagged: a non-SARIF consumer, a probe-on site, or no read at all.
+    plain = {
+        "uses": "actions/checkout@v7",
+        "with": {"token": "${{ steps.pf.outputs.use_pat }}"},
+    }
+    assert probe_off_sarif_problems({"steps": [site, plain]}) == []
+    assert probe_off_sarif_problems({"steps": [_site(id="pf"), upload]}) == []
+    assert probe_off_sarif_problems({"steps": [site, {"run": "true"}]}) == []
+    assert probe_off_sarif_problems("not a dict") == []
     assert not skips_code_scanning_probe(_site())
     assert skips_code_scanning_probe(_local())
     assert not skips_code_scanning_probe("not a dict")
+
+
+def test_selftest_probe_off_use_pat_must_not_propagate_through_state_files():
+    site = _local(id="pf")
+    for run in (
+        'echo "ok=${USE_PAT}" >> "$GITHUB_OUTPUT"',
+        'echo "USE_PAT=${USE_PAT}" >> $GITHUB_ENV',
+        'echo "x=${USE_PAT}" >> "${GITHUB_STATE}"',
+    ):
+        copier = {"env": {"USE_PAT": "${{ steps.pf.outputs.use_pat }}"}, "run": run}
+        assert probe_off_sarif_problems({"steps": [site, copier]}), run
+    inline = {"run": 'echo "ok=${{ steps.pf.outputs.use_pat }}" >> "$GITHUB_OUTPUT"'}
+    assert probe_off_sarif_problems({"steps": [site, inline]})
+    # Not flagged: reads without a state-file write, state-file writes without a
+    # read, and the gated token selection in a step that writes a state file.
+    reader = {"env": {"USE_PAT": "${{ steps.pf.outputs.use_pat }}"}, "run": "true"}
+    writer = {"run": 'echo "ok=1" >> "$GITHUB_OUTPUT"'}
+    gated_writer = {
+        "env": {"GH_TOKEN": _gated("pf")},
+        "run": 'echo "ok=1" >> "$GITHUB_OUTPUT"',
+    }
+    for other in (reader, writer, gated_writer):
+        assert probe_off_sarif_problems({"steps": [site, other]}) == []
+
+
+def test_selftest_gated_consumer_count_sees_each_selection():
+    site = _local(id="pf")
+    one = {"env": {"A": _gated("pf")}}
+    two = {"with": {"token": _gated("pf")}}
+    swapped = {"with": {"token": "${{ github.token }}"}}
+    other_id = {"env": {"A": _gated("other")}}
+    assert gated_consumer_count({"steps": [site, one, two]}, "pf") == 2
+    # A consumer changed to a bare github.token is not counted, even though the
+    # job still has another gated one and the expression no longer mentions the
+    # secret (so probe_off_token_problems alone cannot see it).
+    job = {"steps": [site, one, swapped]}
+    assert gated_consumer_count(job, "pf") == 1
+    assert probe_off_token_problems(job) == []
+    assert gated_consumer_count({"steps": [site, other_id]}, "pf") == 0
+    assert gated_consumer_count("not a job", "pf") == 0
+
+
+def test_selftest_probe_off_walk_finds_jobs_in_a_synthetic_tree(tmp_path: Path):
+    good = {"steps": [_local(id="token-preflight"), {"env": {"T": _gated()}}]}
+    bad = {"steps": [_remote_off(), {"env": {"T": "${{ secrets.CI_BOT_TOKEN }}"}}]}
+    other = {"steps": [_site(), {"run": "true"}]}
+    doc = {"jobs": {"good": good, "bad": bad, "other": other}}
+    (tmp_path / "w.yml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+    jobs = {
+        job_id: job
+        for job_id, job in load_jobs(tmp_path / "w.yml").items()
+        if any(skips_code_scanning_probe(step) for step in job_steps(job))
+    }
+    assert sorted(jobs) == ["bad", "good"]
+    assert probe_off_job_problems(jobs["good"]) == []
+    assert probe_off_job_problems(jobs["bad"])
 
 
 def test_selftest_workflow_triggers_handles_yaml_on_forms():
@@ -750,6 +1109,94 @@ def test_selftest_consumed_outputs_are_found_anywhere_in_a_workflow():
         }
     }
     assert consumed_outputs({"w.yml": doc}) == {"use_pat", "extra"}
+
+
+def test_selftest_secret_reference_matches_every_syntax_and_case():
+    for text in (
+        "secrets.CI_BOT_TOKEN",
+        "secrets['CI_BOT_TOKEN']",
+        'secrets["CI_BOT_TOKEN"]',
+        "secrets[ 'CI_BOT_TOKEN' ]",
+        "secrets.ci_bot_token",
+        "SECRETS.Ci_Bot_Token",
+    ):
+        assert SECRET_REFERENCE.search(text), text
+        assert carries_bot_token({"GH_TOKEN": "${{ " + text + " }}"}), text
+        job = {
+            "steps": [
+                _local(id="token-preflight"),
+                {"env": {"T": "${{ " + text + " }}"}},
+            ]
+        }
+        assert probe_off_token_problems(job), text
+    assert not SECRET_REFERENCE.search("secrets.CI_BOT_TOKEN_OTHER")
+    assert not SECRET_REFERENCE.search("secrets.OTHER")
+
+
+def test_selftest_probe_off_workflow_level_env_is_scanned():
+    job = {"steps": [_local(id="token-preflight"), {"run": "true"}]}
+    bare = {"T": "${{ secrets.CI_BOT_TOKEN }}"}
+    assert probe_off_token_problems(job) == []
+    assert probe_off_token_problems(job, bare)
+    assert probe_off_job_problems(job, bare)
+    assert probe_off_job_problems(job, {"T": _gated()}) == []
+
+
+def test_selftest_preflight_must_precede_gated_consumers():
+    site = _local(id="token-preflight")
+    consumer = {"env": {"GH_TOKEN": _gated()}}
+    assert preflight_order_problems({"steps": [site, consumer]}) == []
+    assert preflight_order_problems({"steps": [consumer, site]})
+    assert probe_off_job_problems({"steps": [consumer, site]})
+    assert preflight_order_problems("not a dict") == []
+
+
+def _require(**overrides: object) -> dict:
+    step: dict = {
+        "name": REQUIRE_STEP_NAME,
+        "env": dict(REQUIRE_STEP_ENV),
+        "run": (
+            'if [ "${HAS_PAT}" = "true" ] && [ "${USE_PAT}" != "true" ]; then\n'
+            "  echo '::error title=CI_BOT_TOKEN rejected::no downstream triggers'\n"
+            "  exit 1\nfi\n"
+        ),
+    }
+    step.update(overrides)
+    return step
+
+
+def test_selftest_require_step_rules():
+    site = _local(id="token-preflight")
+    consumer = {"env": {"GH_TOKEN": _gated()}}
+    assert require_step_problems({"steps": [site, _require(), consumer]}) == []
+    # Missing, duplicated, before the preflight, or after a gated consumer.
+    assert require_step_problems({"steps": [site, consumer]})
+    assert require_step_problems({"steps": [site, _require(), _require()]})
+    assert require_step_problems({"steps": [_require(), site, consumer]})
+    assert require_step_problems({"steps": [site, consumer, _require()]})
+    # Wrong env, interpolated or non-failing script, conditional step.
+    assert require_step_problems({"steps": [site, _require(env={"X": "y"})]})
+    assert require_step_problems(
+        {"steps": [site, _require(run="echo ${{ secrets.CI_BOT_TOKEN }}")]}
+    )
+    assert require_step_problems({"steps": [site, _require(run="true")]})
+    assert require_step_problems({"steps": [site, _require(**{"if": "false"})]})
+    assert require_step_problems("not a dict")
+
+
+def test_selftest_require_step_job_set_is_exact():
+    site = _local(id="token-preflight")
+    jobs = {
+        "a": {"steps": [site, _require()]},
+        "b": {"steps": [site, {"run": "true"}]},
+    }
+    with_step = {
+        key
+        for key, job in jobs.items()
+        if any(s.get("name") == REQUIRE_STEP_NAME for s in job_steps(job))
+    }
+    assert with_step == {"a"}
+    assert with_step != {"a", "b"}
 
 
 def test_selftest_undeclared_or_miswired_output_is_flagged():

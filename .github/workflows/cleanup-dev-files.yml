@@ -118,12 +118,18 @@ jobs:
           check-code-scanning: 'false'
 
       - name: Debug secrets availability
+        env:
+          USE_PAT: ${{ steps.token-preflight.outputs.use_pat }}
         run: |
           echo "Checking secret availability..."
           echo "CI_BOT_TOKEN available: ${{ secrets.CI_BOT_TOKEN != '' }}"
           echo "CI_BOT_GPG_KEY available: ${{ secrets.CI_BOT_GPG_KEY != '' }}"
           echo "CI_BOT_GPG_KEY_ID available: ${{ secrets.CI_BOT_GPG_KEY_ID != '' }}"
-          echo "Using fallback token: ${{ secrets.CI_BOT_TOKEN == '' }}"
+          if [ "${USE_PAT}" = "true" ]; then
+            echo "Using fallback token: false"
+          else
+            echo "Using fallback token: true"
+          fi
 
       - name: Checkout target branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7

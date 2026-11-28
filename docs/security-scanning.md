@@ -307,6 +307,15 @@ that pins `verify-ci-bot-token` to a release older than the read-only check
 gets `use_pat=true` for any valid token, so the expression behaves as the old
 `secrets.CI_BOT_TOKEN || github.token` until it is re-pinned.
 
+The three jobs whose pushes must trigger downstream workflows (`release-please`,
+`auto-merge-release`, `sync-to-development`) add a "Require a write-capable
+CI_BOT_TOKEN" step right after the preflight. It fails the job when
+`CI_BOT_TOKEN` is set but the preflight rejected it (`use_pat != 'true'`),
+because a `github.token` push does not trigger downstream workflows and the
+release flow would stall silently. An unset `CI_BOT_TOKEN` still falls back to
+`github.token` without failing. A guard test asserts this step in exactly those
+three jobs, after the preflight and before any consumer of the gated token.
+
 Both run independently and report together in the PR. CodeQL runs only in
 `reusable-ci.yml` here (its `codeql` input defaults to `true`); `reusable-security.yml`
 skips it, so `codeql-<lang>` is uploaded once. Use `codeql: true` on

@@ -118,6 +118,18 @@ EXPECTED_REQUIRE_JOBS = frozenset(
         "sync-main-to-development.yml:sync-to-development",
     }
 )
+# Exact number of gated token selections per probe-off job (#509). Pinning the
+# count per job (not "at least one") means switching any single consumer to a
+# bare `github.token`, or dropping it, is caught even when another stays gated.
+EXPECTED_GATED_CONSUMERS = {
+    "auto-merge-release.yml:auto-merge-release": 1,
+    "cleanup-dev-files.yml:cleanup-dev-files": 2,
+    "release-please.yml:release-please": 1,
+    "self-healing.yml:self-healing": 2,
+    "sync-main-to-development.yml:sync-to-development": 1,
+}
+# A step writing to these files can re-export a value to later steps or jobs.
+STATE_FILE_WRITE = re.compile(r"\bGITHUB_(?:OUTPUT|ENV|STATE)\b")
 # No workflow may keep an inline copy of the preflight.
 INLINE_ALLOWLIST: frozenset[str] = frozenset()
 
@@ -388,6 +400,24 @@ def gated_token(step_id: str) -> str:
     )
 
 
+def gated_consumer_count(job: object, step_id: str) -> int:
+    """Number of `${{ }}` expressions in the job equal to the gated selection."""
+    gated = gated_token(step_id)
+    return sum(
+        " ".join(expr.split()) == gated
+        for text in iter_strings(job)
+        for expr in EXPRESSION.findall(text)
+    )
+
+
+def without_gated_token(text: str, step_id: str) -> str:
+    """The text with each gated token expression removed."""
+    gated = gated_token(step_id)
+    return EXPRESSION.sub(
+        lambda m: "" if " ".join(m.group(1).split()) == gated else m.group(0), text
+    )
+
+
 def consumes_gated_token(step: object, step_id: str) -> bool:
     """True when any string of the step holds the gated token selection."""
     gated = gated_token(step_id)
@@ -503,6 +533,21 @@ def probe_off_sarif_problems(job: object) -> list[str]:
             problems.append(f"SARIF step gated on probe-off step {step_id!r} use_pat")
         if any(reader.search(t) for t in iter_strings(job.get("outputs"))):
             problems.append(f"job output exports probe-off step {step_id!r} use_pat")
+        # Propagation: a step that reads use_pat (outside the gated token) and
+        # writes to GITHUB_OUTPUT/GITHUB_ENV/GITHUB_STATE can hand the copy on to
+        # a SARIF consumer, which the direct-read checks above would never see.
+        for step in job_steps(job):
+            run = step.get("run")
+            if not isinstance(run, str) or STATE_FILE_WRITE.search(run) is None:
+                continue
+            if any(
+                reader.search(without_gated_token(t, step_id))
+                for t in iter_strings(step)
+            ):
+                problems.append(
+                    f"step re-exports probe-off step {step_id!r} use_pat "
+                    "through a state file"
+                )
     return problems
 
 
@@ -646,12 +691,15 @@ def test_walk_finds_every_probe_off_job_and_each_has_a_gated_token():
     assert len(jobs) == EXPECTED_PROBE_OFF_SITES + EXPECTED_LOCAL_SITES, [
         label for label, _, _ in jobs
     ]
+    assert {label for label, _, _ in jobs} == set(EXPECTED_GATED_CONSUMERS)
     for label, job, _ in jobs:
-        assert any(
-            gated_token(step_id) in " ".join(text.split())
-            for step_id in probe_off_ids(job)
-            for text in iter_strings(job)
-        ), f"{label}: no token selection gated on the preflight use_pat"
+        ids = probe_off_ids(job)
+        assert ids == {PREFLIGHT_STEP_ID}, (label, ids)
+        found = gated_consumer_count(job, PREFLIGHT_STEP_ID)
+        assert found == EXPECTED_GATED_CONSUMERS[label], (
+            f"{label}: {found} gated token selections, "
+            f"expected {EXPECTED_GATED_CONSUMERS[label]}"
+        )
 
 
 def test_probe_off_jobs_honour_use_pat_and_never_gate_sarif_on_it():
@@ -940,6 +988,46 @@ def test_selftest_probe_off_use_pat_must_not_gate_sarif_upload():
     assert not skips_code_scanning_probe(_site())
     assert skips_code_scanning_probe(_local())
     assert not skips_code_scanning_probe("not a dict")
+
+
+def test_selftest_probe_off_use_pat_must_not_propagate_through_state_files():
+    site = _local(id="pf")
+    for run in (
+        'echo "ok=${USE_PAT}" >> "$GITHUB_OUTPUT"',
+        'echo "USE_PAT=${USE_PAT}" >> $GITHUB_ENV',
+        'echo "x=${USE_PAT}" >> "${GITHUB_STATE}"',
+    ):
+        copier = {"env": {"USE_PAT": "${{ steps.pf.outputs.use_pat }}"}, "run": run}
+        assert probe_off_sarif_problems({"steps": [site, copier]}), run
+    inline = {"run": 'echo "ok=${{ steps.pf.outputs.use_pat }}" >> "$GITHUB_OUTPUT"'}
+    assert probe_off_sarif_problems({"steps": [site, inline]})
+    # Not flagged: reads without a state-file write, state-file writes without a
+    # read, and the gated token selection in a step that writes a state file.
+    reader = {"env": {"USE_PAT": "${{ steps.pf.outputs.use_pat }}"}, "run": "true"}
+    writer = {"run": 'echo "ok=1" >> "$GITHUB_OUTPUT"'}
+    gated_writer = {
+        "env": {"GH_TOKEN": _gated("pf")},
+        "run": 'echo "ok=1" >> "$GITHUB_OUTPUT"',
+    }
+    for other in (reader, writer, gated_writer):
+        assert probe_off_sarif_problems({"steps": [site, other]}) == []
+
+
+def test_selftest_gated_consumer_count_sees_each_selection():
+    site = _local(id="pf")
+    one = {"env": {"A": _gated("pf")}}
+    two = {"with": {"token": _gated("pf")}}
+    swapped = {"with": {"token": "${{ github.token }}"}}
+    other_id = {"env": {"A": _gated("other")}}
+    assert gated_consumer_count({"steps": [site, one, two]}, "pf") == 2
+    # A consumer changed to a bare github.token is not counted, even though the
+    # job still has another gated one and the expression no longer mentions the
+    # secret (so probe_off_token_problems alone cannot see it).
+    job = {"steps": [site, one, swapped]}
+    assert gated_consumer_count(job, "pf") == 1
+    assert probe_off_token_problems(job) == []
+    assert gated_consumer_count({"steps": [site, other_id]}, "pf") == 0
+    assert gated_consumer_count("not a job", "pf") == 0
 
 
 def test_selftest_probe_off_walk_finds_jobs_in_a_synthetic_tree(tmp_path: Path):

@@ -46,6 +46,7 @@ jobs:
         # An expired or revoked PAT is still non-empty, so it wins
         # `CI_BOT_TOKEN || secrets.GITHUB_TOKEN` and 401s instead of falling back.
         # Fail loudly here rather than silently later (#355). No-op when unset.
+        id: token-preflight
         uses: ./.github/actions/verify-ci-bot-token
         with:
           token: ${{ secrets.CI_BOT_TOKEN }}
@@ -59,5 +60,6 @@ jobs:
         env:
           # CI_BOT_TOKEN (PAT) required so the merge push triggers
           # downstream on:push workflows (e.g. release-please).
-          # GITHUB_TOKEN pushes are silently ignored by Actions.
-          GH_TOKEN: ${{ secrets.CI_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN pushes are silently ignored by Actions. The PAT is
+          # used only when the preflight accepted it (#509).
+          GH_TOKEN: ${{ steps.token-preflight.outputs.use_pat == 'true' && secrets.CI_BOT_TOKEN || github.token }}

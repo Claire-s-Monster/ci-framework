@@ -43,7 +43,9 @@ inputs:
     description: >-
       Probe the code-scanning API after the /rate_limit check. With 'false' the
       probe is skipped and `use_pat` is `true` whenever the token is set and not
-      rejected by /rate_limit (HTTP 401 still fails). In that mode `use_pat`
+      rejected by /rate_limit (HTTP 401 still fails), except that a classic PAT
+      without `repo`/`public_repo` is read-only and gives `use_pat` `false`
+      (`security_events` alone does not count in this mode). In that mode `use_pat`
       only means "the token is valid", NOT "the token can upload SARIF": do not
       use it to choose a SARIF upload token (a guard test enforces this).
     required: false

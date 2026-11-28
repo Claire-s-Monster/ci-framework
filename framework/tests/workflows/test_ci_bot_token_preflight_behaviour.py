@@ -94,7 +94,8 @@ requires_bash = pytest.mark.skipif(BASH is None, reason="bash is not available")
 #
 # A status value may be a comma-separated sequence ("503,503,200"): the Nth call
 # for that URL gets the Nth entry (the last one repeats), counted in a file under
-# CURL_STATE. With `-D <file>` the stub writes response headers there, including
+# CURL_STATE. The entry "fail" simulates a failed curl process: nothing on
+# stdout and exit status 7 (the script must map that to 000). With `-D <file>` the stub writes response headers there, including
 # `X-OAuth-Scopes` only when FAKE_SCOPES is set (even to the empty string).
 FAKE_CURL = """#!/bin/sh
 auth=0
@@ -135,6 +136,12 @@ case "$url" in
   */repos/o/r/code-scanning/analyses?per_page=1) kind=cs; list="@CS@" ;;
   *) kind=other; list="999" ;;
 esac
+status=$(pick "$kind" "$list")
+if [ "$status" = "fail" ]; then
+  # A real curl failure (timeout, DNS, refused): no status on stdout, exit 7.
+  echo "curl: (7) simulated failure" >&2
+  exit 7
+fi
 if [ -n "$hdr" ]; then
   {
     printf 'HTTP/2 200\\r\\n'
@@ -144,7 +151,7 @@ if [ -n "$hdr" ]; then
     printf '\\r\\n'
   } > "$hdr"
 fi
-printf '%s' "$(pick "$kind" "$list")"
+printf '%s' "$status"
 """
 
 FAKE_SLEEP = """#!/bin/sh
@@ -441,9 +448,18 @@ def test_local_503_retries_then_fails_closed(local_script: str, tmp_path: Path):
 
 
 @requires_bash
-def test_curl_failure_then_success_retries_once(local_script: str, tmp_path: Path):
+@pytest.mark.parametrize("first", ["000", "fail"])
+def test_curl_failure_then_success_retries_once(
+    local_script: str, tmp_path: Path, first: str
+):
+    # "fail" is a nonzero curl exit with no status; "000" is the status string.
     code, stdout, outputs = run_preflight(
-        local_script, tmp_path, "tok", "000,200", "404", check_code_scanning="false"
+        local_script,
+        tmp_path,
+        "tok",
+        f"{first},200",
+        "404",
+        check_code_scanning="false",
     )
     assert code == 0
     assert "CI_BOT_TOKEN is valid." in stdout
@@ -453,14 +469,27 @@ def test_curl_failure_then_success_retries_once(local_script: str, tmp_path: Pat
 
 
 @requires_bash
-def test_persistent_curl_failure_fails_closed(local_script: str, tmp_path: Path):
+@pytest.mark.parametrize("failure", ["000", "fail"])
+def test_persistent_curl_failure_fails_closed(
+    local_script: str, tmp_path: Path, failure: str
+):
     code, stdout, outputs = run_preflight(
-        local_script, tmp_path, "tok", "000", "404", check_code_scanning="false"
+        local_script, tmp_path, "tok", failure, "404", check_code_scanning="false"
     )
     assert code == 1
     assert "::error title=CI_BOT_TOKEN not checked::" in stdout
     assert outputs == []
     assert rate_limit_calls(tmp_path) == 3
+    assert sleep_calls(tmp_path) == ["2", "4"]
+
+
+@requires_bash
+def test_code_scanning_curl_failure_then_success_retries(tmp_path: Path):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, _, outputs = run_preflight(script, tmp_path, "tok", "200", "fail,200")
+    assert code == 0
+    assert outputs == ["use_pat=true"]
+    assert sleep_calls(tmp_path) == ["2"]
 
 
 @requires_bash

@@ -457,6 +457,7 @@ def test_local_503_retries_then_fails_closed(local_script: str, tmp_path: Path):
     ("api_url", "expected_base"),
     [
         pytest.param(None, "https://api.github.com", id="unset-uses-default"),
+        pytest.param("", "https://api.github.com", id="empty-uses-default"),
         pytest.param(
             "https://ghe.example.com/api/v3",
             "https://ghe.example.com/api/v3",
@@ -485,6 +486,22 @@ def test_both_probes_use_github_api_url(
         f"{expected_base}/rate_limit",
         f"{expected_base}/repos/o/r/code-scanning/analyses?per_page=1",
     ]
+
+
+@requires_bash
+def test_local_probe_off_ghes_only_calls_rate_limit(local_script: str, tmp_path: Path):
+    code, _, outputs = run_preflight(
+        local_script,
+        tmp_path,
+        "tok",
+        "200",
+        "200",
+        check_code_scanning="false",
+        api_url="https://ghe.example.com/api/v3",
+    )
+    assert code == 0
+    assert outputs == ["use_pat=true"]
+    assert requested_urls(tmp_path) == ["https://ghe.example.com/api/v3/rate_limit"]
 
 
 @requires_bash

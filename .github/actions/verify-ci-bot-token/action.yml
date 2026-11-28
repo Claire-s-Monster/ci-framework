@@ -10,7 +10,7 @@ description: >-
   github.token otherwise. Set `check-code-scanning: 'false'` to skip the
   code-scanning probe (callers that never upload SARIF). Probes go to
   `GITHUB_API_URL` (set by the runner), so the action works on GHES; it
-  defaults to https://api.github.com when unset.
+  defaults to https://api.github.com when unset or empty.
 
 # This action is the CANONICAL copy of the "Verify CI_BOT_TOKEN is valid"
 # preflight (#355, #482). Call sites:

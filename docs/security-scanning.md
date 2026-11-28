@@ -281,8 +281,15 @@ can read the code-scanning API (`GET .../code-scanning/analyses` returns 200),
 and otherwise uses `github.token`. A 401 fails the preflight; a 403 or 404
 (missing `security_events` scope) falls back to `github.token`, which then
 needs the caller's `security-events: write` grant, so a PAT lacking the scope
-cannot substitute for that grant. The PAT reaches only the upload steps. The
-probe checks read access, since no non-mutating write probe exists. Choose the grant only if you trust
+cannot substitute for that grant. The preflight fails closed on an unknown
+result: it retries a curl failure or HTTP 5xx up to 3 attempts (sleeping 2s,
+then 4s), then fails the run, and it also fails if `curl` is missing. For a
+classic PAT it reads the `X-OAuth-Scopes` header of `/rate_limit`: without
+`repo` or `public_repo` (or `security_events` when probing code scanning) the
+token is reported read-only and `github.token` is used. Fine-grained PATs and
+App tokens send no such header, so their write access is unchecked (the probe
+only checks read access; a write probe for them is a possible follow-up). The
+PAT reaches only the upload steps. Choose the grant only if you trust
 every contributor who can open same-repo PRs. CodeQL's SARIF is written to
 `${{ runner.temp }}`, outside the checkout, so a PR cannot commit a forged
 `.sarif` for upload.
@@ -313,7 +320,7 @@ emits a `CodeQL moved to reusable-ci` warning and a step-summary note.
   - Grant `security-events: write` (or supply `CI_BOT_TOKEN`) to the `reusable-ci.yml` caller job, since CodeQL now uploads from there.
 - **Staggered upgrades:** a `reusable-ci.yml` at v5 alongside a pre-v5 `reusable-security.yml` runs CodeQL in both and re-creates the duplicate `codeql-<lang>` uploads, so set `codeql: false` on `reusable-ci.yml` until `reusable-security.yml` is also on v5. The reverse order (`reusable-security.yml` on v5 first, with `reusable-ci.yml` still pre-v5, where CodeQL defaults off) leaves NO CodeQL, so set `codeql: true` on `reusable-security.yml` until `reusable-ci.yml` is on v5, then remove it.
 - **Repos with their own CodeQL workflow, or GitHub's CodeQL default setup:** set `codeql: false` on `reusable-ci.yml`. GitHub rejects advanced-workflow SARIF while default setup is enabled, so otherwise CodeQL runs redundantly and its upload fails (tolerated, but wasted).
-- **Repos with an expired or revoked `CI_BOT_TOKEN`:** the CodeQL job runs the same fail-closed `Verify CI_BOT_TOKEN is valid` preflight as the Semgrep job, so a stale token fails the run with an error naming `CI_BOT_TOKEN`. Python repos already hit this through Semgrep; repos whose only CodeQL languages are `c-cpp` or `javascript-typescript` now hit it too. Rotate the secret, or delete it to fall back to `github.token`.
+- **Repos with an expired or revoked `CI_BOT_TOKEN`:** the CodeQL job runs the same fail-closed `Verify CI_BOT_TOKEN is valid` preflight as the Semgrep job, so a stale token fails the run with an error naming `CI_BOT_TOKEN`. The same preflight also fails when the token cannot be checked (missing `curl`, or HTTP 000/5xx after 3 attempts). Python repos already hit this through Semgrep; repos whose only CodeQL languages are `c-cpp` or `javascript-typescript` now hit it too. Rotate the secret, or delete it to fall back to `github.token`.
 
 ## Troubleshooting
 

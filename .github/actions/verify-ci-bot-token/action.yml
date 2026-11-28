@@ -2,10 +2,13 @@
 name: 'Verify CI_BOT_TOKEN'
 description: >-
   Preflight check for the CI_BOT_TOKEN PAT: fail loudly on an invalid or
-  expired token (HTTP 401) and report via `use_pat` whether the token can reach
-  the code-scanning API, so SARIF uploads fall back to github.token otherwise.
-  Set `check-code-scanning: 'false'` to skip the code-scanning probe (callers
-  that never upload SARIF).
+  expired token (HTTP 401), and fail closed when the token cannot be checked
+  (curl missing, or the API answering 000/5xx after 3 attempts). A classic PAT
+  without a write scope is reported read-only (`use_pat` false); fine-grained
+  tokens are not checked for write access. `use_pat` also reports whether the
+  token can reach the code-scanning API, so SARIF uploads fall back to
+  github.token otherwise. Set `check-code-scanning: 'false'` to skip the
+  code-scanning probe (callers that never upload SARIF).
 
 # This action is the CANONICAL copy of the "Verify CI_BOT_TOKEN is valid"
 # preflight (#355, #482). Call sites:
@@ -31,14 +34,18 @@ inputs:
     description: >-
       The CI_BOT_TOKEN secret (pass `secrets.CI_BOT_TOKEN`; a composite action
       cannot read the secrets context). When empty the check is a no-op and
-      `use_pat` is `false`.
+      `use_pat` is `false`. A classic PAT lacking `repo`/`public_repo` (or
+      `security_events` when probing code scanning) is treated as read-only and
+      `use_pat` is `false`; fine-grained PATs are not checked for write access.
     required: false
     default: ''
   check-code-scanning:
     description: >-
       Probe the code-scanning API after the /rate_limit check. With 'false' the
       probe is skipped and `use_pat` is `true` whenever the token is set and not
-      rejected by /rate_limit (HTTP 401 still fails). In that mode `use_pat`
+      rejected by /rate_limit (HTTP 401 still fails), except that a classic PAT
+      without `repo`/`public_repo` is read-only and gives `use_pat` `false`
+      (`security_events` alone does not count in this mode). In that mode `use_pat`
       only means "the token is valid", NOT "the token can upload SARIF": do not
       use it to choose a SARIF upload token (a guard test enforces this).
     required: false
@@ -48,7 +55,9 @@ outputs:
   use_pat:
     description: >-
       'true' when CI_BOT_TOKEN is set and usable for SARIF upload, 'false' when
-      it is unset or cannot reach the code-scanning API (use github.token).
+      it is unset, is a read-only classic PAT, or cannot reach the code-scanning
+      API (use github.token). The step fails instead when the token cannot be
+      checked (curl missing, or 000/5xx after 3 attempts).
       With `check-code-scanning: 'false'` the code-scanning probe is skipped, so
       'true' only means the token is set and valid, NOT that it can upload SARIF.
     value: ${{ steps.token-preflight.outputs.use_pat }}
@@ -68,13 +77,33 @@ runs:
           exit 0
         fi
         if ! command -v curl >/dev/null 2>&1; then
-          echo "::warning title=CI_BOT_TOKEN not checked::curl is unavailable here; skipping the check."
-          echo "use_pat=true" >> "$GITHUB_OUTPUT"
-          exit 0
+          echo "::error title=CI_BOT_TOKEN not checked::curl is unavailable here, so the token cannot be verified."
+          exit 1
         fi
-        status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
-          -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
-          https://api.github.com/rate_limit) || status="000"
+        # probe URL [HEADER_FILE]: sets PROBE_STATUS to the HTTP status. A curl
+        # failure (000) or a 5xx is retried, 3 attempts in total with sleeps of
+        # 2s then 4s; the last status is kept when all attempts fail.
+        probe() {
+          local url="$1" hdr_file="${2:-/dev/null}" attempt=1 delay=2
+          while :; do
+            PROBE_STATUS=$(curl --connect-timeout 5 --max-time 15 -sS -D "${hdr_file}" \
+              -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
+              "${url}") || PROBE_STATUS="000"
+            case "${PROBE_STATUS}" in
+              000|5??) ;;
+              *) return 0 ;;
+            esac
+            [ "${attempt}" -ge 3 ] && return 0
+            sleep "${delay}"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+        }
+        hdr=$(mktemp)
+        trap 'rm -f "${hdr}"' EXIT
+        probe https://api.github.com/rate_limit "${hdr}"
+        status="${PROBE_STATUS}"
         case "${status}" in
           200) echo "CI_BOT_TOKEN is valid." ;;
           401)
@@ -83,24 +112,62 @@ runs:
             echo "::error title=CI_BOT_TOKEN invalid::${msg}"
             exit 1
             ;;
+          000|5??)
+            msg="/rate_limit returned HTTP ${status} after 3 attempts, so the token cannot be verified."
+            echo "::error title=CI_BOT_TOKEN not checked::${msg}"
+            exit 1
+            ;;
           *) echo "::warning title=CI_BOT_TOKEN unchecked::/rate_limit returned HTTP ${status}; not failing." ;;
         esac
+        # Classic PATs report their scopes in X-OAuth-Scopes; fine-grained PATs
+        # and App tokens send no such header, so their write access stays
+        # unchecked here (a write probe for them is a possible follow-up).
+        if [ "${status}" = "200" ]; then
+          scopes_line=$(tr -d '\r' < "${hdr}" | grep -i '^x-oauth-scopes:' | tail -n 1) || scopes_line=""
+          if [ -n "${scopes_line}" ]; then
+            scopes=$(printf '%s' "${scopes_line#*:}" | tr ',' ' ')
+            set -f
+            # shellcheck disable=SC2086
+            set -- ${scopes}
+            set +f
+            scopes="$*"
+            writable=false
+            for scope in "$@"; do
+              case "${scope}" in
+                repo|public_repo) writable=true ;;
+                security_events) [ "${CHECK_CODE_SCANNING}" = "false" ] || writable=true ;;
+              esac
+            done
+            if [ "${writable}" = "false" ]; then
+              msg="CI_BOT_TOKEN is a classic PAT without a write scope (scopes: ${scopes:-none})."
+              msg="${msg} Falling back to github.token."
+              echo "::warning title=CI_BOT_TOKEN read-only::${msg}"
+              echo "use_pat=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+        fi
         if [ "${CHECK_CODE_SCANNING}" = "false" ]; then
           echo "use_pat=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
         # #482: a PAT can pass /rate_limit yet lack code-scanning access (404).
-        # Read access is the best non-mutating signal (no write probe exists),
-        # and a 403 may be a rate limit; github.token is the safe fallback.
-        cs_status=$(curl --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' \
-          -H "Authorization: Bearer ${CI_BOT_TOKEN}" \
-          "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1") || cs_status="000"
+        # Read access is the best non-mutating signal for a fine-grained PAT (no
+        # write probe exists for it), and a 403 may be a rate limit; github.token
+        # is the safe fallback.
+        probe "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1"
+        cs_status="${PROBE_STATUS}"
         case "${cs_status}" in
           200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
           401)
             msg="CI_BOT_TOKEN was rejected by the code-scanning API (HTTP 401)."
             msg="${msg} Rotate it, or delete the secret to fall back to github.token."
             echo "::error title=CI_BOT_TOKEN invalid::${msg}"
+            exit 1
+            ;;
+          000|5??)
+            msg="The code-scanning API returned HTTP ${cs_status} after 3 attempts, so the token cannot be verified."
+            echo "::error title=CI_BOT_TOKEN not checked::${msg}"
             exit 1
             ;;
           403|404)

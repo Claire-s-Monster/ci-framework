@@ -91,12 +91,22 @@ requires_bash = pytest.mark.skipif(BASH is None, reason="bash is not available")
 # CI_BOT_TOKEN; otherwise it reports an unauthenticated call on stderr (which
 # run_preflight turns into a failure) so a preflight that stops sending the
 # token cannot pass on the canned status alone.
+#
+# A status value may be a comma-separated sequence ("503,503,200"): the Nth call
+# for that URL gets the Nth entry (the last one repeats), counted in a file under
+# CURL_STATE. The entry "fail" simulates a failed curl process: nothing on
+# stdout and exit status 7 (the script must map that to 000). With `-D <file>` the stub writes response headers there, including
+# `X-OAuth-Scopes` only when FAKE_SCOPES is set (even to the empty string).
 FAKE_CURL = """#!/bin/sh
 auth=0
 prev=""
+hdr=""
 for arg; do
   if [ "$prev" = "-H" ] && [ "$arg" = "Authorization: Bearer $CI_BOT_TOKEN" ]; then
     auth=1
+  fi
+  if [ "$prev" = "-D" ]; then
+    hdr="$arg"
   fi
   case "$arg" in
     http://*|https://*) url="$arg" ;;
@@ -111,21 +121,62 @@ if [ "$auth" != 1 ]; then
   printf '%s' "000"
   exit 0
 fi
+pick() {
+  counter="$CURL_STATE/count_$1"
+  n=$(cat "$counter" 2>/dev/null || echo 0)
+  n=$((n + 1))
+  echo "$n" > "$counter"
+  total=$(printf '%s' "$2" | tr ',' '\\n' | wc -l)
+  total=$((total + 1))
+  [ "$n" -gt "$total" ] && n="$total"
+  printf '%s' "$2" | cut -d, -f"$n"
+}
 case "$url" in
-  */rate_limit) printf '%s' "{rate}" ;;
-  */repos/o/r/code-scanning/analyses?per_page=1) printf '%s' "{cs}" ;;
-  *) printf '%s' "999" ;;
+  */rate_limit) kind=rate; list="@RATE@" ;;
+  */repos/o/r/code-scanning/analyses?per_page=1) kind=cs; list="@CS@" ;;
+  *) kind=other; list="999" ;;
 esac
+status=$(pick "$kind" "$list")
+if [ "$status" = "fail" ]; then
+  # A real curl failure (timeout, DNS, refused): no status on stdout, exit 7.
+  echo "curl: (7) simulated failure" >&2
+  exit 7
+fi
+if [ -n "$hdr" ]; then
+  {
+    printf 'HTTP/2 200\\r\\n'
+    if [ -n "${FAKE_SCOPES+x}" ]; then
+      printf 'X-OAuth-Scopes: %s\\r\\n' "$FAKE_SCOPES"
+    fi
+    printf '\\r\\n'
+  } > "$hdr"
+fi
+printf '%s' "$status"
 """
 
+FAKE_SLEEP = """#!/bin/sh
+echo "$1" >> "$SLEEP_LOG"
+"""
 
 CURL_LOG_NAME = "curl_requests"
+SLEEP_LOG_NAME = "sleep_calls"
 
 
 def requested_urls(tmp_path: Path) -> list[str]:
     """URLs the fake curl was asked for, in order (empty when none)."""
     log = tmp_path / CURL_LOG_NAME
     return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
+def sleep_calls(tmp_path: Path) -> list[str]:
+    """Arguments the stub `sleep` was called with, in order (empty when none)."""
+    log = tmp_path / SLEEP_LOG_NAME
+    return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
+def rate_limit_calls(tmp_path: Path) -> int:
+    """How many times the fake curl was asked for /rate_limit."""
+    return sum(u.endswith("/rate_limit") for u in requested_urls(tmp_path))
 
 
 def preflight_script(file_name: str, job_id: str) -> str:
@@ -158,18 +209,28 @@ def run_preflight(
     cs: str,
     check_code_scanning: str | None = None,
     curl_available: bool = True,
+    scopes: str | None = None,
 ) -> tuple[int, str, list[str]]:
     """Run `script` with a fake curl; return (exit code, stdout, GITHUB_OUTPUT lines).
 
     `check_code_scanning` sets CHECK_CODE_SCANNING like the action's input does
     (None leaves it unset); `curl_available=False` leaves curl off PATH entirely.
+    `rate` and `cs` may be comma-separated status sequences, one entry per call.
+    `scopes` is the X-OAuth-Scopes header value the fake curl returns (None
+    sends no such header, as for a fine-grained PAT; "" sends it empty). The
+    stub `sleep` only logs its argument (see `sleep_calls`).
     """
     assert BASH is not None
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    sleep = bin_dir / "sleep"
+    sleep.write_text(FAKE_SLEEP, encoding="utf-8")
+    sleep.chmod(0o755)
     if curl_available:
         curl = bin_dir / "curl"
-        curl.write_text(FAKE_CURL.format(rate=rate, cs=cs), encoding="utf-8")
+        curl.write_text(
+            FAKE_CURL.replace("@RATE@", rate).replace("@CS@", cs), encoding="utf-8"
+        )
         curl.chmod(0o755)
     out = tmp_path / "github_output"
     out.write_text("", encoding="utf-8")
@@ -179,9 +240,13 @@ def run_preflight(
         "GITHUB_OUTPUT": str(out),
         "CI_BOT_TOKEN": token,
         "CURL_LOG": str(tmp_path / CURL_LOG_NAME),
+        "CURL_STATE": str(tmp_path),
+        "SLEEP_LOG": str(tmp_path / SLEEP_LOG_NAME),
     }
     if check_code_scanning is not None:
         env["CHECK_CODE_SCANNING"] = check_code_scanning
+    if scopes is not None:
+        env["FAKE_SCOPES"] = scopes
     proc = subprocess.run(  # noqa: S603
         [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
         env=env,
@@ -235,7 +300,7 @@ def test_invalid_token_fails_hard(script: str, tmp_path: Path):
         ("200", "use_pat=true"),
         ("404", "use_pat=false"),
         ("403", "use_pat=false"),
-        ("500", "use_pat=true"),
+        ("429", "use_pat=true"),
     ],
 )
 def test_code_scanning_probe_decides_pat_use(
@@ -246,8 +311,26 @@ def test_code_scanning_probe_decides_pat_use(
     assert outputs == [expected]
     if cs in ("403", "404"):
         assert f"can't reach the code-scanning API (HTTP {cs})" in stdout
-    if cs == "500":
+    if cs == "429":
         assert "Could not verify code-scanning access" in stdout
+
+
+@requires_bash
+@pytest.mark.parametrize("cs", ["500", "502", "000"])
+def test_code_scanning_5xx_or_000_fails_closed(script: str, tmp_path: Path, cs: str):
+    code, stdout, outputs = run_preflight(script, tmp_path, "tok", "200", cs)
+    assert code == 1
+    assert "::error title=CI_BOT_TOKEN not checked::" in stdout
+    assert outputs == []
+    assert sleep_calls(tmp_path) == ["2", "4"]
+
+
+@requires_bash
+def test_code_scanning_retry_recovers(script: str, tmp_path: Path):
+    code, _, outputs = run_preflight(script, tmp_path, "tok", "200", "502,200")
+    assert code == 0
+    assert outputs == ["use_pat=true"]
+    assert sleep_calls(tmp_path) == ["2"]
 
 
 @requires_bash
@@ -264,7 +347,7 @@ def test_code_scanning_401_fails_hard(script: str, tmp_path: Path):
 def test_rate_limit_other_status_still_probes_code_scanning(
     script: str, tmp_path: Path
 ):
-    code, _, outputs = run_preflight(script, tmp_path, "tok", "503", "404")
+    code, _, outputs = run_preflight(script, tmp_path, "tok", "429", "404")
     assert code == 0
     assert outputs == ["use_pat=false"]
 
@@ -344,10 +427,188 @@ def test_local_invalid_token_fails_hard(local_script: str, tmp_path: Path):
 @requires_bash
 def test_local_other_status_warns_without_failing(local_script: str, tmp_path: Path):
     code, stdout, _ = run_preflight(
-        local_script, tmp_path, "tok", "503", "404", check_code_scanning="false"
+        local_script, tmp_path, "tok", "429", "404", check_code_scanning="false"
     )
     assert code == 0
     assert "::warning title=CI_BOT_TOKEN unchecked::" in stdout
+    assert rate_limit_calls(tmp_path) == 1
+    assert sleep_calls(tmp_path) == []
+
+
+@requires_bash
+def test_local_503_retries_then_fails_closed(local_script: str, tmp_path: Path):
+    code, stdout, outputs = run_preflight(
+        local_script, tmp_path, "tok", "503,503,503", "404", check_code_scanning="false"
+    )
+    assert code == 1
+    assert "::error title=CI_BOT_TOKEN not checked::" in stdout
+    assert outputs == []
+    assert rate_limit_calls(tmp_path) == 3
+    assert sleep_calls(tmp_path) == ["2", "4"]
+
+
+@requires_bash
+@pytest.mark.parametrize("first", ["000", "fail"])
+def test_curl_failure_then_success_retries_once(
+    local_script: str, tmp_path: Path, first: str
+):
+    # "fail" is a nonzero curl exit with no status; "000" is the status string.
+    code, stdout, outputs = run_preflight(
+        local_script,
+        tmp_path,
+        "tok",
+        f"{first},200",
+        "404",
+        check_code_scanning="false",
+    )
+    assert code == 0
+    assert "CI_BOT_TOKEN is valid." in stdout
+    assert outputs == ["use_pat=true"]
+    assert rate_limit_calls(tmp_path) == 2
+    assert sleep_calls(tmp_path) == ["2"]
+
+
+@requires_bash
+@pytest.mark.parametrize("failure", ["000", "fail"])
+def test_persistent_curl_failure_fails_closed(
+    local_script: str, tmp_path: Path, failure: str
+):
+    code, stdout, outputs = run_preflight(
+        local_script, tmp_path, "tok", failure, "404", check_code_scanning="false"
+    )
+    assert code == 1
+    assert "::error title=CI_BOT_TOKEN not checked::" in stdout
+    assert outputs == []
+    assert rate_limit_calls(tmp_path) == 3
+    assert sleep_calls(tmp_path) == ["2", "4"]
+
+
+@requires_bash
+def test_code_scanning_curl_failure_then_success_retries(tmp_path: Path):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, _, outputs = run_preflight(script, tmp_path, "tok", "200", "fail,200")
+    assert code == 0
+    assert outputs == ["use_pat=true"]
+    assert sleep_calls(tmp_path) == ["2"]
+
+
+@requires_bash
+def test_curl_missing_fails_closed_without_retry(local_script: str, tmp_path: Path):
+    code, stdout, outputs = run_preflight(
+        local_script,
+        tmp_path,
+        "tok",
+        "200",
+        "200",
+        check_code_scanning="false",
+        curl_available=False,
+    )
+    assert code == 1
+    assert "::error title=CI_BOT_TOKEN not checked::" in stdout
+    assert outputs == []
+    assert sleep_calls(tmp_path) == []
+    assert requested_urls(tmp_path) == []
+
+
+@requires_bash
+@pytest.mark.parametrize("probe", ["false", "true"])
+@pytest.mark.parametrize("scopes", ["read:org", ""])
+def test_classic_read_only_pat_falls_back(tmp_path: Path, probe: str, scopes: str):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, stdout, outputs = run_preflight(
+        script, tmp_path, "tok", "200", "200", check_code_scanning=probe, scopes=scopes
+    )
+    assert code == 0
+    assert "::warning title=CI_BOT_TOKEN read-only::" in stdout
+    assert (scopes or "none") in stdout
+    assert outputs == ["use_pat=false"]
+    assert not any("code-scanning" in u for u in requested_urls(tmp_path))
+
+
+@requires_bash
+@pytest.mark.parametrize(
+    ("scopes", "probe", "expected"),
+    [
+        ("repo", "false", "use_pat=true"),
+        ("repo", "true", "use_pat=true"),
+        ("public_repo, workflow", "false", "use_pat=true"),
+        ("public_repo, workflow", "true", "use_pat=true"),
+        ("read:org,repo", "true", "use_pat=true"),
+        ("security_events", "true", "use_pat=true"),
+    ],
+)
+def test_classic_write_scope_proceeds(
+    tmp_path: Path, scopes: str, probe: str, expected: str
+):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, stdout, outputs = run_preflight(
+        script, tmp_path, "tok", "200", "200", check_code_scanning=probe, scopes=scopes
+    )
+    assert code == 0
+    assert "read-only" not in stdout
+    assert outputs == [expected]
+    probed = any("code-scanning" in u for u in requested_urls(tmp_path))
+    assert probed == (probe == "true")
+
+
+@requires_bash
+def test_security_events_scope_probe_off_is_read_only(tmp_path: Path):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, stdout, outputs = run_preflight(
+        script,
+        tmp_path,
+        "tok",
+        "200",
+        "200",
+        check_code_scanning="false",
+        scopes="security_events",
+    )
+    assert code == 0
+    assert "::warning title=CI_BOT_TOKEN read-only::" in stdout
+    assert outputs == ["use_pat=false"]
+
+
+@requires_bash
+def test_security_events_scope_probe_on_reaches_code_scanning(tmp_path: Path):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, _, outputs = run_preflight(
+        script, tmp_path, "tok", "200", "404", scopes="security_events"
+    )
+    assert code == 0
+    assert outputs == ["use_pat=false"]
+    assert any("code-scanning" in u for u in requested_urls(tmp_path))
+
+
+@requires_bash
+@pytest.mark.parametrize("probe", ["false", "true"])
+def test_missing_scopes_header_leaves_a_fine_grained_token_unchecked(
+    tmp_path: Path, probe: str
+):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, stdout, outputs = run_preflight(
+        script, tmp_path, "tok", "200", "200", check_code_scanning=probe, scopes=None
+    )
+    assert code == 0
+    assert "read-only" not in stdout
+    assert outputs == ["use_pat=true"]
+
+
+@requires_bash
+def test_scopes_header_is_only_read_on_a_200(tmp_path: Path):
+    # A 429 with a read-only scopes header must keep the warn-and-continue path.
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, stdout, outputs = run_preflight(
+        script,
+        tmp_path,
+        "tok",
+        "429",
+        "200",
+        check_code_scanning="false",
+        scopes="read:org",
+    )
+    assert code == 0
+    assert "read-only" not in stdout
+    assert outputs == ["use_pat=true"]
 
 
 @requires_bash
@@ -373,13 +634,13 @@ def test_probe_on_by_default_and_when_true(tmp_path: Path, flag: str | None):
     assert outputs == ["use_pat=false"]
 
 
+# 503, 000 and curl-missing are deliberately absent: the action now fails closed
+# there (retry then exit 1; curl missing exits 1) while the frozen inline copy
+# warns and continues. The new behaviour is asserted by the tests above.
 EQUIVALENCE_CASES = [
     pytest.param("", "200", {}, id="empty-token"),
     pytest.param("tok", "200", {}, id="200"),
     pytest.param("tok", "401", {}, id="401"),
-    pytest.param("tok", "503", {}, id="503"),
-    pytest.param("tok", "000", {}, id="000"),
-    pytest.param("tok", "200", {"curl_available": False}, id="curl-missing"),
 ]
 
 

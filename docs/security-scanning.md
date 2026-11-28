@@ -283,7 +283,9 @@ and otherwise uses `github.token`. A 401 fails the preflight; a 403 or 404
 needs the caller's `security-events: write` grant, so a PAT lacking the scope
 cannot substitute for that grant. The preflight fails closed on an unknown
 result: it retries a curl failure or HTTP 5xx up to 3 attempts (sleeping 2s,
-then 4s), then fails the run, and it also fails if `curl` is missing. For a
+then 4s), then fails the run, and it also fails if `curl` is missing. Both
+probes go to the runner's `GITHUB_API_URL`, so the preflight works on GitHub
+Enterprise Server (it defaults to `https://api.github.com` when unset). For a
 classic PAT it reads the `X-OAuth-Scopes` header of `/rate_limit`: without
 `repo` or `public_repo` (or `security_events` when probing code scanning) the
 token is reported read-only and `github.token` is used. Fine-grained PATs and

@@ -210,6 +210,7 @@ def run_preflight(
     check_code_scanning: str | None = None,
     curl_available: bool = True,
     scopes: str | None = None,
+    api_url: str | None = None,
 ) -> tuple[int, str, list[str]]:
     """Run `script` with a fake curl; return (exit code, stdout, GITHUB_OUTPUT lines).
 
@@ -218,7 +219,9 @@ def run_preflight(
     `rate` and `cs` may be comma-separated status sequences, one entry per call.
     `scopes` is the X-OAuth-Scopes header value the fake curl returns (None
     sends no such header, as for a fine-grained PAT; "" sends it empty). The
-    stub `sleep` only logs its argument (see `sleep_calls`).
+    stub `sleep` only logs its argument (see `sleep_calls`). `api_url` sets
+    GITHUB_API_URL (None leaves it unset); the env is built from scratch, so the
+    outer GITHUB_API_URL that CI sets never leaks in.
     """
     assert BASH is not None
     bin_dir = tmp_path / "bin"
@@ -247,6 +250,8 @@ def run_preflight(
         env["CHECK_CODE_SCANNING"] = check_code_scanning
     if scopes is not None:
         env["FAKE_SCOPES"] = scopes
+    if api_url is not None:
+        env["GITHUB_API_URL"] = api_url
     proc = subprocess.run(  # noqa: S603
         [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
         env=env,
@@ -448,6 +453,58 @@ def test_local_503_retries_then_fails_closed(local_script: str, tmp_path: Path):
 
 
 @requires_bash
+@pytest.mark.parametrize(
+    ("api_url", "expected_base"),
+    [
+        pytest.param(None, "https://api.github.com", id="unset-uses-default"),
+        pytest.param("", "https://api.github.com", id="empty-uses-default"),
+        pytest.param(
+            "https://ghe.example.com/api/v3",
+            "https://ghe.example.com/api/v3",
+            id="ghes",
+        ),
+        pytest.param(
+            "https://ghe.example.com/api/v3/",
+            "https://ghe.example.com/api/v3",
+            id="trailing-slash-stripped",
+        ),
+        pytest.param(
+            "https://api.github.com/", "https://api.github.com", id="default-slash"
+        ),
+    ],
+)
+def test_both_probes_use_github_api_url(
+    tmp_path: Path, api_url: str | None, expected_base: str
+):
+    script = preflight_script(*PREFLIGHT_JOBS[0])
+    code, _, outputs = run_preflight(
+        script, tmp_path, "tok", "200", "200", api_url=api_url
+    )
+    assert code == 0
+    assert outputs == ["use_pat=true"]
+    assert requested_urls(tmp_path) == [
+        f"{expected_base}/rate_limit",
+        f"{expected_base}/repos/o/r/code-scanning/analyses?per_page=1",
+    ]
+
+
+@requires_bash
+def test_local_probe_off_ghes_only_calls_rate_limit(local_script: str, tmp_path: Path):
+    code, _, outputs = run_preflight(
+        local_script,
+        tmp_path,
+        "tok",
+        "200",
+        "200",
+        check_code_scanning="false",
+        api_url="https://ghe.example.com/api/v3",
+    )
+    assert code == 0
+    assert outputs == ["use_pat=true"]
+    assert requested_urls(tmp_path) == ["https://ghe.example.com/api/v3/rate_limit"]
+
+
+@requires_bash
 @pytest.mark.parametrize("first", ["000", "fail"])
 def test_curl_failure_then_success_retries_once(
     local_script: str, tmp_path: Path, first: str
@@ -645,9 +702,10 @@ EQUIVALENCE_CASES = [
 
 
 @requires_bash
+@pytest.mark.parametrize("api_url", [None, "https://api.github.com"])
 @pytest.mark.parametrize(("token", "rate", "extra"), EQUIVALENCE_CASES)
 def test_probe_off_action_matches_the_old_inline_copy(
-    tmp_path: Path, token: str, rate: str, extra: dict
+    tmp_path: Path, token: str, rate: str, extra: dict, api_url: str | None
 ):
     # Same stubbed curl for both; the code-scanning answer (401) would change the
     # outcome if the action probed, so equal results prove the probe is skipped.
@@ -657,7 +715,7 @@ def test_probe_off_action_matches_the_old_inline_copy(
     inline_dir.mkdir()
     action_dir.mkdir()
     inline_code, inline_out, _ = run_preflight(
-        INLINE_FIXTURE, inline_dir, token, rate, "401", **extra
+        INLINE_FIXTURE, inline_dir, token, rate, "401", api_url=api_url, **extra
     )
     action_code, action_out, _ = run_preflight(
         action_script,
@@ -666,6 +724,7 @@ def test_probe_off_action_matches_the_old_inline_copy(
         rate,
         "401",
         check_code_scanning="false",
+        api_url=api_url,
         **extra,
     )
     assert action_code == inline_code

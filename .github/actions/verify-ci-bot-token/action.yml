@@ -8,7 +8,9 @@ description: >-
   tokens are not checked for write access. `use_pat` also reports whether the
   token can reach the code-scanning API, so SARIF uploads fall back to
   github.token otherwise. Set `check-code-scanning: 'false'` to skip the
-  code-scanning probe (callers that never upload SARIF).
+  code-scanning probe (callers that never upload SARIF). Probes go to
+  `GITHUB_API_URL` (set by the runner), so the action works on GHES; it
+  defaults to https://api.github.com when unset or empty.
 
 # This action is the CANONICAL copy of the "Verify CI_BOT_TOKEN is valid"
 # preflight (#355, #482). Call sites:
@@ -102,7 +104,10 @@ runs:
         }
         hdr=$(mktemp)
         trap 'rm -f "${hdr}"' EXIT
-        probe https://api.github.com/rate_limit "${hdr}"
+        # GHES: GITHUB_API_URL is set by the runner; strip one trailing slash.
+        api_url="${GITHUB_API_URL:-https://api.github.com}"
+        api_url="${api_url%/}"
+        probe "${api_url}/rate_limit" "${hdr}"
         status="${PROBE_STATUS}"
         case "${status}" in
           200) echo "CI_BOT_TOKEN is valid." ;;
@@ -155,7 +160,7 @@ runs:
         # Read access is the best non-mutating signal for a fine-grained PAT (no
         # write probe exists for it), and a 403 may be a rate limit; github.token
         # is the safe fallback.
-        probe "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1"
+        probe "${api_url}/repos/${GITHUB_REPOSITORY}/code-scanning/analyses?per_page=1"
         cs_status="${PROBE_STATUS}"
         case "${cs_status}" in
           200) echo "use_pat=true" >> "$GITHUB_OUTPUT" ;;
